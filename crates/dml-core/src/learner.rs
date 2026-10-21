@@ -7,7 +7,9 @@ use crate::linalg::cholesky_solve;
 ///
 /// `fresh` returns an unfitted copy with the same hyperparameters, so
 /// cross-fitting can train an independent model on each fold.
-pub trait Regressor {
+///
+/// `Send + Sync` lets folds be fitted on parallel threads.
+pub trait Regressor: Send + Sync {
     fn fit(&mut self, x: ArrayView2<'_, f64>, y: ArrayView1<'_, f64>) -> Result<()>;
     fn predict(&self, x: ArrayView2<'_, f64>) -> Result<Array1<f64>>;
     fn fresh(&self) -> Box<dyn Regressor>;
@@ -15,7 +17,7 @@ pub trait Regressor {
 
 /// A classification learner returning `P(label = 1 | X)`, used for
 /// propensity scores in models with a binary treatment (IRM, later phases).
-pub trait Classifier {
+pub trait Classifier: Send + Sync {
     fn fit(&mut self, x: ArrayView2<'_, f64>, y: ArrayView1<'_, f64>) -> Result<()>;
     fn predict_proba(&self, x: ArrayView2<'_, f64>) -> Result<Array1<f64>>;
     fn fresh(&self) -> Box<dyn Classifier>;

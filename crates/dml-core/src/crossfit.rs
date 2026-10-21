@@ -76,26 +76,53 @@ pub fn cross_fit_predict(
     target: ArrayView1<'_, f64>,
     folds: &[Fold],
 ) -> Result<Array1<f64>> {
-    let n = x.nrows();
-    if target.len() != n {
+    if target.len() != x.nrows() {
         return Err(DmlError::DimensionMismatch(
             "cross_fit_predict x/target rows".into(),
         ));
     }
-    let mut out = Array1::<f64>::from_elem(n, f64::NAN);
-    for fold in folds {
+    cross_fit_with(x.nrows(), folds, |fold| {
         let mut model = learner.fresh();
-        let x_train = x.select(Axis(0), &fold.train);
-        let t_train = gather(target, &fold.train);
-        model.fit(x_train.view(), t_train.view())?;
-        let pred = model.predict(x.select(Axis(0), &fold.test).view())?;
+        model.fit(
+            x.select(Axis(0), &fold.train).view(),
+            gather(target, &fold.train).view(),
+        )?;
+        model.predict(x.select(Axis(0), &fold.test).view())
+    })
+}
+
+/// Run `fit_predict` on every fold and scatter each fold's test-set
+/// predictions into one length-`n` vector.
+///
+/// With the `parallel` feature (on by default) folds run on rayon's thread
+/// pool; results are identical to the sequential order because every fold
+/// writes to disjoint rows.
+pub(crate) fn cross_fit_with<F>(n: usize, folds: &[Fold], fit_predict: F) -> Result<Array1<f64>>
+where
+    F: Fn(&Fold) -> Result<Array1<f64>> + Sync,
+{
+    #[cfg(feature = "parallel")]
+    let preds: Vec<Array1<f64>> = {
+        use rayon::prelude::*;
+        folds.par_iter().map(&fit_predict).collect::<Result<_>>()?
+    };
+    #[cfg(not(feature = "parallel"))]
+    let preds: Vec<Array1<f64>> = folds.iter().map(&fit_predict).collect::<Result<_>>()?;
+
+    let mut out = Array1::<f64>::from_elem(n, f64::NAN);
+    for (fold, pred) in folds.iter().zip(preds) {
+        if pred.len() != fold.test.len() {
+            return Err(DmlError::DimensionMismatch(
+                "learner returned wrong number of predictions".into(),
+            ));
+        }
         for (&i, &p) in fold.test.iter().zip(pred.iter()) {
             out[i] = p;
         }
     }
     if out.iter().any(|v| v.is_nan()) {
         return Err(DmlError::InvalidArgument(
-            "folds do not cover every observation".into(),
+            "folds do not cover every observation, or a learner returned NaN".into(),
         ));
     }
     Ok(out)

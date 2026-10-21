@@ -1,33 +1,74 @@
 //! Standard normal distribution helpers for Wald inference (no external deps).
+//!
+//! Accurate to near machine precision, so p-values and critical values match
+//! SciPy (and therefore Python DoubleML) to ~1e-14.
 
-/// Complementary error function, Numerical Recipes `erfcc`
-/// (Chebyshev fit, fractional error below 1.2e-7 everywhere).
-fn erfc(x: f64) -> f64 {
-    let z = x.abs();
-    let t = 1.0 / (1.0 + 0.5 * z);
-    let poly = -z * z - 1.265_512_23
-        + t * (1.000_023_68
-            + t * (0.374_091_96
-                + t * (0.096_784_18
-                    + t * (-0.186_288_06
-                        + t * (0.278_868_07
-                            + t * (-1.135_203_98
-                                + t * (1.488_515_87 + t * (-0.822_152_23 + t * 0.170_872_77))))))));
-    let r = t * poly.exp();
-    if x >= 0.0 {
-        r
-    } else {
-        2.0 - r
+use std::f64::consts::{PI, SQRT_2};
+
+const FRAC_1_SQRT_PI: f64 = 0.564_189_583_547_756_3;
+
+/// Complementary error function `erfc(x) = 1 − erf(x)`.
+///
+/// Uses the everywhere-positive series
+/// `erf(x) = 2/√π · e^{−x²} · Σ 2ⁿ x^{2n+1} / (1·3·…·(2n+1))` for `|x| < 2`
+/// and the Laplace continued fraction (modified Lentz) for `|x| ≥ 2`,
+/// where the series would lose relative precision in the tail.
+pub fn erfc(x: f64) -> f64 {
+    if x.is_nan() {
+        return f64::NAN;
     }
+    if x < 0.0 {
+        return 2.0 - erfc(-x);
+    }
+    if x < 2.0 {
+        let x2 = x * x;
+        let mut term = x;
+        let mut sum = x;
+        let mut n = 0.0;
+        while term > sum * f64::EPSILON {
+            n += 1.0;
+            term *= 2.0 * x2 / (2.0 * n + 1.0);
+            sum += term;
+        }
+        return 1.0 - 2.0 * FRAC_1_SQRT_PI * (-x2).exp() * sum;
+    }
+    if x > 27.3 {
+        return 0.0; // below the smallest subnormal
+    }
+    // erfc(x) = e^{−x²}/√π · 1 / (x + (1/2)/(x + 1/(x + (3/2)/(x + …))))
+    let tiny = 1e-300;
+    let mut f = x;
+    let mut c = x;
+    let mut d = 0.0;
+    for k in 1..1000 {
+        let a = k as f64 / 2.0;
+        d = x + a * d;
+        d = if d.abs() < tiny { 1.0 / tiny } else { 1.0 / d };
+        c = x + a / c;
+        if c.abs() < tiny {
+            c = tiny;
+        }
+        let delta = c * d;
+        f *= delta;
+        if (delta - 1.0).abs() < f64::EPSILON {
+            break;
+        }
+    }
+    FRAC_1_SQRT_PI * (-x * x).exp() / f
 }
 
 /// Standard normal CDF `Φ(x)`.
 pub fn norm_cdf(x: f64) -> f64 {
-    0.5 * erfc(-x / std::f64::consts::SQRT_2)
+    0.5 * erfc(-x / SQRT_2)
 }
 
-/// Standard normal quantile `Φ⁻¹(p)` for `0 < p < 1`, via Acklam's rational
-/// approximation (relative error about 1e-9).
+/// Standard normal survival function `1 − Φ(x)`, accurate in the upper tail.
+pub fn norm_sf(x: f64) -> f64 {
+    0.5 * erfc(x / SQRT_2)
+}
+
+/// Standard normal quantile `Φ⁻¹(p)` for `0 < p < 1`: Acklam's rational
+/// approximation followed by one Halley refinement step.
 // Coefficients are kept exactly as published.
 #[allow(clippy::excessive_precision)]
 pub fn norm_ppf(p: f64) -> f64 {
@@ -75,7 +116,7 @@ pub fn norm_ppf(p: f64) -> f64 {
         (((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5])
             / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
     };
-    if p < P_LOW {
+    let x = if p < P_LOW {
         tail((-2.0 * p.ln()).sqrt())
     } else if p > 1.0 - P_LOW {
         -tail((-2.0 * (1.0 - p).ln()).sqrt())
@@ -84,27 +125,44 @@ pub fn norm_ppf(p: f64) -> f64 {
         let r = q * q;
         (((((A[0] * r + A[1]) * r + A[2]) * r + A[3]) * r + A[4]) * r + A[5]) * q
             / (((((B[0] * r + B[1]) * r + B[2]) * r + B[3]) * r + B[4]) * r + 1.0)
-    }
+    };
+    // Halley step on Φ(x) − p; work in the smaller tail to keep precision.
+    let e = if p < 0.5 {
+        norm_cdf(x) - p
+    } else {
+        (1.0 - p) - norm_sf(x)
+    };
+    let u = e * (2.0 * PI).sqrt() * (0.5 * x * x).exp();
+    x - u / (1.0 + 0.5 * x * u)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn rel(a: f64, b: f64) -> f64 {
+        ((a - b) / b).abs()
+    }
+
+    // Reference values from scipy.stats.norm.
     #[test]
-    fn cdf_known_values() {
-        assert!((norm_cdf(0.0) - 0.5).abs() < 1e-7);
-        assert!((norm_cdf(1.959_963_985) - 0.975).abs() < 1e-7);
-        assert!((norm_cdf(-1.0) - 0.158_655_254).abs() < 1e-7);
+    fn cdf_matches_scipy() {
+        assert_eq!(norm_cdf(0.0), 0.5);
+        assert!(rel(norm_cdf(-1.0), 0.158_655_253_931_457_07) < 1e-14);
+        assert!(rel(norm_cdf(1.96), 0.975_002_104_851_779_5) < 1e-14);
+        assert!(rel(norm_cdf(-2.5), 0.006_209_665_325_776_132) < 1e-13);
+        assert!(rel(norm_sf(5.0), 2.866_515_718_791_933e-7) < 1e-13);
+        assert!(rel(norm_sf(10.0), 7.619_853_024_160_47e-24) < 1e-12);
     }
 
     #[test]
-    fn ppf_known_values_and_inverse() {
-        assert!((norm_ppf(0.975) - 1.959_963_985).abs() < 1e-8);
-        assert!((norm_ppf(0.005) + 2.575_829_304).abs() < 1e-8);
+    fn ppf_matches_scipy_and_inverts_cdf() {
+        assert!(rel(norm_ppf(0.975), 1.959_963_984_540_054) < 1e-14);
+        assert!(rel(norm_ppf(0.995), 2.575_829_303_548_900_4) < 1e-14);
+        assert!(rel(norm_ppf(1e-10), -6.361_340_902_404_056) < 1e-13);
         assert_eq!(norm_ppf(0.5), 0.0);
-        for &p in &[0.001, 0.02, 0.3, 0.7, 0.99] {
-            assert!((norm_cdf(norm_ppf(p)) - p).abs() < 1e-7);
+        for &p in &[1e-6, 0.001, 0.02, 0.3, 0.7, 0.99, 0.999_999] {
+            assert!(rel(norm_cdf(norm_ppf(p)), p) < 1e-13, "p = {p}");
         }
     }
 }

@@ -15,3 +15,17 @@ ndarray.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 thiserror.workspace = true
+rayon = { workspace = true, optional = true }
+
+[features]
+default = ["parallel"]
+## Fit cross-fitting folds on a rayon thread pool.
+parallel = ["dep:rayon"]
+
+[dev-dependencies]
+serde_json.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "plr"
+harness = false

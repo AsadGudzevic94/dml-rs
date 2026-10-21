@@ -18,7 +18,7 @@ against the reference [DoubleML](https://docs.doubleml.org) package.
 
 - [x] **Phase 1 – Foundation:** data container, `Regressor` / `Classifier` traits, seeded K-fold cross-fitting, OLS/ridge learner
 - [x] **Phase 2 – PLR:** partially linear regression (DML2), partialling-out score, standard errors, confidence intervals
-- [ ] **Phase 3 – Validation:** numerical parity tests against Python DoubleML, benchmarks
+- [x] **Phase 3 – Validation:** numerical parity tests against Python DoubleML, benchmarks
 - [ ] **Phase 4 – More models:** IRM (ATE/ATTE), PLIV, multiplier bootstrap, repeated sample splitting
 - [ ] **Phase 5 – Python:** PyO3 + maturin bindings with a scikit-learn-style API
 - [ ] **Later:** CATE meta-learners (S/T/X/R/DR)
@@ -48,12 +48,43 @@ println!("{res}");
 let (lo, hi) = res.confint(0.95)?;
 ```
 
+## Validation against DoubleML
+
+`parity/generate_fixtures.py` runs Python [DoubleML](https://docs.doubleml.org) 0.11.4
+on fixed data and fixed sample splits and stores the results as JSON fixtures in
+`crates/dml-core/tests/fixtures/`. `cargo test` refits each case in Rust on the same folds
+and requires the nuisance predictions, coefficient, standard error, t-statistic,
+p-value and confidence interval to agree to within `1e-9`.
+
+To regenerate the fixtures:
+
+```sh
+python -m venv .venv
+.venv/Scripts/pip install -r parity/requirements.txt   # .venv/bin/pip on Linux/macOS
+.venv/Scripts/python parity/generate_fixtures.py
+```
+
+## Performance
+
+PLR with OLS nuisances and 5-fold cross-fitting (`cargo bench -p dml-core`, versus
+`parity/bench_doubleml.py` with scikit-learn `LinearRegression`, same machine):
+
+| n × p        | dml-rs  | DoubleML (Python) | speed-up |
+|--------------|---------|-------------------|----------|
+| 1 000 × 10   | 0.52 ms | 12.4 ms           | ~24×     |
+| 10 000 × 20  | 7.5 ms  | 54 ms             | ~7×      |
+| 100 000 × 50 | 241 ms  | 1 244 ms          | ~5×      |
+
+Folds are fitted in parallel with [rayon](https://docs.rs/rayon) (the default
+`parallel` feature; disable with `default-features = false`).
+
 ## Development
 
 ```sh
 cargo test
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
+cargo bench -p dml-core
 ```
 
 ## References
