@@ -224,23 +224,11 @@ impl DmlFit {
     pub fn confint(&self, level: f64) -> Result<Array2<f64>> {
         check_level(level)?;
         let z = norm_ppf(0.5 + level / 2.0);
-        Ok(self.confint_with_critical(&Array1::from_elem(self.n_rep(), z)))
-    }
-
-    /// Per-repetition critical values → aggregated intervals.
-    pub(crate) fn confint_with_critical(&self, crit: &Array1<f64>) -> Array2<f64> {
-        let mut ci = Array2::zeros((self.n_treat(), 2));
-        for j in 0..self.n_treat() {
-            let (mut lo, mut hi) = (Vec::new(), Vec::new());
-            for r in 0..self.n_rep() {
-                let (c, s) = (self.all_coef[[j, r]], self.all_se[[j, r]]);
-                lo.push(c - crit[r] * s);
-                hi.push(c + crit[r] * s);
-            }
-            ci[[j, 0]] = median(&lo);
-            ci[[j, 1]] = median(&hi);
-        }
-        ci
+        Ok(confint_from(
+            &self.all_coef,
+            &self.all_se,
+            &Array1::from_elem(self.n_rep(), z),
+        ))
     }
 
     /// Multiple-testing adjusted p-values across treatments (applied per
@@ -299,6 +287,28 @@ impl DmlFit {
         (rep < self.n_rep() && treatment < self.n_treat())
             .then(|| p.index_axis(Axis(2), treatment).column(rep).to_owned())
     }
+}
+
+/// Per-repetition intervals `θ_r ± crit_r · se_r`, aggregated by the median
+/// over repetitions (DoubleML's convention). Shape `(k, 2)`.
+pub(crate) fn confint_from(
+    all_coef: &Array2<f64>,
+    all_se: &Array2<f64>,
+    crit: &Array1<f64>,
+) -> Array2<f64> {
+    let (k, n_rep) = all_coef.dim();
+    let mut ci = Array2::zeros((k, 2));
+    for j in 0..k {
+        let lo: Vec<f64> = (0..n_rep)
+            .map(|r| all_coef[[j, r]] - crit[r] * all_se[[j, r]])
+            .collect();
+        let hi: Vec<f64> = (0..n_rep)
+            .map(|r| all_coef[[j, r]] + crit[r] * all_se[[j, r]])
+            .collect();
+        ci[[j, 0]] = median(&lo);
+        ci[[j, 1]] = median(&hi);
+    }
+    ci
 }
 
 pub(crate) fn check_level(level: f64) -> Result<()> {

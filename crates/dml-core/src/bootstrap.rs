@@ -7,7 +7,7 @@ use rand_chacha::ChaCha8Rng;
 use rand_distr::{Exp1, StandardNormal};
 
 use crate::error::{DmlError, Result};
-use crate::fit::{check_level, DmlFit};
+use crate::fit::{check_level, confint_from, DmlFit};
 use crate::stats::{median, quantile_mut};
 
 /// Distribution of the multiplier weights `ξ_i` (all mean 0, variance 1).
@@ -47,10 +47,12 @@ pub fn draw_weights(
 
 /// Bootstrap distribution of the t-statistics of a [`DmlFit`].
 ///
-/// Borrows the fit (the `'a` lifetime), so it cannot outlive it.
+/// Keeps its own copy of the per-repetition estimates (small `(k, n_rep)`
+/// arrays), so it is independent of the fit it came from.
 #[derive(Debug, Clone)]
-pub struct Bootstrap<'a> {
-    fit: &'a DmlFit,
+pub struct Bootstrap {
+    all_coef: Array2<f64>,
+    all_se: Array2<f64>,
     /// Shape `(n_boot, k, n_rep)`.
     t_stats: Array3<f64>,
 }
@@ -63,7 +65,7 @@ impl DmlFit {
         method: BootstrapMethod,
         n_boot: usize,
         seed: u64,
-    ) -> Result<Bootstrap<'_>> {
+    ) -> Result<Bootstrap> {
         if n_boot == 0 {
             return Err(DmlError::InvalidArgument("n_boot must be positive".into()));
         }
@@ -76,7 +78,7 @@ impl DmlFit {
 
     /// Bootstrap with caller-supplied weights, one `(n_boot, n)` matrix per
     /// repetition (e.g. to reproduce DoubleML's draws exactly).
-    pub fn bootstrap_with_weights(&self, weights: &[Array2<f64>]) -> Result<Bootstrap<'_>> {
+    pub fn bootstrap_with_weights(&self, weights: &[Array2<f64>]) -> Result<Bootstrap> {
         if weights.len() != self.n_rep() {
             return Err(DmlError::DimensionMismatch(format!(
                 "{} weight matrices for {} repetitions",
@@ -101,11 +103,15 @@ impl DmlFit {
             }
             t_stats.index_axis_mut(Axis(2), r).assign(&w.dot(&scaled));
         }
-        Ok(Bootstrap { fit: self, t_stats })
+        Ok(Bootstrap {
+            all_coef: self.all_coef.clone(),
+            all_se: self.all_se.clone(),
+            t_stats,
+        })
     }
 }
 
-impl Bootstrap<'_> {
+impl Bootstrap {
     /// Bootstrapped t-statistics, shape `(n_boot, k, n_rep)`.
     pub fn t_stats(&self) -> ArrayView3<'_, f64> {
         self.t_stats.view()
@@ -131,20 +137,21 @@ impl Bootstrap<'_> {
     /// Simultaneous confidence intervals covering all treatments jointly at
     /// `level`, shape `(k, 2)`.
     pub fn joint_confint(&self, level: f64) -> Result<Array2<f64>> {
-        Ok(self
-            .fit
-            .confint_with_critical(&self.critical_values(level)?))
+        Ok(confint_from(
+            &self.all_coef,
+            &self.all_se,
+            &self.critical_values(level)?,
+        ))
     }
 
     /// Romano–Wolf step-down adjusted p-values (median over repetitions).
     pub fn romano_wolf(&self) -> Array1<f64> {
-        let k = self.fit.n_treat();
-        let n_rep = self.fit.n_rep();
+        let (k, n_rep) = self.all_coef.dim();
         let mut all = Array2::<f64>::zeros((k, n_rep));
         for r in 0..n_rep {
             let boot = self.t_stats.index_axis(Axis(2), r);
             let abs_t: Vec<f64> = (0..k)
-                .map(|j| (self.fit.all_coef[[j, r]] / self.fit.all_se[[j, r]]).abs())
+                .map(|j| (self.all_coef[[j, r]] / self.all_se[[j, r]]).abs())
                 .collect();
             // Treatments in decreasing order of |t|.
             let mut order: Vec<usize> = (0..k).collect();

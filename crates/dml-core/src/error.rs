@@ -14,6 +14,9 @@ pub enum DmlError {
     NotFitted,
     #[error("did not converge: {0}")]
     Convergence(String),
+    /// An external learner (e.g. a Python estimator) raised an error.
+    #[error("learner failed: {0}")]
+    Learner(String),
 }
 
 pub type Result<T> = std::result::Result<T, DmlError>;

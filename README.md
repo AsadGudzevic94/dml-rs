@@ -28,6 +28,8 @@ must be controlled for. It combines three ingredients:
 - **Extensible:** implement `LinearScoreModel` to add a new orthogonal score and reuse the
   whole cross-fitting and inference engine
 - **Fast:** folds fitted in parallel with rayon; no BLAS or C dependencies
+- **Python:** `pip install`-able bindings (`dml_rs`) with a scikit-learn style API that accepts
+  any scikit-learn estimator as a nuisance learner
 
 ## Roadmap
 
@@ -35,7 +37,7 @@ must be controlled for. It combines three ingredients:
 - [x] **Phase 2 – PLR:** partially linear regression (DML2), partialling-out score, standard errors, confidence intervals
 - [x] **Phase 3 – Validation:** numerical parity tests against Python DoubleML, benchmarks
 - [x] **Phase 4 – More models:** IRM (ATE/ATTE), PLIV, multiplier bootstrap, repeated sample splitting
-- [ ] **Phase 5 – Python:** PyO3 + maturin bindings with a scikit-learn-style API
+- [x] **Phase 5 – Python:** PyO3 + maturin bindings with a scikit-learn-style API
 - [ ] **Phase 6 – CATE:** meta-learners (S/T/X/R/DR)
 
 ## Layout
@@ -43,6 +45,7 @@ must be controlled for. It combines three ingredients:
 ```
 crates/
   dml-core/   # Rust library: data, learners, cross-fitting, models, inference
+  dml-py/     # Python bindings (PyO3 + maturin), package `dml_rs`
 parity/       # DoubleML fixture generator and benchmark script
 ```
 
@@ -102,6 +105,40 @@ let p_rw = boot.romano_wolf();              // Romano–Wolf adjusted p-values
 let p_holm = fit.p_adjust(PAdjust::Holm);
 ```
 
+## Python
+
+```sh
+pip install ./crates/dml-py        # builds the Rust extension with maturin
+```
+
+```python
+import dml_rs
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+
+plr = dml_rs.PLR(ml_l=RandomForestRegressor(), ml_m=RandomForestRegressor(), n_folds=5, n_rep=3)
+plr.fit(X, y, d)              # X, d may be NumPy arrays or pandas objects
+plr.summary                   # pandas DataFrame: coef, std err, t, P>|t|, CI
+plr.confint(level=0.95)
+plr.predictions_["ml_l"]      # cross-fitted nuisance predictions (n, n_rep, n_treat)
+
+irm = dml_rs.IRM(ml_g=RandomForestRegressor(), ml_m=RandomForestClassifier(), score="ATTE").fit(X, y, d)
+pliv = dml_rs.PLIV(dml_rs.Ols(), dml_rs.Ols(), dml_rs.Ols()).fit(X, y, d, z)
+
+plr.bootstrap(method="normal", n_boot=1000)
+plr.confint(joint=True); plr.p_adjust("romano-wolf")
+```
+
+Nuisance learners can be the built-in Rust learners (`dml_rs.Ols`, `dml_rs.Lasso`,
+`dml_rs.LogisticRegression`) — the whole fit then runs in Rust, in parallel, without the
+GIL — or any object with scikit-learn's `fit` / `predict` (`predict_proba` for
+classifiers). Python learners are cloned per fold with `sklearn.base.clone` and called
+from Rust's worker threads. Estimators follow scikit-learn conventions (`get_params`,
+`set_params`, `sklearn.base.clone`, fitted attributes ending in `_`), and `fit(..., folds=...)`
+accepts explicit sample splits.
+
+The Python test suite (`pytest crates/dml-py/tests`) checks the bindings against
+DoubleML with scikit-learn learners (including random forests) on identical folds.
+
 ## Validation against DoubleML
 
 `parity/generate_fixtures.py` runs Python [DoubleML](https://docs.doubleml.org) 0.11.4
@@ -150,6 +187,9 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 cargo bench -p dml-core
+
+# Python bindings (inside a virtualenv with parity/requirements.txt + pytest + maturin)
+cd crates/dml-py && maturin develop --release && pytest tests
 ```
 
 ## References

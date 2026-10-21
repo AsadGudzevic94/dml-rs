@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["crates/dml-core"]
+members = ["crates/dml-core", "crates/dml-py"]
+# `cargo test` / `cargo build` at the root skip the Python extension, which
+# needs a Python interpreter to build; use `-p dml-py` or maturin for it.
+default-members = ["crates/dml-core"]
 
 [workspace.package]
 version = "0.1.0"

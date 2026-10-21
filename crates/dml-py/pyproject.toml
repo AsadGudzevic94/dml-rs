@@ -1,0 +1,32 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "dml-rs"
+description = "Fast double / debiased machine learning for causal inference, implemented in Rust"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT OR Apache-2.0" }
+authors = [{ name = "Asad Gudzevic", email = "asadgudzevic94@gmail.com" }]
+keywords = ["causal-inference", "double-machine-learning", "econometrics", "statistics"]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Intended Audience :: Science/Research",
+]
+dependencies = ["numpy>=1.21"]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+pandas = ["pandas>=1.3"]
+test = ["pytest>=7", "scikit-learn>=1.2", "pandas>=1.3", "DoubleML>=0.11"]
+
+[project.urls]
+Repository = "https://github.com/AsadGudzevic94/dml-rs"
+
+[tool.maturin]
+python-source = "python"
+module-name = "dml_rs._dml_rs"
+features = ["pyo3/extension-module"]
