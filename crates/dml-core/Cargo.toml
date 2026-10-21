@@ -1,0 +1,17 @@
+[package]
+name = "dml-core"
+description = "Double / debiased machine learning for causal inference in Rust"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords = ["causal-inference", "double-ml", "statistics", "econometrics", "machine-learning"]
+categories = ["science", "mathematics"]
+
+[dependencies]
+ndarray.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+thiserror.workspace = true
