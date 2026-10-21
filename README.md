@@ -12,7 +12,7 @@ must be controlled for. It combines three ingredients:
 `dml-rs` is a fast, dependency-light Rust implementation modelled on the reference
 [DoubleML](https://docs.doubleml.org) package and tested for numerical parity with it.
 
-> **Status: pre-release.** The API may still change before 0.1.0 is published.
+> **Status: pre-release.** All roadmap phases are implemented; the API may still change before 0.1.0 is published.
 
 ## Features
 
@@ -23,8 +23,12 @@ must be controlled for. It combines three ingredients:
   intervals; multiple treatments; repeated sample splitting with median aggregation
 - **Bootstrap:** normal, Bayes and wild multiplier bootstrap; simultaneous (joint) confidence
   intervals; Romano–Wolf, Holm and Bonferroni multiple-testing adjustment
+- **Heterogeneous effects:** S-, T-, X-, R- and DR-learners for the CATE; best linear predictor
+  (BLP) of the CATE and group average treatment effects (GATE) with HC0 inference, pointwise and
+  simultaneous confidence bands
 - **Learners:** `Ols` (with optional ridge), `Lasso` (coordinate descent), `LogisticRegression`
-  (Newton), or any type implementing the `Regressor` / `Classifier` traits
+  (Newton), or any type implementing the `Regressor` / `Classifier` traits (with optional
+  weighted fitting)
 - **Extensible:** implement `LinearScoreModel` to add a new orthogonal score and reuse the
   whole cross-fitting and inference engine
 - **Fast:** folds fitted in parallel with rayon; no BLAS or C dependencies
@@ -38,7 +42,7 @@ must be controlled for. It combines three ingredients:
 - [x] **Phase 3 – Validation:** numerical parity tests against Python DoubleML, benchmarks
 - [x] **Phase 4 – More models:** IRM (ATE/ATTE), PLIV, multiplier bootstrap, repeated sample splitting
 - [x] **Phase 5 – Python:** PyO3 + maturin bindings with a scikit-learn-style API
-- [ ] **Phase 6 – CATE:** meta-learners (S/T/X/R/DR)
+- [x] **Phase 6 – CATE:** meta-learners (S/T/X/R/DR), best linear predictor and GATE inference
 
 ## Layout
 
@@ -105,6 +109,25 @@ let p_rw = boot.romano_wolf();              // Romano–Wolf adjusted p-values
 let p_holm = fit.p_adjust(PAdjust::Holm);
 ```
 
+### Heterogeneous effects (CATE)
+
+```rust
+use dml_core::{DrLearner, Irm, LogisticRegression, Ols, XLearner};
+
+// DR-learner: cross-fitted AIPW pseudo-outcomes regressed on X
+let dr = DrLearner::new(Ols::new(), LogisticRegression::default(), Ols::new()).fit(&data)?;
+let tau_hat = dr.effect(x_new.view())?;               // τ̂(x) for new covariates
+let blp = dr.blp(basis.view())?;                      // best linear predictor, HC0 inference
+let bands = blp.joint_confint_at(grid.view(), 0.95, 1000, 0)?; // simultaneous bands
+
+// X-learner (Künzel et al.)
+let x = XLearner::new(Ols::new(), Ols::new(), LogisticRegression::default()).fit(&data)?;
+
+// From an IRM fit, as in DoubleML: BLP and group effects
+let irm = Irm::new(Ols::new(), LogisticRegression::default()).n_rep(5).fit(&data)?;
+let gate = irm.gate(group_dummies.view())?;
+```
+
 ## Python
 
 ```sh
@@ -126,6 +149,13 @@ pliv = dml_rs.PLIV(dml_rs.Ols(), dml_rs.Ols(), dml_rs.Ols()).fit(X, y, d, z)
 
 plr.bootstrap(method="normal", n_boot=1000)
 plr.confint(joint=True); plr.p_adjust("romano-wolf")
+
+# Heterogeneous effects
+dr = dml_rs.DRLearner(RandomForestRegressor(), RandomForestClassifier(), dml_rs.Ols()).fit(X, y, d)
+dr.effect(X_new)                       # τ̂(x)
+dr.blp(basis).summary                  # BLP coefficients with robust standard errors
+irm.cate(basis).confint(basis_grid)    # DoubleML-compatible CATE / GATE inference
+irm.gate(groups).confint()
 ```
 
 Nuisance learners can be the built-in Rust learners (`dml_rs.Ols`, `dml_rs.Lasso`,
@@ -157,6 +187,7 @@ bootstrap joint intervals and Romano–Wolf p-values to agree to within `1e-9`
 | `plr_multi_rep3_boot` | 3 treatments, 3 repetitions, normal bootstrap, joint CI, Romano–Wolf |
 | `irm_ate`, `irm_atte`, `irm_ate_normalized` | IRM ATE / ATTE with logistic propensity, normalised IPW |
 | `pliv_ols` | PLIV partialling-out, 2 repetitions |
+| `irm_cate_gate` | BLP of the CATE (coefficients, HC0 errors, pointwise bands) and GATEs from IRM |
 
 To regenerate the fixtures:
 
@@ -196,6 +227,14 @@ cd crates/dml-py && maturin develop --release && pytest tests
 
 - Chernozhukov, V., Chetverikov, D., Demirer, M., Duflo, E., Hansen, C., Newey, W., & Robins, J. (2018).
   Double/debiased machine learning for treatment and structural parameters. *The Econometrics Journal*, 21(1), C1–C68.
+- Semenova, V., & Chernozhukov, V. (2021). Debiased machine learning of conditional average treatment
+  effects and other causal functions. *The Econometrics Journal*, 24(2), 264–289.
+- Künzel, S. R., Sekhon, J. S., Bickel, P. J., & Yu, B. (2019). Metalearners for estimating heterogeneous
+  treatment effects using machine learning. *PNAS*, 116(10), 4156–4165.
+- Nie, X., & Wager, S. (2021). Quasi-oracle estimation of heterogeneous treatment effects.
+  *Biometrika*, 108(2), 299–319.
+- Kennedy, E. H. (2023). Towards optimal doubly robust estimation of heterogeneous causal effects.
+  *Electronic Journal of Statistics*, 17(2), 3008–3049.
 - Bach, P., Chernozhukov, V., Kurz, M. S., & Spindler, M. (2022). DoubleML – An object-oriented
   implementation of double machine learning in Python. *JMLR*, 23(53), 1–6.
 

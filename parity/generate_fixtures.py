@@ -16,6 +16,7 @@ from pathlib import Path
 
 import doubleml as dml
 import numpy as np
+import pandas as pd
 import sklearn
 from doubleml.irm.datasets import make_irm_data
 from doubleml.plm.datasets import make_pliv_CHS2015, make_plr_CCDDHNR2018
@@ -86,6 +87,7 @@ def fit_case(name, model_kind, data, arrays, learners, options, n_folds=5, n_rep
         "folds": [[{"train": tr.tolist(), "test": te.tolist()} for tr, te in rep] for rep in reps],
         "expected": expected,
     }
+    case["_model"] = model
     if boot is not None:
         method, n_boot, boot_seed = boot
         np.random.seed(boot_seed)
@@ -134,6 +136,30 @@ def irm(name, seed, score, normalize_ipw=False, n_rep=1, boot=None):
                     {"score": score, "normalize_ipw": normalize_ipw}, n_rep=n_rep, seed=seed, boot=boot)
 
 
+def irm_cate(name, seed):
+    case = irm(name, seed, "ATE", n_rep=2)
+    model = case["_model"]
+    x = np.asarray(case["x"])
+    basis = pd.DataFrame({"const": 1.0, "x0": x[:, 0], "x1": x[:, 1]})
+    cate = model.cate(basis)
+    groups = pd.DataFrame({"low": x[:, 0] <= 0, "high": x[:, 0] > 0})
+    gate = model.gate(groups)
+    case["expected"]["blp"] = {
+        "basis": basis.to_numpy().tolist(),
+        "coef": np.asarray(cate.coef).tolist(),
+        "se": np.asarray(cate.se).tolist(),
+        "ci_coef": cate.confint(level=0.95).to_numpy().tolist(),
+        "ci_at_first10": cate.confint(basis.iloc[:10], level=0.95).to_numpy().tolist(),
+    }
+    case["expected"]["gate"] = {
+        "groups": groups.to_numpy(dtype=float).tolist(),
+        "coef": np.asarray(gate.coef).tolist(),
+        "se": np.asarray(gate.se).tolist(),
+        "ci": gate.confint(level=0.95).to_numpy().tolist(),
+    }
+    return case
+
+
 def pliv(name, seed, n_rep=1):
     np.random.seed(seed)
     x, y, d, z = make_pliv_CHS2015(n_obs=500, alpha=1.0, dim_x=20, dim_z=1, return_type="array")
@@ -155,6 +181,7 @@ CASES = [
     lambda: irm("irm_atte", 22, "ATTE"),
     lambda: irm("irm_ate_normalized", 23, "ATE", normalize_ipw=True),
     lambda: pliv("pliv_ols", 31, n_rep=2),
+    lambda: irm_cate("irm_cate_gate", 41),
 ]
 
 
@@ -162,6 +189,7 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     for make in CASES:
         case = make()
+        case.pop("_model")
         case["versions"] = {"doubleml": dml.__version__, "sklearn": sklearn.__version__, "numpy": np.__version__}
         path = OUT / f"{case['name']}.json"
         path.write_text(json.dumps(case))

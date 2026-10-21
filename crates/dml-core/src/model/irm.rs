@@ -8,7 +8,7 @@
 //! Targets the average treatment effect (ATE) or the average treatment effect
 //! on the treated (ATTE) with the doubly robust (AIPW) score.
 
-use ndarray::Array1;
+use ndarray::{Array1, ArrayView1, ArrayView2};
 
 use super::{dml_model_api, LinearScoreModel, ScoreEstimate, ScoreInput};
 use crate::crossfit::{cross_fit_predict_proba, cross_fit_predict_subset, Fold, SampleSplitting};
@@ -117,25 +117,22 @@ impl LinearScoreModel for Irm {
 
     fn estimate_score(&self, input: &ScoreInput<'_>, folds: &[Fold]) -> Result<ScoreEstimate> {
         let ScoreInput { y, d, x, .. } = *input;
-        let treated: Vec<bool> = d.iter().map(|&v| v == 1.0).collect();
-        let control: Vec<bool> = treated.iter().map(|t| !t).collect();
-
-        let g0 = cross_fit_predict_subset(self.ml_g.as_ref(), x, y, folds, &control)?;
-        let g1 = cross_fit_predict_subset(self.ml_g.as_ref(), x, y, folds, &treated)?;
-        let t = self.clipping_threshold;
-        let m =
-            cross_fit_predict_proba(self.ml_m.as_ref(), x, d, folds)?.mapv(|p| p.clamp(t, 1.0 - t));
-
+        let (g0, g1, m) = irm_nuisances(
+            self.ml_g.as_ref(),
+            self.ml_m.as_ref(),
+            x,
+            y,
+            d,
+            folds,
+            self.clipping_threshold,
+        )?;
         let d = d.to_owned();
         let m_adj = if self.normalize_ipw {
             normalize_propensity(&m, &d)
         } else {
             m.clone()
         };
-        let u0: Array1<f64> = &y - &g0;
-        let u1: Array1<f64> = &y - &g1;
-        // Inverse-probability-weighted residual correction.
-        let ipw: Array1<f64> = &d * &u1 / &m_adj - &(1.0 - &d) * &u0 / &(1.0 - &m_adj);
+        let ipw = ipw_residual(y, &d, &g0, &g1, &m_adj);
 
         let (psi_a, psi_b) = match self.score {
             IrmScore::Ate => (Array1::from_elem(d.len(), -1.0), &g1 - &g0 + &ipw),
@@ -153,6 +150,40 @@ impl LinearScoreModel for Irm {
             predictions: vec![("ml_g0", g0), ("ml_g1", g1), ("ml_m", m)],
         })
     }
+}
+
+/// Cross-fitted IRM nuisances: `ĝ₀` (trained on controls), `ĝ₁` (trained on
+/// treated) and the clipped propensity `m̂`.
+pub(crate) fn irm_nuisances(
+    ml_g: &dyn Regressor,
+    ml_m: &dyn Classifier,
+    x: ArrayView2<'_, f64>,
+    y: ArrayView1<'_, f64>,
+    d: ArrayView1<'_, f64>,
+    folds: &[Fold],
+    clipping_threshold: f64,
+) -> Result<(Array1<f64>, Array1<f64>, Array1<f64>)> {
+    let treated: Vec<bool> = d.iter().map(|&v| v == 1.0).collect();
+    let control: Vec<bool> = treated.iter().map(|t| !t).collect();
+    let g0 = cross_fit_predict_subset(ml_g, x, y, folds, &control)?;
+    let g1 = cross_fit_predict_subset(ml_g, x, y, folds, &treated)?;
+    let t = clipping_threshold;
+    let m = cross_fit_predict_proba(ml_m, x, d, folds)?.mapv(|p| p.clamp(t, 1.0 - t));
+    Ok((g0, g1, m))
+}
+
+/// Inverse-probability-weighted residual correction
+/// `D(Y − ĝ₁)/m̂ − (1 − D)(Y − ĝ₀)/(1 − m̂)`.
+pub(crate) fn ipw_residual(
+    y: ArrayView1<'_, f64>,
+    d: &Array1<f64>,
+    g0: &Array1<f64>,
+    g1: &Array1<f64>,
+    m: &Array1<f64>,
+) -> Array1<f64> {
+    let u0: Array1<f64> = &y - g0;
+    let u1: Array1<f64> = &y - g1;
+    d * &u1 / m - &(1.0 - d) * &u0 / &(1.0 - m)
 }
 
 #[cfg(test)]

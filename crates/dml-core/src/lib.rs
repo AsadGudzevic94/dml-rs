@@ -13,6 +13,12 @@
 //! confidence intervals, a multiplier [`Bootstrap`] for joint inference and
 //! multiple-testing adjustment. New scores plug in via [`LinearScoreModel`].
 //!
+//! ## Heterogeneous effects
+//!
+//! - [`SLearner`], [`TLearner`], [`XLearner`], [`RLearner`], [`DrLearner`]: CATE meta-learners
+//! - [`Blp`]: best linear predictor of the CATE and group average effects (GATE) with
+//!   robust inference, from [`DrLearner`] fits or [`DmlFit::cate`] / [`DmlFit::gate`]
+//!
 //! ## Building blocks
 //!
 //! - [`DmlData`]: outcome `y`, one or more treatments `d`, covariates `x`, optional instrument `z`
@@ -36,7 +42,9 @@
 //! # Ok::<(), dml_core::DmlError>(())
 //! ```
 
+pub mod blp;
 pub mod bootstrap;
+pub mod cate;
 pub mod crossfit;
 pub mod data;
 pub mod error;
@@ -47,7 +55,9 @@ pub mod model;
 pub mod score;
 pub mod stats;
 
+pub use blp::Blp;
 pub use bootstrap::{Bootstrap, BootstrapMethod};
+pub use cate::{CateFit, DrLearner, RLearner, SLearner, TLearner, XLearner};
 pub use crossfit::{
     cross_fit_predict, cross_fit_predict_proba, cross_fit_predict_subset, Fold, KFold,
     SampleSplitting,

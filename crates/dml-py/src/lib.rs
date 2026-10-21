@@ -9,16 +9,18 @@ use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3, PyReadonlyArray1, PyReado
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
+mod cate;
 mod errors;
 mod learners;
 
+use cate::{fit_cate, PyBlp, PyCateResult};
 use errors::to_py_err;
 use learners::{to_classifier, to_regressor, PyLasso, PyLogisticRegression, PyOls};
 
 /// Splits from Python: one list per repetition of `(train, test)` index lists.
-type PySplits = Vec<Vec<(Vec<usize>, Vec<usize>)>>;
+pub(crate) type PySplits = Vec<Vec<(Vec<usize>, Vec<usize>)>>;
 
-fn to_splits(splits: PySplits) -> Vec<Vec<Fold>> {
+pub(crate) fn to_splits(splits: PySplits) -> Vec<Vec<Fold>> {
     splits
         .into_iter()
         .map(|rep| {
@@ -179,6 +181,20 @@ impl PyDmlResult {
             .detach(|| self.fit.bootstrap(method, n_boot, seed))
             .map_err(to_py_err)?;
         Ok(PyBootstrap { boot })
+    }
+
+    /// BLP of the CATE on `basis` (IRM with the ATE score).
+    fn cate(&self, basis: PyReadonlyArray2<'_, f64>) -> PyResult<PyBlp> {
+        Ok(PyBlp {
+            blp: self.fit.cate(basis.as_array()).map_err(to_py_err)?,
+        })
+    }
+
+    /// GATEs for mutually exclusive 0/1 group dummies (IRM with the ATE score).
+    fn gate(&self, groups: PyReadonlyArray2<'_, f64>) -> PyResult<PyBlp> {
+        Ok(PyBlp {
+            blp: self.fit.gate(groups.as_array()).map_err(to_py_err)?,
+        })
     }
 
     fn __str__(&self) -> String {
@@ -362,7 +378,8 @@ fn fit_pliv(
 mod dml_rs_native {
     #[pymodule_export]
     use super::{
-        fit_irm, fit_pliv, fit_plr, PyBootstrap, PyDmlResult, PyLasso, PyLogisticRegression, PyOls,
+        fit_cate, fit_irm, fit_pliv, fit_plr, PyBlp, PyBootstrap, PyCateResult, PyDmlResult,
+        PyLasso, PyLogisticRegression, PyOls,
     };
 
     #[pymodule_init]

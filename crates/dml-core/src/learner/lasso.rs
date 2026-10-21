@@ -1,6 +1,6 @@
-use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis, ShapeBuilder};
+use ndarray::{Array1, Array2, ArrayView1, ArrayView2, ShapeBuilder};
 
-use super::Regressor;
+use super::{center, Centered, Regressor};
 use crate::error::{DmlError, Result};
 
 /// Lasso regression with an unpenalised intercept, fitted by cyclic
@@ -59,21 +59,23 @@ fn soft_threshold(z: f64, gamma: f64) -> f64 {
     }
 }
 
-impl Regressor for Lasso {
-    fn fit(&mut self, x: ArrayView2<'_, f64>, y: ArrayView1<'_, f64>) -> Result<()> {
+impl Lasso {
+    fn fit_impl(
+        &mut self,
+        x: ArrayView2<'_, f64>,
+        y: ArrayView1<'_, f64>,
+        w: Option<ArrayView1<'_, f64>>,
+    ) -> Result<()> {
         let (n, p) = x.dim();
-        if y.len() != n {
-            return Err(DmlError::DimensionMismatch("Lasso::fit x/y rows".into()));
-        }
-        if n == 0 {
-            return Err(DmlError::InvalidArgument("empty training set".into()));
-        }
-        let x_mean = x.mean_axis(Axis(0)).expect("n > 0");
-        let y_mean = y.mean().expect("n > 0");
+        let Centered {
+            x_mean,
+            y_mean,
+            xc: centered,
+            yc: mut resid,
+        } = center(x, y, w, true)?;
         // Column-major copy so each coordinate update reads a contiguous column.
         let mut xc = Array2::<f64>::zeros((n, p).f());
-        xc.assign(&(&x - &x_mean));
-        let mut resid: Array1<f64> = &y - y_mean;
+        xc.assign(&centered);
         let col_sq: Vec<f64> = xc.columns().into_iter().map(|c| c.dot(&c)).collect();
         let n_alpha = n as f64 * self.alpha;
         let mut w = Array1::<f64>::zeros(p);
@@ -111,6 +113,23 @@ impl Regressor for Lasso {
         self.intercept = y_mean - x_mean.dot(&w);
         self.coef = Some(w);
         Ok(())
+    }
+}
+
+impl Regressor for Lasso {
+    fn fit(&mut self, x: ArrayView2<'_, f64>, y: ArrayView1<'_, f64>) -> Result<()> {
+        self.fit_impl(x, y, None)
+    }
+
+    /// Minimises `1/(2n)·Σ wᵢ rᵢ² + α‖β‖₁` with weights rescaled to sum to
+    /// `n`, as scikit-learn's `Lasso.fit(sample_weight=w)`.
+    fn fit_weighted(
+        &mut self,
+        x: ArrayView2<'_, f64>,
+        y: ArrayView1<'_, f64>,
+        w: ArrayView1<'_, f64>,
+    ) -> Result<()> {
+        self.fit_impl(x, y, Some(w))
     }
 
     fn predict(&self, x: ArrayView2<'_, f64>) -> Result<Array1<f64>> {

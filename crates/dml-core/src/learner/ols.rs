@@ -1,6 +1,6 @@
-use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
+use ndarray::{Array1, ArrayView1, ArrayView2};
 
-use super::Regressor;
+use super::{center, Centered, Regressor};
 use crate::error::{DmlError, Result};
 use crate::linalg::cholesky_solve;
 
@@ -36,20 +36,21 @@ impl Ols {
     }
 }
 
-impl Regressor for Ols {
-    fn fit(&mut self, x: ArrayView2<'_, f64>, y: ArrayView1<'_, f64>) -> Result<()> {
-        let (n, p) = x.dim();
-        if y.len() != n {
-            return Err(DmlError::DimensionMismatch("Ols::fit x/y rows".into()));
-        }
-        if n == 0 {
-            return Err(DmlError::InvalidArgument("empty training set".into()));
-        }
-        // Center to absorb the intercept, then solve (Xc'Xc + λI) b = Xc'yc.
-        let x_mean = x.mean_axis(ndarray::Axis(0)).expect("n > 0");
-        let y_mean = y.mean().expect("n > 0");
-        let xc: Array2<f64> = &x - &x_mean;
-        let yc: Array1<f64> = &y - y_mean;
+impl Ols {
+    fn fit_impl(
+        &mut self,
+        x: ArrayView2<'_, f64>,
+        y: ArrayView1<'_, f64>,
+        w: Option<ArrayView1<'_, f64>>,
+    ) -> Result<()> {
+        let p = x.ncols();
+        // Centre to absorb the intercept, then solve (Xc'Xc + λI) b = Xc'yc.
+        let Centered {
+            x_mean,
+            y_mean,
+            xc,
+            yc,
+        } = center(x, y, w, false)?;
         let mut xtx = xc.t().dot(&xc);
         for j in 0..p {
             xtx[[j, j]] += self.ridge;
@@ -63,6 +64,22 @@ impl Regressor for Ols {
         self.intercept = y_mean - x_mean.dot(&coef);
         self.coef = Some(coef);
         Ok(())
+    }
+}
+
+impl Regressor for Ols {
+    fn fit(&mut self, x: ArrayView2<'_, f64>, y: ArrayView1<'_, f64>) -> Result<()> {
+        self.fit_impl(x, y, None)
+    }
+
+    /// Weighted least squares: minimises `Σ wᵢ (yᵢ − b − xᵢᵀβ)² + ridge·‖β‖²`.
+    fn fit_weighted(
+        &mut self,
+        x: ArrayView2<'_, f64>,
+        y: ArrayView1<'_, f64>,
+        w: ArrayView1<'_, f64>,
+    ) -> Result<()> {
+        self.fit_impl(x, y, Some(w))
     }
 
     fn predict(&self, x: ArrayView2<'_, f64>) -> Result<Array1<f64>> {
@@ -106,6 +123,22 @@ mod tests {
             Ols::new().predict(array![[1.0]].view()).unwrap_err(),
             DmlError::NotFitted
         );
+    }
+
+    #[test]
+    fn integer_weights_equal_row_duplication() {
+        let x = array![[0.0], [1.0], [2.0], [3.0]];
+        let y = array![1.0, 0.5, 2.5, 2.0];
+        let mut weighted = Ols::new();
+        weighted
+            .fit_weighted(x.view(), y.view(), array![1.0, 2.0, 1.0, 3.0].view())
+            .unwrap();
+        let xd = array![[0.0], [1.0], [1.0], [2.0], [3.0], [3.0], [3.0]];
+        let yd = array![1.0, 0.5, 0.5, 2.5, 2.0, 2.0, 2.0];
+        let mut dup = Ols::new();
+        dup.fit(xd.view(), yd.view()).unwrap();
+        assert!((weighted.coef().unwrap()[0] - dup.coef().unwrap()[0]).abs() < 1e-12);
+        assert!((weighted.intercept() - dup.intercept()).abs() < 1e-12);
     }
 
     #[test]

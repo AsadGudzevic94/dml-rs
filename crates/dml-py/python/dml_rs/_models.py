@@ -7,24 +7,8 @@ import inspect
 import numpy as np
 
 from . import _dml_rs
-
-
-def _as_2d(a, name):
-    a = np.ascontiguousarray(a, dtype=np.float64)
-    if a.ndim == 1:
-        a = a.reshape(-1, 1)
-    if a.ndim != 2:
-        raise ValueError(f"{name} must be 1-D or 2-D, got shape {a.shape}")
-    return a
-
-
-def _as_1d(a, name):
-    a = np.ascontiguousarray(a, dtype=np.float64)
-    if a.ndim == 2 and a.shape[1] == 1:
-        a = a[:, 0].copy()
-    if a.ndim != 1:
-        raise ValueError(f"{name} must be 1-D, got shape {a.shape}")
-    return a
+from ._blp import blp_from
+from ._validation import _as_1d, _as_2d
 
 
 def _treatment_names(d):
@@ -47,12 +31,9 @@ def _splits(folds):
             for rep in reps]
 
 
-class _DMLEstimator:
-    """Shared fitted-model API. Subclasses implement ``_fit_native``."""
+class _Params:
+    """scikit-learn parameter protocol (``get_params`` / ``set_params`` / ``clone``)."""
 
-    _boot = None
-
-    # -- scikit-learn parameter protocol ------------------------------------
     @classmethod
     def _get_param_names(cls):
         sig = inspect.signature(cls.__init__)
@@ -72,12 +53,18 @@ class _DMLEstimator:
         args = ", ".join(f"{k}={v!r}" for k, v in self.get_params().items())
         return f"{type(self).__name__}({args})"
 
-    # -- fitted attributes ---------------------------------------------------
     def _check_fitted(self):
         if not hasattr(self, "result_"):
             raise AttributeError(f"{type(self).__name__} is not fitted yet; call fit() first")
         return self.result_
 
+
+class _DMLEstimator(_Params):
+    """Shared fitted-model API of the DML estimators."""
+
+    _boot = None
+
+    # -- fitted attributes ---------------------------------------------------
     def _store(self, result):
         self.result_ = result
         self.coef_ = result.coef
@@ -207,6 +194,14 @@ class IRM(_DMLEstimator):
             splits=_splits(folds), treatment_names=_treatment_names(d),
         )
         return self._store(result)
+
+    def cate(self, basis):
+        """Best linear predictor of the CATE on ``basis`` (ATE score), as DoubleML's ``cate``."""
+        return blp_from(self._check_fitted().cate(_as_2d(basis, "basis")), basis, "b")
+
+    def gate(self, groups):
+        """Group average treatment effects for 0/1 group dummies (ATE score), as DoubleML's ``gate``."""
+        return blp_from(self._check_fitted().gate(_as_2d(groups, "groups")), groups, "group_")
 
 
 class PLIV(_DMLEstimator):

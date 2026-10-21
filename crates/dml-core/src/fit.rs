@@ -4,6 +4,7 @@ use std::fmt;
 
 use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3, Axis};
 
+use crate::blp::Blp;
 use crate::crossfit::Fold;
 use crate::data::DmlData;
 use crate::error::{DmlError, Result};
@@ -31,6 +32,8 @@ pub fn fit_model<M: LinearScoreModel + ?Sized>(
     let mut all_se = Array2::<f64>::zeros((k, n_rep));
     let mut psi = Array3::<f64>::zeros((n, k, n_rep));
     let mut psi_deriv = Array2::<f64>::zeros((k, n_rep));
+    let mut psi_a = Array3::<f64>::zeros((n, k, n_rep));
+    let mut psi_b = Array3::<f64>::zeros((n, k, n_rep));
     let mut predictions: Vec<(String, Array3<f64>)> = Vec::new();
 
     for j in 0..k {
@@ -53,6 +56,12 @@ pub fn fit_model<M: LinearScoreModel + ?Sized>(
             all_se[[j, r]] = sol.se;
             psi_deriv[[j, r]] = sol.j;
             psi.slice_mut(ndarray::s![.., j, r]).assign(&sol.psi);
+            psi_a
+                .slice_mut(ndarray::s![.., j, r])
+                .assign(&est.score.psi_a);
+            psi_b
+                .slice_mut(ndarray::s![.., j, r])
+                .assign(&est.score.psi_b);
             for (name, pred) in est.predictions {
                 let slot = match predictions.iter().position(|(nm, _)| nm == name) {
                     Some(i) => i,
@@ -81,6 +90,8 @@ pub fn fit_model<M: LinearScoreModel + ?Sized>(
         all_coef,
         all_se,
         psi,
+        psi_a,
+        psi_b,
         psi_deriv,
         predictions,
     })
@@ -118,7 +129,10 @@ fn check_splits(splits: &[Vec<Fold>], n: usize) -> Result<()> {
 
 /// DoubleML's aggregation over repetitions: median coefficient, and the
 /// standard error implied by the median of the upper bounds `θ_r + 1.96·se_r`.
-fn aggregate(all_coef: &Array2<f64>, all_se: &Array2<f64>) -> (Array1<f64>, Array1<f64>) {
+pub(crate) fn aggregate(
+    all_coef: &Array2<f64>,
+    all_se: &Array2<f64>,
+) -> (Array1<f64>, Array1<f64>) {
     const CRIT: f64 = 1.96;
     let k = all_coef.nrows();
     let mut coef = Array1::zeros(k);
@@ -161,6 +175,9 @@ pub struct DmlFit {
     pub(crate) all_se: Array2<f64>,
     /// Shape `(n, k, n_rep)`.
     pub(crate) psi: Array3<f64>,
+    /// Score elements, shape `(n, k, n_rep)`.
+    pub(crate) psi_a: Array3<f64>,
+    pub(crate) psi_b: Array3<f64>,
     /// `J = mean(ψ_a)`, shape `(k, n_rep)`.
     pub(crate) psi_deriv: Array2<f64>,
     /// Each array has shape `(n, n_rep, k)`.
@@ -266,6 +283,34 @@ impl DmlFit {
     /// Score values ψ at θ̂, shape `(n, k, n_rep)`.
     pub fn psi(&self) -> ArrayView3<'_, f64> {
         self.psi.view()
+    }
+
+    /// Score elements `ψ_a` and `ψ_b` (ψ = ψ_a·θ + ψ_b), shape `(n, k, n_rep)`.
+    pub fn psi_elements(&self) -> (ArrayView3<'_, f64>, ArrayView3<'_, f64>) {
+        (self.psi_a.view(), self.psi_b.view())
+    }
+
+    /// Best linear predictor of the CATE on `basis` (shape `(n, p)`, include a
+    /// constant column for an intercept), using the orthogonal signal `ψ_b`.
+    /// Valid for scores with `ψ_a = −1`, i.e. [`Irm`](crate::Irm) with the ATE score.
+    pub fn cate(&self, basis: ArrayView2<'_, f64>) -> Result<Blp> {
+        Blp::fit(self.orthogonal_signal()?.view(), basis)
+    }
+
+    /// Group average treatment effects for mutually exclusive groups given as
+    /// 0/1 dummy columns (shape `(n, n_groups)`).
+    pub fn gate(&self, groups: ArrayView2<'_, f64>) -> Result<Blp> {
+        Blp::fit_gate(self.orthogonal_signal()?.view(), groups)
+    }
+
+    fn orthogonal_signal(&self) -> Result<Array2<f64>> {
+        if self.n_treat() != 1 || self.psi_a.iter().any(|&a| a != -1.0) {
+            return Err(DmlError::InvalidArgument(
+                "CATE / GATE need a single treatment and a score with psi_a = -1 (IRM with the ATE score)"
+                    .into(),
+            ));
+        }
+        Ok(self.psi_b.index_axis(Axis(1), 0).to_owned())
     }
 
     /// Names of the stored nuisance predictions (e.g. `ml_l`, `ml_m`).

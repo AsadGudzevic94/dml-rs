@@ -225,6 +225,28 @@ impl Regressor for PyRegressor {
         .map_err(learner_err)
     }
 
+    /// Calls `fit(X, y, sample_weight=w)`.
+    fn fit_weighted(
+        &mut self,
+        x: ArrayView2<'_, f64>,
+        y: ArrayView1<'_, f64>,
+        w: ArrayView1<'_, f64>,
+    ) -> dml_core::Result<()> {
+        Python::attach(|py| -> PyResult<()> {
+            let est = clone_estimator(self.template.bind(py))?;
+            let kwargs = pyo3::types::PyDict::new(py);
+            kwargs.set_item("sample_weight", w.to_owned().into_pyarray(py))?;
+            est.call_method(
+                "fit",
+                (x.to_owned().into_pyarray(py), y.to_owned().into_pyarray(py)),
+                Some(&kwargs),
+            )?;
+            self.fitted = Some(est.unbind());
+            Ok(())
+        })
+        .map_err(learner_err)
+    }
+
     fn predict(&self, x: ArrayView2<'_, f64>) -> dml_core::Result<Array1<f64>> {
         let est = self.fitted.as_ref().ok_or(DmlError::NotFitted)?;
         Python::attach(|py| {

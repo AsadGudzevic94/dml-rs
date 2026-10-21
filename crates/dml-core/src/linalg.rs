@@ -52,6 +52,41 @@ pub(crate) fn cholesky_solve(a: &Array2<f64>, b: &Array1<f64>) -> Result<Array1<
     Ok(x)
 }
 
+/// Inverse of a symmetric positive-definite matrix (column by column).
+pub(crate) fn spd_inverse(a: &Array2<f64>) -> Result<Array2<f64>> {
+    let n = a.nrows();
+    let mut inv = Array2::<f64>::zeros((n, n));
+    for j in 0..n {
+        let mut e = Array1::<f64>::zeros(n);
+        e[j] = 1.0;
+        inv.column_mut(j).assign(&cholesky_solve(a, &e)?);
+    }
+    Ok(inv)
+}
+
+/// Lower-triangular Cholesky factor `L` with `A = L Lᵀ`.
+pub(crate) fn cholesky_factor(a: &Array2<f64>) -> Result<Array2<f64>> {
+    let n = a.nrows();
+    let mut l = Array2::<f64>::zeros((n, n));
+    for i in 0..n {
+        for j in 0..=i {
+            let mut s = a[[i, j]];
+            for k in 0..j {
+                s -= l[[i, k]] * l[[j, k]];
+            }
+            if i == j {
+                if s <= 0.0 || !s.is_finite() {
+                    return Err(DmlError::Singular);
+                }
+                l[[i, i]] = s.sqrt();
+            } else {
+                l[[i, j]] = s / l[[j, j]];
+            }
+        }
+    }
+    Ok(l)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

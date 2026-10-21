@@ -198,3 +198,74 @@ fn irm_ate_normalized_ipw() {
 fn pliv_partialling_out_repeated_splits() {
     check("pliv_ols", TOL);
 }
+
+#[test]
+fn irm_cate_blp_and_gate() {
+    check("irm_cate_gate", TOL_ITERATIVE);
+    let fx = Fixture::load("irm_cate_gate");
+    let fit = fit_fixture(&fx);
+
+    let blp_fx = &fx.expected("blp");
+    let basis = to_matrix(&blp_fx["basis"]);
+    let blp = fit.cate(basis.view()).unwrap();
+    assert_all_close(
+        "blp coef",
+        blp.coef(),
+        &to_vec(&blp_fx["coef"]),
+        TOL_ITERATIVE,
+    );
+    assert_all_close("blp se", blp.se(), &to_vec(&blp_fx["se"]), TOL_ITERATIVE);
+    // DoubleML's coefficient table is [lower, effect, upper].
+    let ci_coef = to_matrix(&blp_fx["ci_coef"]);
+    let ours = blp.confint(0.95).unwrap();
+    for j in 0..ours.nrows() {
+        assert_close("blp ci lower", ours[[j, 0]], ci_coef[[j, 0]], TOL_ITERATIVE);
+        assert_close("blp ci upper", ours[[j, 1]], ci_coef[[j, 2]], TOL_ITERATIVE);
+    }
+    let first10 = basis.slice(ndarray::s![..10, ..]);
+    assert_matrix_close(
+        "blp ci at basis rows",
+        &blp.confint_at(first10, 0.95).unwrap(),
+        &to_matrix(&blp_fx["ci_at_first10"]),
+        TOL_ITERATIVE,
+    );
+
+    let gate_fx = &fx.expected("gate");
+    let gate = fit.gate(to_matrix(&gate_fx["groups"]).view()).unwrap();
+    assert_all_close(
+        "gate coef",
+        gate.coef(),
+        &to_vec(&gate_fx["coef"]),
+        TOL_ITERATIVE,
+    );
+    assert_all_close("gate se", gate.se(), &to_vec(&gate_fx["se"]), TOL_ITERATIVE);
+    let identity = Array2::eye(2);
+    assert_matrix_close(
+        "gate ci",
+        &gate.confint_at(identity.view(), 0.95).unwrap(),
+        &to_matrix(&gate_fx["ci"]),
+        TOL_ITERATIVE,
+    );
+}
+
+#[test]
+fn dr_learner_pseudo_outcomes_equal_irm_orthogonal_signal() {
+    use dml_core::{DrLearner, Ols};
+    let fx = Fixture::load("irm_ate");
+    let fit = fit_fixture(&fx);
+    let folds = fx.folds();
+    let dr = DrLearner::from_boxed(
+        fx.regressor("ml_g"),
+        fx.classifier("ml_m"),
+        Box::new(Ols::new()),
+    )
+    .fit_with_folds(&fx.data(), &folds[0])
+    .unwrap();
+    let psi_b = fit.psi_elements().1.slice(ndarray::s![.., 0, 0]).to_owned();
+    assert_all_close(
+        "pseudo-outcome",
+        &dr.pseudo_outcomes().unwrap().to_owned(),
+        &psi_b,
+        1e-12,
+    );
+}
