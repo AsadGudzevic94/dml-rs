@@ -8,14 +8,19 @@
 //! - [`Regressor`] / [`Classifier`]: plug-in nuisance learners
 //! - [`KFold`]: reproducible sample splitting for cross-fitting
 //! - [`Ols`]: a built-in baseline learner
+//!
+//! Phase 2 adds the first model, [`Plr`] (partially linear regression, DML2).
 
 pub mod crossfit;
 pub mod data;
 pub mod error;
 pub mod learner;
 pub(crate) mod linalg;
+pub mod plr;
+pub mod stats;
 
 pub use crossfit::{cross_fit_predict, Fold, KFold};
 pub use data::DmlData;
 pub use error::{DmlError, Result};
 pub use learner::{Classifier, Ols, Regressor};
+pub use plr::{Plr, PlrResult};

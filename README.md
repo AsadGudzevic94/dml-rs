@@ -17,7 +17,7 @@ against the reference [DoubleML](https://docs.doubleml.org) package.
 ## Roadmap
 
 - [x] **Phase 1 – Foundation:** data container, `Regressor` / `Classifier` traits, seeded K-fold cross-fitting, OLS/ridge learner
-- [ ] **Phase 2 – PLR:** partially linear regression (DML2), partialling-out score, standard errors, confidence intervals
+- [x] **Phase 2 – PLR:** partially linear regression (DML2), partialling-out score, standard errors, confidence intervals
 - [ ] **Phase 3 – Validation:** numerical parity tests against Python DoubleML, benchmarks
 - [ ] **Phase 4 – More models:** IRM (ATE/ATTE), PLIV, multiplier bootstrap, repeated sample splitting
 - [ ] **Phase 5 – Python:** PyO3 + maturin bindings with a scikit-learn-style API
@@ -30,18 +30,22 @@ crates/
   dml-core/   # Rust library: data, learners, cross-fitting, models
 ```
 
-## Example (Phase 1 building blocks)
+## Example: partially linear regression
 
 ```rust
-use dml_core::{cross_fit_predict, KFold, Ols};
-use ndarray::{Array1, Array2};
+use dml_core::{DmlData, Ols, Plr};
 
-let x = Array2::from_shape_fn((100, 2), |(i, j)| ((i * 7 + j * 3) % 11) as f64);
-let y: Array1<f64> = x.rows().into_iter().map(|r| 1.0 + 0.5 * r[0] - 2.0 * r[1]).collect();
+// y: outcome, d: treatment, x: confounders (ndarray Array1 / Array2)
+let data = DmlData::new(y, d, x)?;
+let res = Plr::new(Ols::new(), Ols::new()) // learners for E[Y|X] and E[D|X]
+    .n_folds(5)
+    .seed(42)
+    .fit(&data)?;
 
-let folds = KFold::new(5, 42)?.split(x.nrows())?;
-let y_hat = cross_fit_predict(&Ols::new(), x.view(), y.view(), &folds)?;
-# Ok::<(), dml_core::DmlError>(())
+println!("{res}");
+//       coef    std err        t    P>|t|      2.5 %     97.5 %
+//     0.5007     0.0236   21.259   0.0000     0.4545     0.5468
+let (lo, hi) = res.confint(0.95)?;
 ```
 
 ## Development
