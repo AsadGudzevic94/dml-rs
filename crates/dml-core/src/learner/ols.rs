@@ -1,27 +1,8 @@
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 
+use super::Regressor;
 use crate::error::{DmlError, Result};
 use crate::linalg::cholesky_solve;
-
-/// A regression learner for nuisance functions such as `E[Y | X]` or `E[D | X]`.
-///
-/// `fresh` returns an unfitted copy with the same hyperparameters, so
-/// cross-fitting can train an independent model on each fold.
-///
-/// `Send + Sync` lets folds be fitted on parallel threads.
-pub trait Regressor: Send + Sync {
-    fn fit(&mut self, x: ArrayView2<'_, f64>, y: ArrayView1<'_, f64>) -> Result<()>;
-    fn predict(&self, x: ArrayView2<'_, f64>) -> Result<Array1<f64>>;
-    fn fresh(&self) -> Box<dyn Regressor>;
-}
-
-/// A classification learner returning `P(label = 1 | X)`, used for
-/// propensity scores in models with a binary treatment (IRM, later phases).
-pub trait Classifier: Send + Sync {
-    fn fit(&mut self, x: ArrayView2<'_, f64>, y: ArrayView1<'_, f64>) -> Result<()>;
-    fn predict_proba(&self, x: ArrayView2<'_, f64>) -> Result<Array1<f64>>;
-    fn fresh(&self) -> Box<dyn Classifier>;
-}
 
 /// Ordinary least squares with an intercept and optional ridge penalty.
 ///

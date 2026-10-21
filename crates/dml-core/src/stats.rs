@@ -136,6 +136,21 @@ pub fn norm_ppf(p: f64) -> f64 {
     x - u / (1.0 + 0.5 * x * u)
 }
 
+/// Linear-interpolated sample quantile (NumPy's default `method="linear"`).
+/// Sorts `values` in place.
+pub(crate) fn quantile_mut(values: &mut [f64], q: f64) -> f64 {
+    values.sort_by(f64::total_cmp);
+    let pos = q * (values.len() - 1) as f64;
+    let lo = pos.floor() as usize;
+    let hi = pos.ceil() as usize;
+    values[lo] + (pos - lo as f64) * (values[hi] - values[lo])
+}
+
+/// Median (average of the two middle values for even length), as `np.median`.
+pub(crate) fn median(values: &[f64]) -> f64 {
+    quantile_mut(&mut values.to_vec(), 0.5)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,5 +179,12 @@ mod tests {
         for &p in &[1e-6, 0.001, 0.02, 0.3, 0.7, 0.99, 0.999_999] {
             assert!(rel(norm_cdf(norm_ppf(p)), p) < 1e-13, "p = {p}");
         }
+    }
+
+    #[test]
+    fn quantile_and_median_match_numpy() {
+        assert_eq!(median(&[3.0, 1.0, 2.0]), 2.0);
+        assert_eq!(median(&[4.0, 1.0, 3.0, 2.0]), 2.5);
+        assert!((quantile_mut(&mut [1.0, 2.0, 3.0, 4.0, 5.0], 0.95) - 4.8).abs() < 1e-12);
     }
 }

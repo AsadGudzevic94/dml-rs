@@ -46,15 +46,19 @@ fn simulate(n: usize, seed: u64) -> (DmlData, f64) {
 #[test]
 fn recovers_theta_where_naive_regression_is_biased() {
     let (data, naive) = simulate(2000, 1);
-    let res = Plr::new(Ols::new(), Ols::new())
+    let fit = Plr::new(Ols::new(), Ols::new())
         .seed(42)
         .fit(&data)
         .unwrap();
-    assert!((res.coef - THETA).abs() < 0.1, "coef = {}", res.coef);
+    assert!(
+        (fit.coef()[0] - THETA).abs() < 0.1,
+        "coef = {}",
+        fit.coef()[0]
+    );
     assert!((naive - THETA).abs() > 0.3, "naive = {naive}");
-    let (lo, hi) = res.confint(0.95).unwrap();
-    assert!(lo < THETA && THETA < hi);
-    println!("{res}");
+    let ci = fit.confint(0.95).unwrap();
+    assert!(ci[[0, 0]] < THETA && THETA < ci[[0, 1]]);
+    println!("{fit}");
 }
 
 #[test]
@@ -63,9 +67,9 @@ fn ci_coverage_is_close_to_nominal() {
     let mut covered = 0;
     for r in 0..reps {
         let (data, _) = simulate(500, 1000 + r);
-        let res = Plr::new(Ols::new(), Ols::new()).seed(r).fit(&data).unwrap();
-        let (lo, hi) = res.confint(0.95).unwrap();
-        covered += usize::from(lo <= THETA && THETA <= hi);
+        let fit = Plr::new(Ols::new(), Ols::new()).seed(r).fit(&data).unwrap();
+        let ci = fit.confint(0.95).unwrap();
+        covered += usize::from(ci[[0, 0]] <= THETA && THETA <= ci[[0, 1]]);
     }
     let coverage = covered as f64 / reps as f64;
     // Monte-Carlo s.e. of the coverage is about 1.3% at 300 reps.

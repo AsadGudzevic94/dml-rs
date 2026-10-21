@@ -34,3 +34,6 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo clippy --all-targets --no-default-features -- -D warnings
       - run: cargo test --no-default-features
+      - run: cargo doc --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings

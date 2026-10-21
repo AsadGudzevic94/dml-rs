@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use dml_core::{Fold, Ols};
+use dml_core::{Classifier, DmlData, Fold, Lasso, LogisticRegression, Ols, Regressor};
 use ndarray::{Array1, Array2};
 use serde_json::Value;
 
@@ -55,21 +55,54 @@ impl Fixture {
         self.expected(key)[0].as_f64().expect("number")
     }
 
-    /// Expected predictions of a nuisance for one repetition.
-    pub fn prediction(&self, name: &str, rep: usize) -> Array1<f64> {
-        to_vec(&self.expected("predictions")[name][rep])
+    /// Expected predictions of a nuisance for one treatment and repetition.
+    pub fn prediction(&self, name: &str, treatment: usize, rep: usize) -> Array1<f64> {
+        to_vec(&self.expected("predictions")[name][treatment][rep])
     }
 
-    pub fn regressor(&self) -> Ols {
-        learner_from_spec(&self.0["learner"])
+    pub fn option_str(&self, key: &str) -> &str {
+        self.0["options"][key].as_str().expect("string option")
+    }
+
+    pub fn option_bool(&self, key: &str) -> bool {
+        self.0["options"][key].as_bool().unwrap_or(false)
+    }
+
+    pub fn regressor(&self, nuisance: &str) -> Box<dyn Regressor> {
+        regressor_from_spec(&self.0["learners"][nuisance])
+    }
+
+    pub fn classifier(&self, nuisance: &str) -> Box<dyn Classifier> {
+        let spec = &self.0["learners"][nuisance];
+        match spec["kind"].as_str().expect("learner kind") {
+            "logit" => Box::new(LogisticRegression::new(spec["c"].as_f64().expect("c"))),
+            other => panic!("unknown classifier {other}"),
+        }
+    }
+
+    /// `DmlData` from the stored arrays (1-D or 2-D `d`, optional `z`).
+    pub fn data(&self) -> DmlData {
+        let (y, x) = (self.vec("y"), self.matrix("x"));
+        let d = &self.0["d"];
+        let data = if d[0].is_array() {
+            DmlData::with_treatments(y, to_matrix(d), x)
+        } else {
+            DmlData::new(y, to_vec(d), x)
+        }
+        .unwrap();
+        match self.0.get("z") {
+            Some(z) => data.with_instrument(to_vec(z)).unwrap(),
+            None => data,
+        }
     }
 }
 
-pub fn learner_from_spec(spec: &Value) -> Ols {
+pub fn regressor_from_spec(spec: &Value) -> Box<dyn Regressor> {
     match spec["kind"].as_str().expect("learner kind") {
-        "ols" => Ols::new(),
-        "ridge" => Ols::with_ridge(spec["alpha"].as_f64().expect("alpha")),
-        other => panic!("unknown learner {other}"),
+        "ols" => Box::new(Ols::new()),
+        "ridge" => Box::new(Ols::with_ridge(spec["alpha"].as_f64().expect("alpha"))),
+        "lasso" => Box::new(Lasso::new(spec["alpha"].as_f64().expect("alpha"))),
+        other => panic!("unknown regressor {other}"),
     }
 }
 

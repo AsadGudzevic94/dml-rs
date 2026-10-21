@@ -5,7 +5,7 @@ use rand_chacha::ChaCha8Rng;
 
 use crate::data::gather;
 use crate::error::{DmlError, Result};
-use crate::learner::Regressor;
+use crate::learner::{Classifier, Regressor};
 
 /// One train/test split.
 #[derive(Debug, Clone, PartialEq)]
@@ -67,6 +67,44 @@ impl KFold {
     }
 }
 
+/// How observations are split for cross-fitting: `n_rep` independent
+/// repetitions of seeded K-fold splitting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SampleSplitting {
+    pub n_folds: usize,
+    pub n_rep: usize,
+    pub seed: u64,
+}
+
+impl Default for SampleSplitting {
+    fn default() -> Self {
+        Self {
+            n_folds: 5,
+            n_rep: 1,
+            seed: 0,
+        }
+    }
+}
+
+impl SampleSplitting {
+    /// Draw the folds for every repetition. Repetition `r` uses its own seed
+    /// derived from `seed`, so repetition 0 equals `KFold::new(n_folds, seed)`.
+    pub fn draw(&self, n: usize) -> Result<Vec<Vec<Fold>>> {
+        if self.n_rep == 0 {
+            return Err(DmlError::InvalidArgument("n_rep must be at least 1".into()));
+        }
+        (0..self.n_rep as u64)
+            .map(|r| {
+                // Golden-ratio increment keeps repetition seeds far apart.
+                let seed = self
+                    .seed
+                    .wrapping_add(r.wrapping_mul(0x9E37_79B9_7F4A_7C15));
+                KFold::new(self.n_folds, seed)?.split(n)
+            })
+            .collect()
+    }
+}
+
 /// Out-of-fold predictions: for each fold, fit a fresh copy of `learner` on the
 /// training rows and predict the held-out rows. Every row is predicted by a
 /// model that never saw it — the core of DML cross-fitting.
@@ -88,6 +126,58 @@ pub fn cross_fit_predict(
             gather(target, &fold.train).view(),
         )?;
         model.predict(x.select(Axis(0), &fold.test).view())
+    })
+}
+
+/// Like [`cross_fit_predict`], but each model is trained only on the training
+/// rows where `keep[i]` is true (e.g. controls only); predictions still cover
+/// every test row.
+pub fn cross_fit_predict_subset(
+    learner: &dyn Regressor,
+    x: ArrayView2<'_, f64>,
+    target: ArrayView1<'_, f64>,
+    folds: &[Fold],
+    keep: &[bool],
+) -> Result<Array1<f64>> {
+    if keep.len() != x.nrows() {
+        return Err(DmlError::DimensionMismatch(
+            "cross_fit_predict_subset mask length".into(),
+        ));
+    }
+    let subset: Vec<Fold> = folds
+        .iter()
+        .map(|f| Fold {
+            train: f.train.iter().copied().filter(|&i| keep[i]).collect(),
+            test: f.test.clone(),
+        })
+        .collect();
+    if subset.iter().any(|f| f.train.is_empty()) {
+        return Err(DmlError::InvalidArgument(
+            "a training fold has no observations in the requested subgroup".into(),
+        ));
+    }
+    cross_fit_predict(learner, x, target, &subset)
+}
+
+/// Out-of-fold class-1 probabilities from a [`Classifier`].
+pub fn cross_fit_predict_proba(
+    learner: &dyn Classifier,
+    x: ArrayView2<'_, f64>,
+    labels: ArrayView1<'_, f64>,
+    folds: &[Fold],
+) -> Result<Array1<f64>> {
+    if labels.len() != x.nrows() {
+        return Err(DmlError::DimensionMismatch(
+            "cross_fit_predict_proba x/labels rows".into(),
+        ));
+    }
+    cross_fit_with(x.nrows(), folds, |fold| {
+        let mut model = learner.fresh();
+        model.fit(
+            x.select(Axis(0), &fold.train).view(),
+            gather(labels, &fold.train).view(),
+        )?;
+        model.predict_proba(x.select(Axis(0), &fold.test).view())
     })
 }
 
@@ -155,6 +245,34 @@ mod tests {
         let c = KFold::new(5, 43).unwrap().split(50).unwrap();
         assert_eq!(a, b);
         assert_ne!(a, c);
+    }
+
+    #[test]
+    fn repetitions_differ_and_first_matches_kfold() {
+        let reps = SampleSplitting {
+            n_folds: 4,
+            n_rep: 3,
+            seed: 9,
+        }
+        .draw(40)
+        .unwrap();
+        assert_eq!(reps.len(), 3);
+        assert_eq!(reps[0], KFold::new(4, 9).unwrap().split(40).unwrap());
+        assert_ne!(reps[0], reps[1]);
+        assert_ne!(reps[1], reps[2]);
+    }
+
+    #[test]
+    fn subset_training_uses_only_kept_rows() {
+        // Target is 0 on kept rows and 100 elsewhere: a mean model trained
+        // only on kept rows predicts ~0 everywhere.
+        let x = Array2::<f64>::zeros((20, 0));
+        let keep: Vec<bool> = (0..20).map(|i| i % 2 == 0).collect();
+        let y: Array1<f64> = keep.iter().map(|&k| if k { 0.0 } else { 100.0 }).collect();
+        let folds = KFold::new(4, 1).unwrap().split(20).unwrap();
+        let pred =
+            cross_fit_predict_subset(&Ols::new(), x.view(), y.view(), &folds, &keep).unwrap();
+        assert!(pred.iter().all(|p| p.abs() < 1e-12));
     }
 
     #[test]
