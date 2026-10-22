@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pytest
 
@@ -59,6 +61,7 @@ def test_native_forests_inside_dml_models():
     assert np.isfinite(irm.coef_[0]) and irm.se_[0] > 0
 
 
+@pytest.mark.skipif(bool(os.environ.get("CI")), reason="timing comparison is unreliable on shared CI runners")
 def test_native_forest_is_faster_than_sklearn_inside_plr():
     """Same forest settings; the native forest avoids per-fold Python calls."""
     import time
