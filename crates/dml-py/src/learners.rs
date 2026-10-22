@@ -1,7 +1,10 @@
 //! Learners exposed to Python, and adapters that let any scikit-learn style
 //! estimator act as a Rust [`Regressor`] / [`Classifier`].
 
-use dml_core::{Classifier, DmlError, Lasso, LogisticRegression, Ols, Regressor};
+use dml_core::{
+    Classifier, DmlError, Lasso, LogisticRegression, MaxFeatures, Ols, RandomForestClassifier,
+    RandomForestRegressor, Regressor,
+};
 use ndarray::{Array1, ArrayView1, ArrayView2};
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
@@ -157,6 +160,169 @@ impl PyLogisticRegression {
         format!("LogisticRegression(C={})", self.c)
     }
 }
+
+/// scikit-learn style `max_features`: `None` (all), `"sqrt"`, `"log2"`, a
+/// fraction in `(0, 1]` or a number of features.
+fn parse_max_features(obj: &Bound<'_, PyAny>, default: MaxFeatures) -> PyResult<MaxFeatures> {
+    use pyo3::types::{PyBool, PyFloat, PyInt, PyString};
+    if obj.is_none() {
+        return Ok(default);
+    }
+    if let Ok(s) = obj.cast::<PyString>() {
+        return match s.extract::<String>()?.as_str() {
+            "sqrt" => Ok(MaxFeatures::Sqrt),
+            "log2" => Ok(MaxFeatures::Log2),
+            other => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "max_features must be None, 'sqrt', 'log2', a float or an int, got {other:?}"
+            ))),
+        };
+    }
+    if obj.is_instance_of::<PyInt>() && !obj.is_instance_of::<PyBool>() {
+        return Ok(MaxFeatures::Count(obj.extract()?));
+    }
+    if obj.is_instance_of::<PyFloat>() {
+        return Ok(MaxFeatures::Fraction(obj.extract()?));
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "max_features must be None, 'sqrt', 'log2', a float or an int",
+    ))
+}
+
+/// Forest settings as given from Python, shared by both forest classes.
+#[derive(Clone, Copy)]
+struct ForestArgs {
+    n_estimators: usize,
+    max_depth: Option<usize>,
+    min_samples_split: usize,
+    min_samples_leaf: usize,
+    max_features: MaxFeatures,
+    bootstrap: bool,
+    max_samples: Option<f64>,
+    random_state: u64,
+}
+
+/// Apply [`ForestArgs`] to either forest type (they share builder methods).
+macro_rules! configure_forest {
+    ($forest:expr, $args:expr) => {
+        $forest
+            .n_estimators($args.n_estimators)
+            .max_depth($args.max_depth)
+            .min_samples_split($args.min_samples_split)
+            .min_samples_leaf($args.min_samples_leaf)
+            .max_features($args.max_features)
+            .bootstrap($args.bootstrap)
+            .max_samples($args.max_samples)
+            .seed($args.random_state)
+    };
+}
+
+/// Generate a forest pyclass: constructor with scikit-learn's parameter names,
+/// `fit` (GIL released while the trees grow), a prediction method and
+/// `feature_importances_`.
+macro_rules! forest_pyclass {
+    ($py_ty:ident, $rust_ty:ty, $name:literal, $default_features:expr, $predict:ident, $predict_doc:literal) => {
+        #[doc = concat!("Random forest implemented in Rust; trees are grown in parallel without the GIL. ",
+                        "Parameters follow scikit-learn's `", $name, "`.")]
+        #[pyclass(name = $name, module = "dml_rs")]
+        #[derive(Clone)]
+        pub struct $py_ty {
+            pub(crate) inner: $rust_ty,
+            args: ForestArgs,
+        }
+
+        #[pymethods]
+        impl $py_ty {
+            #[new]
+            #[pyo3(signature = (n_estimators = 100, max_depth = None, min_samples_split = 2,
+                                min_samples_leaf = 1, max_features = None, bootstrap = true,
+                                max_samples = None, random_state = 0))]
+            #[allow(clippy::too_many_arguments)]
+            fn new(
+                n_estimators: usize,
+                max_depth: Option<usize>,
+                min_samples_split: usize,
+                min_samples_leaf: usize,
+                max_features: Option<&Bound<'_, PyAny>>,
+                bootstrap: bool,
+                max_samples: Option<f64>,
+                random_state: u64,
+            ) -> PyResult<Self> {
+                let max_features = match max_features {
+                    Some(obj) => parse_max_features(obj, $default_features)?,
+                    None => $default_features,
+                };
+                let args = ForestArgs {
+                    n_estimators,
+                    max_depth,
+                    min_samples_split,
+                    min_samples_leaf,
+                    max_features,
+                    bootstrap,
+                    max_samples,
+                    random_state,
+                };
+                Ok(Self {
+                    inner: configure_forest!(<$rust_ty>::new(), args),
+                    args,
+                })
+            }
+
+            fn fit<'py>(
+                mut slf: PyRefMut<'py, Self>,
+                x: PyReadonlyArray2<'py, f64>,
+                y: PyReadonlyArray1<'py, f64>,
+            ) -> PyResult<PyRefMut<'py, Self>> {
+                let (x, y) = (x.as_array().to_owned(), y.as_array().to_owned());
+                let mut model = slf.inner.clone();
+                slf.py()
+                    .detach(|| model.fit(x.view(), y.view()))
+                    .map_err(to_py_err)?;
+                slf.inner = model;
+                Ok(slf)
+            }
+
+            #[doc = $predict_doc]
+            fn $predict<'py>(
+                &self,
+                py: Python<'py>,
+                x: PyReadonlyArray2<'py, f64>,
+            ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+                Ok(self.inner.$predict(x.as_array()).map_err(to_py_err)?.into_pyarray(py))
+            }
+
+            /// Mean decrease in impurity per feature (sums to one), after `fit`.
+            #[getter]
+            fn feature_importances_<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyArray1<f64>>> {
+                self.inner.feature_importances().map(|a| a.clone().into_pyarray(py))
+            }
+
+            fn __repr__(&self) -> String {
+                format!(
+                    "{}(n_estimators={}, min_samples_leaf={}, random_state={})",
+                    $name, self.args.n_estimators, self.args.min_samples_leaf, self.args.random_state
+                )
+            }
+        }
+    };
+}
+
+forest_pyclass!(
+    PyRandomForestRegressor,
+    RandomForestRegressor,
+    "RandomForestRegressor",
+    MaxFeatures::All,
+    predict,
+    "Predicted values."
+);
+
+forest_pyclass!(
+    PyRandomForestClassifier,
+    RandomForestClassifier,
+    "RandomForestClassifier",
+    MaxFeatures::Sqrt,
+    predict_proba,
+    "Probability of class 1 (a 1-D array, unlike scikit-learn's two columns)."
+);
 
 // ---------------------------------------------------------------------------
 // Adapters for arbitrary Python estimators.
@@ -343,11 +509,17 @@ pub fn to_regressor(obj: &Bound<'_, PyAny>) -> PyResult<Box<dyn Regressor>> {
     if let Ok(o) = obj.cast::<PyLasso>() {
         return Ok(Box::new(o.borrow().inner.clone()));
     }
+    if let Ok(o) = obj.cast::<PyRandomForestRegressor>() {
+        return Ok(Box::new(o.borrow().inner.clone()));
+    }
     Ok(Box::new(PyRegressor::new(obj)?))
 }
 
 pub fn to_classifier(obj: &Bound<'_, PyAny>) -> PyResult<Box<dyn Classifier>> {
     if let Ok(o) = obj.cast::<PyLogisticRegression>() {
+        return Ok(Box::new(o.borrow().inner.clone()));
+    }
+    if let Ok(o) = obj.cast::<PyRandomForestClassifier>() {
         return Ok(Box::new(o.borrow().inner.clone()));
     }
     Ok(Box::new(PyClassifier::new(obj)?))

@@ -13,8 +13,8 @@ modelled on and numerically validated against the [DoubleML](https://docs.double
   repeated sample splitting, multiplier bootstrap, joint intervals, Romano–Wolf / Holm / Bonferroni
 - **Heterogeneous effects:** S-, T-, X-, R- and DR-learners; best linear predictor of the CATE and
   group average treatment effects with robust inference
-- **Learners:** `Ols` (ridge), `Lasso`, `LogisticRegression`, or your own via the `Regressor` /
-  `Classifier` traits
+- **Learners:** `RandomForestRegressor` / `RandomForestClassifier`, `Ols` (ridge), `Lasso`,
+  `LogisticRegression`, or your own via the `Regressor` / `Classifier` traits
 - **Fast:** pure Rust, no BLAS; folds fitted in parallel with rayon (`parallel` feature, default)
 
 ```sh

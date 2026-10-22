@@ -48,9 +48,9 @@ pip install dml-rs
 - **Heterogeneous effects:** S-, T-, X-, R- and DR-learners for the CATE; best linear predictor
   (BLP) of the CATE and group average treatment effects (GATE) with HC0 inference, pointwise and
   simultaneous confidence bands
-- **Learners:** `Ols` (with optional ridge), `Lasso` (coordinate descent), `LogisticRegression`
-  (Newton), or any type implementing the `Regressor` / `Classifier` traits (with optional
-  weighted fitting)
+- **Learners:** `RandomForestRegressor` / `RandomForestClassifier` (parallel, seeded CART forests),
+  `Ols` (with optional ridge), `Lasso` (coordinate descent), `LogisticRegression` (Newton), or any
+  type implementing the `Regressor` / `Classifier` traits (with optional weighted fitting)
 - **Extensible:** implement `LinearScoreModel` to add a new orthogonal score and reuse the
   whole cross-fitting and inference engine
 - **Fast:** folds fitted in parallel with rayon; no BLAS or C dependencies
@@ -101,12 +101,15 @@ let l_hat = fit.prediction("ml_l", 0, 0); // cross-fitted E[Y|X], repetition 0
 ### Average treatment effect with a binary treatment
 
 ```rust
-use dml_core::{Irm, IrmScore, LogisticRegression, Ols};
+use dml_core::{Irm, IrmScore, RandomForestClassifier, RandomForestRegressor};
 
-let fit = Irm::new(Ols::new(), LogisticRegression::default()) // E[Y|D,X], P(D=1|X)
-    .score(IrmScore::Ate)          // or IrmScore::Atte
-    .clipping_threshold(0.01)
-    .fit(&data)?;
+let fit = Irm::new(
+    RandomForestRegressor::new().min_samples_leaf(5),  // E[Y|D,X]
+    RandomForestClassifier::new().min_samples_leaf(5), // P(D=1|X)
+)
+.score(IrmScore::Ate) // or IrmScore::Atte
+.clipping_threshold(0.01)
+.fit(&data)?;
 ```
 
 ### Instrumental variables
@@ -180,9 +183,9 @@ irm.cate(basis).confint(basis_grid)    # DoubleML-compatible CATE / GATE inferen
 irm.gate(groups).confint()
 ```
 
-Nuisance learners can be the built-in Rust learners (`dml_rs.Ols`, `dml_rs.Lasso`,
-`dml_rs.LogisticRegression`) — the whole fit then runs in Rust, in parallel, without the
-GIL — or any object with scikit-learn's `fit` / `predict` (`predict_proba` for
+Nuisance learners can be the built-in Rust learners (`dml_rs.RandomForestRegressor`,
+`dml_rs.RandomForestClassifier`, `dml_rs.Ols`, `dml_rs.Lasso`, `dml_rs.LogisticRegression`) — the
+whole fit then runs in Rust, in parallel, without the GIL — or any object with scikit-learn's `fit` / `predict` (`predict_proba` for
 classifiers). Python learners are cloned per fold with `sklearn.base.clone` and called
 from Rust's worker threads. Estimators follow scikit-learn conventions (`get_params`,
 `set_params`, `sklearn.base.clone`, fitted attributes ending in `_`), and `fit(..., folds=...)`
@@ -230,8 +233,19 @@ PLR with OLS nuisances and 5-fold cross-fitting (`cargo bench -p dml-core`, vers
 | 10 000 × 20  | 7.5 ms  | 54 ms             | ~7×      |
 | 100 000 × 50 | 241 ms  | 1 244 ms          | ~5×      |
 
-Folds are fitted in parallel with [rayon](https://docs.rs/rayon) (the default
-`parallel` feature; disable with `default-features = false`).
+PLR with **random-forest** nuisances (100 trees, `min_samples_leaf=5`, all features per split,
+5 folds; `parity/bench_forest.py`, 16 cores, scikit-learn with `n_jobs=-1`):
+
+| n × p       | dml-rs native forest | dml-rs + scikit-learn forest | DoubleML + scikit-learn forest |
+|-------------|----------------------|------------------------------|--------------------------------|
+| 2 000 × 10  | 0.30 s               | 1.68 s                       | 1.82 s (~6× slower)            |
+| 10 000 × 20 | 4.4 s                | 10.5 s                       | 12.4 s (~3× slower)            |
+
+All three estimate θ within 0.02 of the true 0.5 on this nonlinear design.
+
+Folds (and trees) are fitted in parallel with [rayon](https://docs.rs/rayon) (the default
+`parallel` feature; disable with `default-features = false`). Results do not depend on the
+number of threads.
 
 ## Development
 

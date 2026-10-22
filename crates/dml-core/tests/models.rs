@@ -164,3 +164,55 @@ fn repeated_splits_aggregate_by_median() {
     assert_eq!(fit.coef()[0], coefs[2]);
     println!("{fit}");
 }
+
+/// Confounding through sin(x₀) and a threshold in x₁ — far from linear.
+fn nonlinear_plr_data(n: usize, seed: u64) -> DmlData {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let x = Array2::from_shape_simple_fn((n, 4), || rng.gen::<f64>() * 6.0 - 3.0);
+    let mut d = Array1::zeros(n);
+    let mut y = Array1::zeros(n);
+    for i in 0..n {
+        let (a, b) = (x[[i, 0]], x[[i, 1]]);
+        let confounder = 2.0 * a.sin() + 1.5 * f64::from(b > 0.0);
+        d[i] = confounder + std_normal(&mut rng);
+        y[i] = 0.5 * d[i] + 2.0 * confounder + std_normal(&mut rng);
+    }
+    DmlData::new(y, d, x).unwrap()
+}
+
+#[test]
+fn random_forest_nuisances_remove_nonlinear_confounding_bias() {
+    use dml_core::{RandomForestClassifier, RandomForestRegressor};
+    let data = nonlinear_plr_data(3000, 11);
+    let rf = RandomForestRegressor::new()
+        .n_estimators(100)
+        .min_samples_leaf(5)
+        .seed(1);
+    let forest = Plr::new(rf.clone(), rf).fit(&data).unwrap();
+    let linear = Plr::new(Ols::new(), Ols::new()).fit(&data).unwrap();
+    let ci = forest.confint(0.95).unwrap();
+    assert!(ci[[0, 0]] < 0.5 && 0.5 < ci[[0, 1]], "forest CI {ci}");
+    assert!(
+        (linear.coef()[0] - 0.5).abs() > 0.2,
+        "ols = {}",
+        linear.coef()[0]
+    );
+
+    // A forest propensity model inside IRM runs end to end.
+    let n = data.n_obs();
+    let d_bin: Array1<f64> = data.treatment(0).mapv(|v| f64::from(v > 0.0));
+    let y_bin = &data.y().to_owned() + &d_bin;
+    let irm_data = DmlData::new(y_bin, d_bin, data.x().to_owned()).unwrap();
+    let irm = Irm::new(
+        RandomForestRegressor::new()
+            .n_estimators(50)
+            .min_samples_leaf(10),
+        RandomForestClassifier::new()
+            .n_estimators(50)
+            .min_samples_leaf(10),
+    )
+    .fit(&irm_data)
+    .unwrap();
+    assert_eq!(irm.n_obs(), n);
+    assert!(irm.coef()[0].is_finite() && irm.se()[0] > 0.0);
+}

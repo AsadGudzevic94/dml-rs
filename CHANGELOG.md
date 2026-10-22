@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `RandomForestRegressor` and `RandomForestClassifier`: CART forests in pure Rust with bootstrap,
+  random feature subsets (`MaxFeatures`), depth and leaf-size limits, sample weights and
+  feature importances. Trees are grown in parallel and are reproducible for a given seed
+  regardless of the number of threads. Also exposed in Python as `dml_rs.RandomForestRegressor`
+  and `dml_rs.RandomForestClassifier` (about 3–6× faster than DoubleML with scikit-learn
+  forests for PLR).
+- CI job checking the minimum supported Rust version (1.80).
+
 ## [0.1.0] - 2026-10-23
 
 First release.

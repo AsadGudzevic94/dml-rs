@@ -5,10 +5,12 @@ use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis};
 
 use crate::error::{DmlError, Result};
 
+mod forest;
 mod lasso;
 mod logistic;
 mod ols;
 
+pub use forest::{MaxFeatures, RandomForestClassifier, RandomForestRegressor};
 pub use lasso::Lasso;
 pub use logistic::LogisticRegression;
 pub use ols::Ols;

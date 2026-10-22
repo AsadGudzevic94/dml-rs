@@ -15,7 +15,10 @@ mod learners;
 
 use cate::{fit_cate, PyBlp, PyCateResult};
 use errors::to_py_err;
-use learners::{to_classifier, to_regressor, PyLasso, PyLogisticRegression, PyOls};
+use learners::{
+    to_classifier, to_regressor, PyLasso, PyLogisticRegression, PyOls, PyRandomForestClassifier,
+    PyRandomForestRegressor,
+};
 
 /// Splits from Python: one list per repetition of `(train, test)` index lists.
 pub(crate) type PySplits = Vec<Vec<(Vec<usize>, Vec<usize>)>>;
@@ -379,7 +382,7 @@ mod dml_rs_native {
     #[pymodule_export]
     use super::{
         fit_cate, fit_irm, fit_pliv, fit_plr, PyBlp, PyBootstrap, PyCateResult, PyDmlResult,
-        PyLasso, PyLogisticRegression, PyOls,
+        PyLasso, PyLogisticRegression, PyOls, PyRandomForestClassifier, PyRandomForestRegressor,
     };
 
     #[pymodule_init]

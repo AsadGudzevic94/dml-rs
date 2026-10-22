@@ -23,7 +23,8 @@
 //!
 //! - [`DmlData`]: outcome `y`, one or more treatments `d`, covariates `x`, optional instrument `z`
 //! - [`Regressor`] / [`Classifier`]: plug-in nuisance learners
-//!   ([`Ols`], [`Lasso`], [`LogisticRegression`] built in)
+//!   ([`Ols`], [`Lasso`], [`LogisticRegression`], [`RandomForestRegressor`],
+//!   [`RandomForestClassifier`] built in)
 //! - [`KFold`] / [`SampleSplitting`]: reproducible sample splitting
 //!
 //! ```
@@ -65,6 +66,9 @@ pub use crossfit::{
 pub use data::DmlData;
 pub use error::{DmlError, Result};
 pub use fit::{fit_model, DmlFit, PAdjust};
-pub use learner::{Classifier, Lasso, LogisticRegression, Ols, Regressor};
+pub use learner::{
+    Classifier, Lasso, LogisticRegression, MaxFeatures, Ols, RandomForestClassifier,
+    RandomForestRegressor, Regressor,
+};
 pub use model::{Irm, IrmScore, LinearScoreModel, Pliv, Plr, PlrScore, ScoreEstimate, ScoreInput};
 pub use score::LinearScore;

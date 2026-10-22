@@ -12,7 +12,8 @@ DR-learner and :meth:`IRM.cate` / :meth:`IRM.gate` provide inference via
 :class:`BLP`.
 
 Nuisance learners can be the built-in Rust learners (:class:`Ols`,
-:class:`Lasso`, :class:`LogisticRegression`), which run fully in parallel,
+:class:`Lasso`, :class:`LogisticRegression`, :class:`RandomForestRegressor`,
+:class:`RandomForestClassifier`), which run fully in parallel without the GIL,
 or any scikit-learn compatible estimator.
 """
 
@@ -24,6 +25,8 @@ from ._dml_rs import (
     Lasso,
     LogisticRegression,
     Ols,
+    RandomForestClassifier,
+    RandomForestRegressor,
     __version__,
     fit_cate,
     fit_irm,
@@ -47,6 +50,8 @@ __all__ = [
     "Ols",
     "Lasso",
     "LogisticRegression",
+    "RandomForestRegressor",
+    "RandomForestClassifier",
     "DmlResult",
     "Bootstrap",
     "Blp",
