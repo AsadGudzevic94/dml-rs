@@ -4,7 +4,9 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.0] - unreleased
+## [Unreleased]
+
+## [0.1.0] - 2026-10-23
 
 First release.
 
@@ -19,3 +21,6 @@ First release.
 - Learners: `Ols` (with ridge), `Lasso`, `LogisticRegression`; weighted fitting.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
+
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/AsadGudzevic94/dml-rs/releases/tag/v0.1.0

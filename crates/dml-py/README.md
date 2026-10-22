@@ -1,7 +1,15 @@
 # dml-rs (Python)
 
+[![PyPI](https://img.shields.io/pypi/v/dml-rs.svg)](https://pypi.org/project/dml-rs/)
+[![Python versions](https://img.shields.io/pypi/pyversions/dml-rs.svg)](https://pypi.org/project/dml-rs/)
+[![CI](https://github.com/AsadGudzevic94/dml-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/AsadGudzevic94/dml-rs/actions/workflows/ci.yml)
+
 Fast double / debiased machine learning for causal inference, implemented in Rust
 and validated against [DoubleML](https://docs.doubleml.org).
+
+```sh
+pip install dml-rs
+```
 
 ```python
 import dml_rs

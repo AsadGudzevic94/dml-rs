@@ -1,5 +1,9 @@
 # dml-core
 
+[![crates.io](https://img.shields.io/crates/v/dml-core.svg)](https://crates.io/crates/dml-core)
+[![docs.rs](https://img.shields.io/docsrs/dml-core)](https://docs.rs/dml-core)
+[![CI](https://github.com/AsadGudzevic94/dml-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/AsadGudzevic94/dml-rs/actions/workflows/ci.yml)
+
 Double / debiased machine learning (Chernozhukov et al., 2018) for causal inference in Rust,
 modelled on and numerically validated against the [DoubleML](https://docs.doubleml.org) package.
 
@@ -12,6 +16,10 @@ modelled on and numerically validated against the [DoubleML](https://docs.double
 - **Learners:** `Ols` (ridge), `Lasso`, `LogisticRegression`, or your own via the `Regressor` /
   `Classifier` traits
 - **Fast:** pure Rust, no BLAS; folds fitted in parallel with rayon (`parallel` feature, default)
+
+```sh
+cargo add dml-core
+```
 
 ```rust
 use dml_core::{DmlData, Lasso, Plr};

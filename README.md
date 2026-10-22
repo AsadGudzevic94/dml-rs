@@ -1,6 +1,13 @@
 # dml-rs
 
-Double / debiased machine learning (DML) for causal inference, in Rust.
+[![crates.io](https://img.shields.io/crates/v/dml-core.svg)](https://crates.io/crates/dml-core)
+[![PyPI](https://img.shields.io/pypi/v/dml-rs.svg)](https://pypi.org/project/dml-rs/)
+[![Python versions](https://img.shields.io/pypi/pyversions/dml-rs.svg)](https://pypi.org/project/dml-rs/)
+[![docs.rs](https://img.shields.io/docsrs/dml-core)](https://docs.rs/dml-core)
+[![CI](https://github.com/AsadGudzevic94/dml-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/AsadGudzevic94/dml-rs/actions/workflows/ci.yml)
+[![License: MIT OR Apache-2.0](https://img.shields.io/crates/l/dml-core.svg)](#license)
+
+Double / debiased machine learning (DML) for causal inference, in Rust and Python.
 
 DML (Chernozhukov et al., 2018) estimates causal effects when many confounders
 must be controlled for. It combines three ingredients:
@@ -12,7 +19,22 @@ must be controlled for. It combines three ingredients:
 `dml-rs` is a fast, dependency-light Rust implementation modelled on the reference
 [DoubleML](https://docs.doubleml.org) package and tested for numerical parity with it.
 
-> **Status: pre-release.** All roadmap phases are implemented; the API may still change before 0.1.0 is published.
+> **Status:** 0.1.0 released. The API may still change in 0.x releases.
+
+## Installation
+
+**Rust** ([crates.io](https://crates.io/crates/dml-core), API docs on [docs.rs](https://docs.rs/dml-core)):
+
+```sh
+cargo add dml-core
+```
+
+**Python** ([PyPI](https://pypi.org/project/dml-rs/); prebuilt wheels for Windows, macOS and
+Linux, Python 3.9+):
+
+```sh
+pip install dml-rs
+```
 
 ## Features
 
@@ -131,7 +153,7 @@ let gate = irm.gate(group_dummies.view())?;
 ## Python
 
 ```sh
-pip install ./crates/dml-py        # builds the Rust extension with maturin
+pip install dml-rs
 ```
 
 ```python
@@ -222,6 +244,15 @@ cargo bench -p dml-core
 # Python bindings (inside a virtualenv with parity/requirements.txt + pytest + maturin)
 cd crates/dml-py && maturin develop --release && pytest tests
 ```
+
+## Releasing
+
+1. Bump `version` in the root `Cargo.toml` and move the `Unreleased` notes in `CHANGELOG.md`
+   under the new version.
+2. Commit, then tag and push: `git tag -a v0.2.0 -m "dml-rs 0.2.0" && git push origin v0.2.0`.
+3. Approve the two deployments in the Actions tab. `release-crate.yml` publishes `dml-core` to
+   crates.io and `wheels.yml` publishes `dml-rs` to PyPI, both through Trusted Publishing
+   (no API tokens). The tag must match the `Cargo.toml` version or both workflows stop.
 
 ## References
 
