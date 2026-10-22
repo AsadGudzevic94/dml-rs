@@ -1,0 +1,21 @@
+# Changelog
+
+All notable changes to this project are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
+[Semantic Versioning](https://semver.org/).
+
+## [0.1.0] - unreleased
+
+First release.
+
+### Added
+- `DmlData` with one or more treatments and an optional instrument.
+- Seeded K-fold cross-fitting with repeated sample splitting, fitted in parallel (rayon).
+- Models: `Plr` (partialling-out and IV-type scores), `Irm` (ATE / ATTE, propensity clipping,
+  normalised IPW), `Pliv`; extensible through the `LinearScoreModel` trait.
+- Inference: standard errors, t-statistics, p-values, confidence intervals; multiplier bootstrap
+  (normal, Bayes, wild), joint confidence intervals, Romano–Wolf, Holm and Bonferroni adjustment.
+- CATE meta-learners (S, T, X, R, DR) and best-linear-predictor / GATE inference.
+- Learners: `Ols` (with ridge), `Lasso`, `LogisticRegression`; weighted fitting.
+- Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
+- Numerical parity tests against Python DoubleML 0.11.4.
