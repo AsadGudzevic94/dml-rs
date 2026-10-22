@@ -1,6 +1,11 @@
-# Build Python wheels for all platforms when a version tag is pushed.
-# Wheels are uploaded as workflow artifacts; publishing to PyPI is a separate,
-# manual step (or add pypa/gh-action-pypi-publish with trusted publishing).
+# Build Python wheels + sdist, and publish to PyPI when a version tag is pushed.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Publishing uses PyPI Trusted Publishing (OIDC): no API token is stored.
+# PyPI trusts this workflow file, in this repository, running in the GitHub
+# environment named `pypi`. Running the workflow manually (workflow_dispatch)
+# only builds and tests; it never publishes.
 name: wheels
 
 on:
@@ -8,26 +13,59 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  wheels:
-    name: wheels (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+  check-version:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Tag must match the version in Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          echo "Cargo.toml version: $version, tag: $GITHUB_REF_NAME"
+          test "v$version" = "$GITHUB_REF_NAME"
+
+  wheels:
+    needs: check-version
+    name: wheel (${{ matrix.os }}, ${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64, test: true }
+          - { os: ubuntu-latest, target: aarch64, test: false }
+          - { os: windows-latest, target: x64, test: true }
+          - { os: macos-latest, target: aarch64, test: true }
+          - { os: macos-latest, target: x86_64, test: false }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: PyO3/maturin-action@v1
         with:
           working-directory: crates/dml-py
+          target: ${{ matrix.target }}
           args: --release --out dist
           manylinux: auto
+      - name: Smoke-test the wheel
+        if: matrix.test
+        shell: bash
+        run: |
+          pip install crates/dml-py/dist/*.whl
+          cd "$RUNNER_TEMP"
+          python -c "import dml_rs, numpy as np; x = np.random.default_rng(0).normal(size=(200, 2)); d = x[:, 0] + np.random.default_rng(1).normal(size=200); print(dml_rs.PLR(dml_rs.Ols(), dml_rs.Ols()).fit(x, 0.5 * d + x[:, 1], d).coef_)"
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.os }}
+          name: wheels-${{ matrix.os }}-${{ matrix.target }}
           path: crates/dml-py/dist
 
   sdist:
+    needs: check-version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,3 +78,21 @@ jobs:
         with:
           name: sdist
           path: crates/dml-py/dist
+
+  publish:
+    name: publish to PyPI
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/dml-rs/
+    permissions:
+      id-token: write # OIDC token for Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - run: ls -l dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
