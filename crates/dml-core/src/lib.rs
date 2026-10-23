@@ -18,6 +18,12 @@
 //! confidence intervals, a multiplier [`Bootstrap`] for joint inference and
 //! multiple-testing adjustment. New scores plug in via [`LinearScoreModel`].
 //!
+//! ## Sensitivity analysis
+//!
+//! [`DmlFit::sensitivity_analysis`] bounds the effect of omitted confounders (PLR, IRM, DID)
+//! and reports robustness values; `sensitivity_benchmark` calibrates the scenario against
+//! observed covariates.
+//!
 //! ## Heterogeneous effects
 //!
 //! - [`SLearner`], [`TLearner`], [`XLearner`], [`RLearner`], [`DrLearner`]: CATE meta-learners
@@ -60,6 +66,7 @@ pub mod learner;
 pub(crate) mod linalg;
 pub mod model;
 pub mod score;
+pub mod sensitivity;
 pub mod staggered;
 pub mod stats;
 
@@ -82,6 +89,9 @@ pub use model::{
     ScoreEstimate, ScoreInput,
 };
 pub use score::LinearScore;
+pub use sensitivity::{
+    Nu2Parts, SensitivityBenchmark, SensitivityParams, SensitivityParts, SensitivityResult,
+};
 pub use staggered::{
     Aggregation, ControlGroup, DidAggregation, GroupTime, GtCombinations, PanelData,
     RepeatedCrossSections, StaggeredDid, StaggeredDidFit, StaggeredInput,

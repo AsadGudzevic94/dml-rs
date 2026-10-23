@@ -67,6 +67,8 @@ the corresponding classifiers) run the whole estimation in Rust, in parallel and
 All estimators support repeated sample splitting, multiplier bootstrap with simultaneous
 confidence bands (`bootstrap`, `confint(joint=True)`), multiple-testing adjustment (`p_adjust`),
 pandas summaries, and the scikit-learn parameter protocol (`get_params`, `set_params`, `clone`).
+PLR, IRM and DID models also offer sensitivity analysis for omitted confounders
+(`sensitivity_analysis`, `sensitivity_summary`, `sensitivity_benchmark`).
 
 ## Documentation
 

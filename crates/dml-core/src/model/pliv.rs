@@ -73,10 +73,10 @@ impl LinearScoreModel for Pliv {
         let u: Array1<f64> = &y - &l_hat;
         let v: Array1<f64> = &z - &m_hat;
         let w: Array1<f64> = &d - &r_hat;
-        Ok(ScoreEstimate {
-            score: LinearScore::new(-(&w * &v), &v * &u)?,
-            predictions: vec![("ml_l", l_hat), ("ml_m", m_hat), ("ml_r", r_hat)],
-        })
+        Ok(ScoreEstimate::new(
+            LinearScore::new(-(&w * &v), &v * &u)?,
+            vec![("ml_l", l_hat), ("ml_m", m_hat), ("ml_r", r_hat)],
+        ))
     }
 }
 

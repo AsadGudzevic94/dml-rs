@@ -13,7 +13,11 @@ const TOL: f64 = 1e-9;
 const TOL_ITERATIVE: f64 = 1e-7;
 
 fn fit_fixture(fx: &Fixture) -> DmlFit {
-    let data = fx.data();
+    fit_fixture_on(fx, &fx.data())
+}
+
+fn fit_fixture_on(fx: &Fixture, data: &dml_core::DmlData) -> DmlFit {
+    let data = data.clone();
     let folds = fx.folds();
     match fx.0["model"].as_str().unwrap() {
         "plr" => {
@@ -143,6 +147,17 @@ fn check(name: &str, tol: f64) {
         &to_matrix(fx.expected("ci95")),
         tol,
     );
+
+    // In `irm_ate_normalized` the propensities hit the clipping bounds (0.01 / 0.99), and with
+    // normalised weights nu2 amplifies a 1e-8 relative change in the propensity by ~1e6: the
+    // logistic solvers' tiny differences then show up at ~1e-5. Applied to DoubleML's own
+    // propensities, the nu2 formula reproduces DoubleML exactly.
+    let sensitivity_tol = if name == "irm_ate_normalized" {
+        1e-4
+    } else {
+        tol
+    };
+    check_sensitivity(name, &fx, &fit, sensitivity_tol);
 
     let boot = fx.expected("boot");
     if !boot.is_null() {
@@ -329,4 +344,92 @@ fn did_cross_section_observational_without_normalization() {
 #[test]
 fn did_cross_section_experimental() {
     check("did_cs_experimental", TOL);
+}
+
+/// Robustness values come from scipy's bounded minimiser in DoubleML
+/// (tolerance ~1e-5); dml-rs solves the crossing exactly.
+const TOL_RV: f64 = 1e-4;
+
+fn check_sensitivity(name: &str, fx: &Fixture, fit: &DmlFit, tol: f64) {
+    let e = fx.expected("sensitivity");
+    if e.is_null() {
+        assert!(
+            fit.sensitivity_elements().is_none()
+                || fx.0["model"] == "plr"
+                || fx.0["model"] == "irm"
+        );
+        return;
+    }
+    let (sigma2, nu2) = fit.sensitivity_elements().expect("sensitivity elements");
+    assert_matrix_close(
+        &format!("{name} sigma2"),
+        &sigma2.to_owned(),
+        &to_matrix(&e["sigma2"]),
+        tol,
+    );
+    assert_matrix_close(
+        &format!("{name} nu2"),
+        &nu2.to_owned(),
+        &to_matrix(&e["nu2"]),
+        tol,
+    );
+    for (i, sc) in e["scenarios"].as_array().unwrap().iter().enumerate() {
+        let p = &sc["params"];
+        let params = dml_core::SensitivityParams::new()
+            .cf_y(p["cf_y"].as_f64().unwrap())
+            .cf_d(p["cf_d"].as_f64().unwrap())
+            .rho(p["rho"].as_f64().unwrap())
+            .level(p["level"].as_f64().unwrap())
+            .null_hypotheses(to_vec(&p["null_hypothesis"]).to_vec());
+        let res = fit.sensitivity_analysis(&params).unwrap();
+        let pairs = [
+            ("theta_lower", &res.theta_lower),
+            ("theta_upper", &res.theta_upper),
+            ("se_lower", &res.se_lower),
+            ("se_upper", &res.se_upper),
+            ("ci_lower", &res.ci_lower),
+            ("ci_upper", &res.ci_upper),
+        ];
+        for (key, ours) in pairs {
+            assert_all_close(
+                &format!("{name} scenario {i} {key}"),
+                ours,
+                &to_vec(&sc[key]),
+                tol,
+            );
+        }
+        for (key, ours) in [("rv", &res.rv), ("rva", &res.rva)] {
+            let theirs = to_vec(&sc[key]);
+            for (j, (&a, &b)) in ours.iter().zip(theirs.iter()).enumerate() {
+                assert!(
+                    (a - b).abs() < TOL_RV,
+                    "{name} scenario {i} {key}[{j}]: rust {a}, doubleml {b}"
+                );
+            }
+        }
+    }
+    let bm = &e["benchmark"];
+    if !bm.is_null() {
+        let drop: Vec<usize> = bm["drop"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap() as usize)
+            .collect();
+        let short = fit_fixture_on(fx, &fx.data().without_covariates(&drop).unwrap());
+        let ours = fit.sensitivity_benchmark(&short).unwrap();
+        for (key, v) in [
+            ("cf_y", &ours.cf_y),
+            ("cf_d", &ours.cf_d),
+            ("rho", &ours.rho),
+            ("delta_theta", &ours.delta_theta),
+        ] {
+            assert_all_close(
+                &format!("{name} benchmark {key}"),
+                v,
+                &to_vec(&bm[key]),
+                tol,
+            );
+        }
+    }
 }

@@ -156,16 +156,16 @@ impl LinearScoreModel for Iivm {
         // Reduced form (effect of Z on Y) over first stage (effect of Z on D).
         let psi_b = &g1 - &g0 + &ipw_residual(y, &z, &g0, &g1, &m_adj);
         let first_stage = &r1 - &r0 + &ipw_residual(d, &z, &r0, &r1, &m_adj);
-        Ok(ScoreEstimate {
-            score: LinearScore::new(-first_stage, psi_b)?,
-            predictions: vec![
+        Ok(ScoreEstimate::new(
+            LinearScore::new(-first_stage, psi_b)?,
+            vec![
                 ("ml_g0", g0),
                 ("ml_g1", g1),
                 ("ml_m", m),
                 ("ml_r0", r0),
                 ("ml_r1", r1),
             ],
-        })
+        ))
     }
 }
 

@@ -45,6 +45,8 @@ let ci = fit.confint(0.95)?;
   group average treatment effects (`Blp`)
 - **Inference:** multiple treatments, repeated sample splitting, multiplier bootstrap with
   simultaneous confidence bands, Romano–Wolf / Holm / Bonferroni adjustment
+- **Sensitivity analysis:** bounds for omitted confounders, robustness values and benchmarks
+  (`DmlFit::sensitivity_analysis`, `sensitivity_benchmark`)
 - **Learners:** `GradientBoostingRegressor` / `GradientBoostingClassifier`,
   `RandomForestRegressor` / `RandomForestClassifier`, `Ols` (ridge), `Lasso`,
   `LogisticRegression`, or your own through the `Regressor` / `Classifier` traits

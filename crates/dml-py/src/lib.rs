@@ -201,6 +201,59 @@ impl PyDmlResult {
         Ok(PyBootstrap { boot })
     }
 
+    /// Sensitivity analysis for omitted confounders (PLR, IRM, DID).
+    #[pyo3(signature = (cf_y = 0.03, cf_d = 0.03, rho = 1.0, level = 0.95, null_hypothesis = None))]
+    fn sensitivity_analysis(
+        &self,
+        cf_y: f64,
+        cf_d: f64,
+        rho: f64,
+        level: f64,
+        null_hypothesis: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<PySensitivityResult> {
+        let nulls: Vec<f64> = match null_hypothesis {
+            None => vec![0.0],
+            Some(obj) => match obj.extract::<f64>() {
+                Ok(v) => vec![v],
+                Err(_) => obj.extract::<Vec<f64>>()?,
+            },
+        };
+        let params = dml_core::SensitivityParams::new()
+            .cf_y(cf_y)
+            .cf_d(cf_d)
+            .rho(rho)
+            .level(level)
+            .null_hypotheses(nulls);
+        Ok(PySensitivityResult {
+            res: self.fit.sensitivity_analysis(&params).map_err(to_py_err)?,
+            text: String::new(),
+        }
+        .with_text())
+    }
+
+    /// `(sigma2, nu2)`, each of shape `(n_treat, n_rep)`, or `None`.
+    #[getter]
+    #[allow(clippy::type_complexity)]
+    fn sensitivity_elements<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> Option<(Bound<'py, PyArray2<f64>>, Bound<'py, PyArray2<f64>>)> {
+        self.fit
+            .sensitivity_elements()
+            .map(|(s, n)| (s.to_owned().into_pyarray(py), n.to_owned().into_pyarray(py)))
+    }
+
+    /// Benchmark against `short`, the same model refitted on the same splits
+    /// without the benchmarking covariates.
+    fn sensitivity_benchmark(&self, short: &PyDmlResult) -> PyResult<PySensitivityBenchmark> {
+        Ok(PySensitivityBenchmark {
+            bm: self
+                .fit
+                .sensitivity_benchmark(&short.fit)
+                .map_err(to_py_err)?,
+        })
+    }
+
     /// BLP of the CATE on `basis` (IRM with the ATE score).
     fn cate(&self, basis: PyReadonlyArray2<'_, f64>) -> PyResult<PyBlp> {
         Ok(PyBlp {
@@ -227,6 +280,94 @@ impl PyDmlResult {
             self.fit.n_treat(),
             self.fit.n_rep()
         )
+    }
+}
+
+/// Result of a sensitivity analysis.
+#[pyclass(name = "SensitivityResult", module = "dml_rs", frozen)]
+pub struct PySensitivityResult {
+    res: dml_core::SensitivityResult,
+    text: String,
+}
+
+impl PySensitivityResult {
+    fn with_text(mut self) -> Self {
+        self.text = self.res.to_string();
+        self
+    }
+}
+
+#[pymethods]
+impl PySensitivityResult {
+    #[getter]
+    fn theta_lower<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.res.theta_lower.clone().into_pyarray(py)
+    }
+    #[getter]
+    fn theta_upper<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.res.theta_upper.clone().into_pyarray(py)
+    }
+    #[getter]
+    fn se_lower<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.res.se_lower.clone().into_pyarray(py)
+    }
+    #[getter]
+    fn se_upper<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.res.se_upper.clone().into_pyarray(py)
+    }
+    #[getter]
+    fn ci_lower<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.res.ci_lower.clone().into_pyarray(py)
+    }
+    #[getter]
+    fn ci_upper<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.res.ci_upper.clone().into_pyarray(py)
+    }
+    #[getter]
+    fn rv<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.res.rv.clone().into_pyarray(py)
+    }
+    #[getter]
+    fn rva<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.res.rva.clone().into_pyarray(py)
+    }
+    /// `(cf_y, cf_d, rho, level, null_hypothesis)`.
+    #[getter]
+    fn params(&self) -> (f64, f64, f64, f64, Vec<f64>) {
+        let p = &self.res.params;
+        (p.cf_y, p.cf_d, p.rho, p.level, p.null_hypothesis.clone())
+    }
+    fn __str__(&self) -> String {
+        self.text.clone()
+    }
+}
+
+/// Benchmarked confounding scenario from omitting observed covariates.
+#[pyclass(name = "SensitivityBenchmark", module = "dml_rs", frozen)]
+pub struct PySensitivityBenchmark {
+    bm: dml_core::SensitivityBenchmark,
+}
+
+#[pymethods]
+impl PySensitivityBenchmark {
+    #[getter]
+    fn cf_y<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.bm.cf_y.clone().into_pyarray(py)
+    }
+    #[getter]
+    fn cf_d<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.bm.cf_d.clone().into_pyarray(py)
+    }
+    #[getter]
+    fn rho<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.bm.rho.clone().into_pyarray(py)
+    }
+    #[getter]
+    fn delta_theta<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.bm.delta_theta.clone().into_pyarray(py)
+    }
+    fn __str__(&self) -> String {
+        self.bm.to_string()
     }
 }
 
@@ -497,7 +638,8 @@ mod dml_rs_native {
         fit_cate, fit_did, fit_iivm, fit_irm, fit_pliv, fit_plr, fit_staggered_did, PyBlp,
         PyBootstrap, PyCateResult, PyDmlResult, PyGradientBoostingClassifier,
         PyGradientBoostingRegressor, PyLasso, PyLogisticRegression, PyOls,
-        PyRandomForestClassifier, PyRandomForestRegressor, PyStaggeredResult,
+        PyRandomForestClassifier, PyRandomForestRegressor, PySensitivityBenchmark,
+        PySensitivityResult, PyStaggeredResult,
     };
 
     #[pymodule_init]

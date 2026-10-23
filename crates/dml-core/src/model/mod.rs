@@ -7,6 +7,7 @@ use crate::crossfit::Fold;
 use crate::data::DmlData;
 use crate::error::Result;
 use crate::score::LinearScore;
+use crate::sensitivity::SensitivityParts;
 
 pub(crate) mod did;
 mod iivm;
@@ -38,11 +39,34 @@ pub struct ScoreInput<'a> {
 }
 
 /// Score elements plus the cross-fitted nuisance predictions behind them.
+///
+/// Build it with [`ScoreEstimate::new`] (the struct is `#[non_exhaustive]`, so
+/// fields can be added without breaking custom models).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ScoreEstimate {
     pub score: LinearScore,
     /// `(name, out-of-fold predictions)` — e.g. `("ml_l", ℓ̂)`.
     pub predictions: Vec<(&'static str, Array1<f64>)>,
+    /// Ingredients for [sensitivity analysis](crate::sensitivity), if the
+    /// model supports it.
+    pub sensitivity: Option<SensitivityParts>,
+}
+
+impl ScoreEstimate {
+    pub fn new(score: LinearScore, predictions: Vec<(&'static str, Array1<f64>)>) -> Self {
+        Self {
+            score,
+            predictions,
+            sensitivity: None,
+        }
+    }
+
+    /// Attach the model's sensitivity ingredients.
+    pub fn with_sensitivity(mut self, parts: SensitivityParts) -> Self {
+        self.sensitivity = Some(parts);
+        self
+    }
 }
 
 /// A DML model whose orthogonal score is linear in θ.
@@ -91,6 +115,20 @@ macro_rules! dml_model_api {
         pub fn fit(&self, data: &$crate::DmlData) -> $crate::Result<$crate::DmlFit> {
             let splits = self.splitting.draw(data.n_obs())?;
             $crate::fit_model(self, data, &splits)
+        }
+
+        /// Sensitivity benchmark for the covariate columns `benchmarking_set`:
+        /// refits this model without them (with the same sample splitting, so
+        /// `long` must come from [`fit`](Self::fit) with the current settings)
+        /// and compares it with `long`.
+        pub fn sensitivity_benchmark(
+            &self,
+            data: &$crate::DmlData,
+            long: &$crate::DmlFit,
+            benchmarking_set: &[usize],
+        ) -> $crate::Result<$crate::SensitivityBenchmark> {
+            let short = self.fit(&data.without_covariates(benchmarking_set)?)?;
+            long.sensitivity_benchmark(&short)
         }
 
         /// Fit with caller-supplied splits, one `Vec<Fold>` per repetition

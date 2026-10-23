@@ -9,6 +9,7 @@ use crate::crossfit::Fold;
 use crate::data::DmlData;
 use crate::error::{DmlError, Result};
 use crate::model::{LinearScoreModel, ScoreInput};
+use crate::sensitivity::SensitivityStore;
 use crate::stats::{median, norm_ppf, norm_sf};
 
 /// Fit any [`LinearScoreModel`] on the given sample splits (one `Vec<Fold>`
@@ -35,6 +36,14 @@ pub fn fit_model<M: LinearScoreModel + ?Sized>(
     let mut psi_a = Array3::<f64>::zeros((n, k, n_rep));
     let mut psi_b = Array3::<f64>::zeros((n, k, n_rep));
     let mut predictions: Vec<(String, Array3<f64>)> = Vec::new();
+    // Population variance of y, for sensitivity benchmarks.
+    let y_mean = data.y().mean().expect("n > 0");
+    let var_y = data
+        .y()
+        .mapv(|v| (v - y_mean).powi(2))
+        .mean()
+        .expect("n > 0");
+    let mut sensitivity = Some(SensitivityStore::new(n, k, n_rep, var_y));
 
     for j in 0..k {
         let x_j = data.covariates_for(j);
@@ -63,6 +72,10 @@ pub fn fit_model<M: LinearScoreModel + ?Sized>(
             psi_b
                 .slice_mut(ndarray::s![.., j, r])
                 .assign(&est.score.psi_b);
+            match (&est.sensitivity, &mut sensitivity) {
+                (Some(parts), Some(store)) => store.set(j, r, &parts.elements(sol.theta)),
+                _ => sensitivity = None,
+            }
             for (name, pred) in est.predictions {
                 let slot = match predictions.iter().position(|(nm, _)| nm == name) {
                     Some(i) => i,
@@ -95,6 +108,7 @@ pub fn fit_model<M: LinearScoreModel + ?Sized>(
         psi_b,
         psi_deriv,
         predictions,
+        sensitivity,
     })
 }
 
@@ -183,6 +197,8 @@ pub struct DmlFit {
     pub(crate) psi_deriv: Array2<f64>,
     /// Each array has shape `(n, n_rep, k)`.
     pub(crate) predictions: Vec<(String, Array3<f64>)>,
+    /// Sensitivity elements, for models that support sensitivity analysis.
+    pub(crate) sensitivity: Option<SensitivityStore>,
 }
 
 impl DmlFit {
@@ -399,6 +415,7 @@ impl DmlFit {
             psi_b,
             psi_deriv,
             predictions,
+            sensitivity: None,
         }
     }
 
@@ -453,6 +470,7 @@ impl DmlFit {
             psi_b: Array3::zeros((n, n_comb, n_rep)),
             psi_deriv: Array2::ones((n_comb, n_rep)),
             predictions: Vec::new(),
+            sensitivity: None,
         }
     }
 }

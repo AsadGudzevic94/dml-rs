@@ -16,6 +16,7 @@ use crate::data::DmlData;
 use crate::error::{DmlError, Result};
 use crate::learner::{Classifier, Regressor};
 use crate::score::LinearScore;
+use crate::sensitivity::{Nu2Parts, SensitivityParts};
 
 /// Target parameter of [`Irm`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -134,21 +135,33 @@ impl LinearScoreModel for Irm {
         };
         let ipw = ipw_residual(y, &d, &g0, &g1, &m_adj);
 
-        let (psi_a, psi_b) = match self.score {
-            IrmScore::Ate => (Array1::from_elem(d.len(), -1.0), &g1 - &g0 + &ipw),
+        let n = d.len();
+        let (weights, weights_bar) = match self.score {
+            IrmScore::Ate => (Array1::ones(n), Array1::ones(n)),
             IrmScore::Atte => {
                 let p = d.mean().expect("n > 0");
-                let weights = &d / p;
-                let weights_bar = &m_adj / p;
-                let psi_b = &weights * &(&g1 - &g0) + &weights_bar * &ipw;
-                let mean_w = weights.mean().expect("n > 0");
-                (-(&weights / mean_w), psi_b)
+                (&d / p, &m_adj / p)
             }
         };
-        Ok(ScoreEstimate {
-            score: LinearScore::new(psi_a, psi_b)?,
-            predictions: vec![("ml_g0", g0), ("ml_g1", g1), ("ml_m", m)],
-        })
+        let psi_b = &weights * &(&g1 - &g0) + &weights_bar * &ipw;
+        let psi_a = -(&weights / weights.mean().expect("n > 0"));
+
+        // Sensitivity: outcome residual y − ĝ(D, X); Riesz representer and
+        // m(W, α) of the (weighted) average treatment effect.
+        let outcome_residual = &y - &(&d * &g1) - &(&(1.0 - &d) * &g0);
+        let m_alpha = &weights * &weights_bar * &(1.0 / &m_adj + 1.0 / &(1.0 - &m_adj));
+        let riesz = &weights_bar * &(&d / &m_adj - &(1.0 - &d) / &(1.0 - &m_adj));
+        let nu2 = 2.0 * &m_alpha - &riesz.mapv(|a| a * a);
+        Ok(ScoreEstimate::new(
+            LinearScore::new(psi_a, psi_b)?,
+            vec![("ml_g0", g0), ("ml_g1", g1), ("ml_m", m)],
+        )
+        .with_sensitivity(SensitivityParts {
+            outcome_residual,
+            theta_factor: None,
+            riesz,
+            nu2: Nu2Parts::Elementwise(nu2),
+        }))
     }
 }
 

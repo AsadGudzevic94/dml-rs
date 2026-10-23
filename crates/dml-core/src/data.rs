@@ -113,6 +113,22 @@ impl DmlData {
         Ok(self)
     }
 
+    /// The same data without the covariate columns `drop` (for sensitivity
+    /// benchmarks).
+    pub fn without_covariates(&self, drop: &[usize]) -> Result<Self> {
+        let p = self.n_features();
+        if drop.is_empty() || drop.iter().any(|&c| c >= p) {
+            return Err(DmlError::InvalidArgument(format!(
+                "benchmarking columns must be a non-empty subset of the {p} covariates"
+            )));
+        }
+        let keep: Vec<usize> = (0..p).filter(|c| !drop.contains(c)).collect();
+        Ok(Self {
+            x: self.x.select(Axis(1), &keep),
+            ..self.clone()
+        })
+    }
+
     /// Names shown in summaries (default `d`, or `d0`, `d1`, …).
     pub fn with_treatment_names<S: Into<String>>(
         mut self,

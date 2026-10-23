@@ -362,3 +362,82 @@ fn gradient_boosting_nuisances_remove_nonlinear_confounding_bias() {
     .unwrap();
     assert!(irm.coef()[0].is_finite() && irm.se()[0] > 0.0);
 }
+
+/// y = θd + x₀ + γA + ε, d = x₀ + δA + v with a confounder A. Returns the data
+/// with A as the last covariate column.
+fn confounded_data(n: usize, seed: u64) -> DmlData {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut x = Array2::zeros((n, 3));
+    let (mut d, mut y) = (Array1::zeros(n), Array1::zeros(n));
+    for i in 0..n {
+        let (x0, x1, a) = (
+            std_normal(&mut rng),
+            std_normal(&mut rng),
+            std_normal(&mut rng),
+        );
+        x[[i, 0]] = x0;
+        x[[i, 1]] = x1;
+        x[[i, 2]] = a;
+        d[i] = x0 + 0.6 * a + std_normal(&mut rng);
+        y[i] = 0.5 * d[i] + x0 + 0.8 * a + 0.3 * x1 + std_normal(&mut rng);
+    }
+    DmlData::new(y, d, x).unwrap()
+}
+
+#[test]
+fn sensitivity_bounds_cover_the_estimate_with_the_confounder_included() {
+    use dml_core::SensitivityParams;
+    let long_data = confounded_data(4000, 31);
+    let short_data = long_data.without_covariates(&[2]).unwrap(); // A unobserved
+    let model = Plr::new(Ols::new(), Ols::new()).seed(4);
+    let long = model.fit(&long_data).unwrap();
+    let short = model.fit(&short_data).unwrap();
+    // Omitting A biases the estimate upwards.
+    assert!(
+        short.coef()[0] - long.coef()[0] > 0.2,
+        "short {} long {}",
+        short.coef()[0],
+        long.coef()[0]
+    );
+
+    // Benchmark A's strength by dropping it from the long model, then bound the
+    // short model with that strength: the bounds must contain the long estimate.
+    let benchmark = model
+        .sensitivity_benchmark(&long_data, &long, &[2])
+        .unwrap();
+    assert!(
+        benchmark.cf_y[0] > 0.05 && benchmark.cf_d[0] > 0.05,
+        "{benchmark}"
+    );
+    let scenario = SensitivityParams::new()
+        .cf_y(benchmark.cf_y[0])
+        .cf_d(benchmark.cf_d[0])
+        .rho(1.0);
+    let res = short.sensitivity_analysis(&scenario).unwrap();
+    let truth = long.coef()[0];
+    assert!(
+        res.theta_lower[0] <= truth && truth <= res.theta_upper[0],
+        "{res}"
+    );
+    // Robustness values: the effect is clearly positive, so moving it to zero
+    // needs strong confounding, and the CI bound reaches zero first.
+    assert!(
+        res.rv[0] > 0.1 && res.rva[0] < res.rv[0] && res.rva[0] > 0.0,
+        "{res}"
+    );
+    // A weaker scenario gives narrower bounds.
+    let weak = short
+        .sensitivity_analysis(&SensitivityParams::new().cf_y(0.01).cf_d(0.01))
+        .unwrap();
+    assert!(weak.theta_upper[0] - weak.theta_lower[0] < res.theta_upper[0] - res.theta_lower[0]);
+    println!("{res}\n{benchmark}");
+
+    // Models without sensitivity analysis say so.
+    let z = long_data.x().column(0).to_owned();
+    let pliv = Pliv::new(Ols::new(), Ols::new(), Ols::new())
+        .fit(&short_data.clone().with_instrument(z).unwrap())
+        .unwrap();
+    assert!(pliv
+        .sensitivity_analysis(&SensitivityParams::new())
+        .is_err());
+}

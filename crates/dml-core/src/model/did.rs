@@ -18,6 +18,7 @@ use crate::data::DmlData;
 use crate::error::{DmlError, Result};
 use crate::learner::{Classifier, Regressor};
 use crate::score::LinearScore;
+use crate::sensitivity::{Nu2Parts, SensitivityParts};
 
 /// Assignment mechanism assumed by [`Did`] / [`DidCs`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -185,7 +186,7 @@ pub(crate) fn panel_did_score(
     let resid_d0: Array1<f64> = &y - &g0;
     let mut predictions = vec![("ml_g0", g0.clone()), ("ml_g1", g1.clone())];
 
-    let (weight_a, psi_b) = match settings.score {
+    let (weight_a, psi_b, m_hat) = match settings.score {
         DidScore::Observational => {
             let ml_m = settings.ml_m.ok_or_else(|| {
                 DmlError::InvalidArgument("the observational DID score needs ml_m".into())
@@ -201,9 +202,9 @@ pub(crate) fn panel_did_score(
             } else {
                 (&d / p, (&d - &m) / &(p * &(1.0 - &m)))
             };
-            predictions.push(("ml_m", m));
+            predictions.push(("ml_m", m.clone()));
             let psi_b = &weight_resid * &resid_d0;
-            (weight_a, psi_b)
+            (weight_a, psi_b, Some(m))
         }
         DidScore::Experimental => {
             let (weight_g0, weight_g1, weight_resid) = if settings.in_sample_normalization {
@@ -214,13 +215,46 @@ pub(crate) fn panel_did_score(
                 (&d / p - 1.0, 1.0 - &d / p, (&d - p) / (p * (1.0 - p)))
             };
             let psi_b = &weight_g0 * &g0 + &weight_g1 * &g1 + &weight_resid * &resid_d0;
-            (Array1::ones(n), psi_b)
+            (Array1::ones(n), psi_b, None)
         }
     };
-    Ok(ScoreEstimate {
-        score: LinearScore::new(-weight_a, psi_b)?,
-        predictions,
-    })
+
+    // Sensitivity: outcome residual y − ĝ(D, X); Riesz representer of the ATT.
+    let outcome_residual = &y - &(&d * &g1) - &(&(1.0 - &d) * &g0);
+    let (m_alpha, riesz) = match &m_hat {
+        Some(m) => {
+            let odds = m / &(1.0 - m);
+            if settings.in_sample_normalization {
+                let weight_d0 = (1.0 - &d) * &odds;
+                let mean_w = mean(&weight_d0);
+                (
+                    &d / p * &(1.0 / p + &odds / mean_w),
+                    &d / p - &(&weight_d0 / mean_w),
+                )
+            } else {
+                (
+                    &d / (p * p) * &(1.0 + &odds),
+                    &d / p - &((1.0 - &d) / p * &odds),
+                )
+            }
+        }
+        // Experimental: the same with or without normalisation.
+        None => (
+            Array1::from_elem(n, 1.0 / p + 1.0 / (1.0 - p)),
+            &d / p - &((1.0 - &d) / (1.0 - p)),
+        ),
+    };
+    let nu2 = 2.0 * &m_alpha - &riesz.mapv(|a| a * a);
+    Ok(
+        ScoreEstimate::new(LinearScore::new(-weight_a, psi_b)?, predictions).with_sensitivity(
+            SensitivityParts {
+                outcome_residual,
+                theta_factor: None,
+                riesz,
+                nu2: Nu2Parts::Elementwise(nu2),
+            },
+        ),
+    )
 }
 
 /// Difference-in-differences with **repeated cross-sections**: the data need
@@ -394,6 +428,43 @@ pub(crate) fn cs_did_score(
         + &w00 * &(&y - &g00)
         + &w01 * &(&y - &g01);
 
+    // Sensitivity: outcome residual y − ĝ(D, T, X); Riesz representer of the ATT.
+    let g_hat = &d0t0 * &g00 + &d0t1 * &g01 + &d1t0 * &g10 + &d1t1 * &g11;
+    let outcome_residual = &y - &g_hat;
+    let (m_alpha, riesz) = match (&m, settings.in_sample_normalization) {
+        (Some(m), true) => {
+            let odds = m / &(1.0 - m);
+            let (w01, w00) = (&d0t1 * &odds, &d0t0 * &odds);
+            let (mw01, mw00) = (mean(&w01), mean(&w00));
+            let (m11, m10) = (mean(&d1t1), mean(&d1t0));
+            let m_alpha = &d / p * &(1.0 / m11 + 1.0 / m10 + &odds / mw01 + &odds / mw00);
+            let riesz = &d1t1 / m11 - &(&d1t0 / m10) - &(&w01 / mw01) + &(&w00 / mw00);
+            (m_alpha, riesz)
+        }
+        (Some(m), false) => {
+            let odds = m / &(1.0 - m);
+            let m_alpha = &d / (p * p) * (1.0 / lambda + 1.0 / (1.0 - lambda)) * &(1.0 + &odds);
+            // DoubleML's form: only one term of each factor is non-zero per row.
+            let rr_1 = &t / (p * lambda) + &((1.0 - &t) / (p * (1.0 - lambda)));
+            let rr_2 = &d + &((1.0 - &d) * &odds);
+            (m_alpha, rr_1 * &rr_2)
+        }
+        (None, true) => {
+            let (m11, m10, m01, m00) = (mean(&d1t1), mean(&d1t0), mean(&d0t1), mean(&d0t0));
+            let m_alpha = Array1::from_elem(n, 1.0 / m11 + 1.0 / m10 + 1.0 / m01 + 1.0 / m00);
+            let riesz = &d1t1 / m11 - &(&d1t0 / m10) - &(&d0t1 / m01) + &(&d0t0 / m00);
+            (m_alpha, riesz)
+        }
+        (None, false) => {
+            let (c11, c10) = (p * lambda, p * (1.0 - lambda));
+            let (c01, c00) = ((1.0 - p) * lambda, (1.0 - p) * (1.0 - lambda));
+            let m_alpha = Array1::from_elem(n, 1.0 / c11 + 1.0 / c10 + 1.0 / c01 + 1.0 / c00);
+            let riesz = &d1t1 / c11 - &(&d1t0 / c10) - &(&d0t1 / c01) + &(&d0t0 / c00);
+            (m_alpha, riesz)
+        }
+    };
+    let nu2 = 2.0 * &m_alpha - &riesz.mapv(|a| a * a);
+
     let mut predictions = vec![
         ("ml_g_d0_t0", g00),
         ("ml_g_d0_t1", g01),
@@ -403,10 +474,16 @@ pub(crate) fn cs_did_score(
     if let Some(m) = m {
         predictions.push(("ml_m", m));
     }
-    Ok(ScoreEstimate {
-        score: LinearScore::new(-weight_a, psi_b)?,
-        predictions,
-    })
+    Ok(
+        ScoreEstimate::new(LinearScore::new(-weight_a, psi_b)?, predictions).with_sensitivity(
+            SensitivityParts {
+                outcome_residual,
+                theta_factor: None,
+                riesz,
+                nu2: Nu2Parts::Elementwise(nu2),
+            },
+        ),
+    )
 }
 
 #[cfg(test)]

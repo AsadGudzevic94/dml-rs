@@ -59,6 +59,9 @@ tested for numerical agreement with the reference [DoubleML](https://docs.double
 splitting, multiplier bootstrap (normal, Bayes, wild) with simultaneous confidence bands, and
 Romano–Wolf, Holm and Bonferroni multiple-testing adjustment.
 
+**Sensitivity analysis:** bounds on the effect of omitted confounders, robustness values and
+benchmarking against observed covariates (Chernozhukov et al., 2022), for PLR, IRM and DiD.
+
 **Learners:** gradient boosting and random forests (both implemented in Rust; the boosting
 reproduces scikit-learn's predictions), OLS / ridge, Lasso and logistic regression, or any
 scikit-learn estimator from Python. New learners and new orthogonal scores plug in through the
@@ -192,6 +195,22 @@ irm.gate(groups).confint()          # group average treatment effects
 </details>
 
 <details>
+<summary><b>Sensitivity analysis for omitted confounders</b></summary>
+
+```python
+model = dml_rs.PLR(dml_rs.GradientBoostingRegressor(), dml_rs.GradientBoostingRegressor()).fit(X, y, d)
+
+# How would a confounder explaining 4% of the residual variation in y and in the treatment
+# (Riesz representer) change the estimate?
+model.sensitivity_analysis(cf_y=0.04, cf_d=0.04, rho=1.0)
+print(model.sensitivity_summary)   # bounds with confidence bounds and robustness values
+
+# Calibrate the scenario: how strong is an observed covariate as a confounder?
+model.sensitivity_benchmark(benchmarking_set=["age"])
+```
+</details>
+
+<details>
 <summary><b>Several treatments and joint inference</b></summary>
 
 ```python
@@ -249,6 +268,7 @@ confidence intervals reach their nominal coverage.
 | `pliv_ols`, `iivm_late_rep2`, `iivm_no_always_takers` | PLIV and IIVM, including one-sided non-compliance |
 | `did_panel_*`, `did_cs_*` | Two-period DiD for panels and cross-sections, all score / normalisation variants |
 | `staggered_*`, `staggered_cs_*` | Staggered DiD: every ATT(g, t) and all aggregations, panels and cross-sections |
+| all PLR, IRM and DiD fixtures | Sensitivity analysis: σ² and ν², bounds, confidence bounds and robustness values in two scenarios, and benchmarks |
 
 The Python test suite additionally checks the bindings against DoubleML and scikit-learn
 (including random forests and gradient boosting).
@@ -290,6 +310,8 @@ the release process.
 
 - Chernozhukov, V., Chetverikov, D., Demirer, M., Duflo, E., Hansen, C., Newey, W., & Robins, J. (2018).
   Double/debiased machine learning for treatment and structural parameters. *The Econometrics Journal*, 21(1), C1–C68.
+- Chernozhukov, V., Cinelli, C., Newey, W., Sharma, A., & Syrgkanis, V. (2022). Long story short: Omitted
+  variable bias in causal machine learning. *NBER Working Paper* 30302.
 - Bach, P., Chernozhukov, V., Kurz, M. S., & Spindler, M. (2022). DoubleML – An object-oriented
   implementation of double machine learning in Python. *Journal of Machine Learning Research*, 23(53), 1–6.
 - Callaway, B., & Sant'Anna, P. H. C. (2021). Difference-in-differences with multiple time periods.

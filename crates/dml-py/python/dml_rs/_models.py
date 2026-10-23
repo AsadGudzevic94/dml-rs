@@ -103,6 +103,68 @@ class _DMLEstimator(_Params):
             return self._boot.romano_wolf()
         return result.p_adjust(method)
 
+    # -- sensitivity analysis -------------------------------------------------
+    def sensitivity_analysis(self, cf_y=0.03, cf_d=0.03, rho=1.0, level=0.95, null_hypothesis=0.0):
+        """Bounds on the effect under omitted confounding of strength ``(cf_y, cf_d, rho)``.
+
+        ``cf_y`` is the share of the outcome's residual variation explained by the confounder,
+        ``cf_d`` the relative gain in the Riesz representer's variation, ``rho`` their correlation
+        (adversarial at 1). Results are stored in ``sensitivity_params_`` (DoubleML's layout)
+        and summarised by :attr:`sensitivity_summary`. Available for PLR, IRM and DID models.
+        """
+        null = np.atleast_1d(np.asarray(null_hypothesis, dtype=np.float64)).tolist()
+        res = self._check_fitted().sensitivity_analysis(cf_y, cf_d, rho, level, null)
+        self.sensitivity_result_ = res
+        self.sensitivity_params_ = {
+            "theta": {"lower": res.theta_lower, "upper": res.theta_upper},
+            "se": {"lower": res.se_lower, "upper": res.se_upper},
+            "ci": {"lower": res.ci_lower, "upper": res.ci_upper},
+            "rv": res.rv,
+            "rva": res.rva,
+            "input": {"cf_y": cf_y, "cf_d": cf_d, "rho": rho, "level": level,
+                      "null_hypothesis": np.asarray(res.params[4])},
+        }
+        return self
+
+    @property
+    def sensitivity_summary(self):
+        """Text summary of the last :meth:`sensitivity_analysis`."""
+        if not hasattr(self, "sensitivity_result_"):
+            raise ValueError("call sensitivity_analysis() first")
+        return str(self.sensitivity_result_)
+
+    def sensitivity_benchmark(self, benchmarking_set):
+        """Calibrate ``cf_y``, ``cf_d`` and ``rho`` against observed covariates.
+
+        Refits the model without the covariates in ``benchmarking_set`` (column names if ``X``
+        was a DataFrame, else column indices) on the same sample splits and returns a table with
+        ``cf_y``, ``cf_d``, ``rho`` and ``delta_theta`` per treatment, as DoubleML.
+        """
+        result = self._check_fitted()
+        if not getattr(self, "_fit_inputs", None):
+            raise ValueError("refit is not available for this estimator")
+        X, rest, kwargs = self._fit_inputs
+        columns = getattr(X, "columns", None)
+        drop = [list(columns).index(c) if columns is not None and not isinstance(c, int) else int(c)
+                for c in benchmarking_set]
+        if not drop:
+            raise ValueError("benchmarking_set must not be empty")
+        X_arr = np.asarray(X, dtype=np.float64)
+        keep = [i for i in range(X_arr.shape[1]) if i not in drop]
+        short = type(self)(**self.get_params())
+        short.fit(X_arr[:, keep], *rest, **kwargs)
+        bm = result.sensitivity_benchmark(short.result_)
+        table = {"cf_y": bm.cf_y, "cf_d": bm.cf_d, "rho": bm.rho, "delta_theta": bm.delta_theta}
+        try:
+            import pandas as pd
+        except ImportError:
+            return {"index": result.treatment_names, **table}
+        return pd.DataFrame(table, index=result.treatment_names)
+
+    def _remember(self, X, *rest, **kwargs):
+        """Keep the fit inputs so sensitivity_benchmark can refit without covariates."""
+        self._fit_inputs = (X, rest, kwargs)
+
     @property
     def summary(self):
         """Coefficient table as a pandas DataFrame (or a dict without pandas)."""
@@ -155,6 +217,7 @@ class PLR(_DMLEstimator):
         ``folds`` optionally fixes the sample splits: a list of ``(train, test)``
         index pairs, or one such list per repetition.
         """
+        self._remember(X, y, d, folds=folds)
         result = _dml_rs.fit_plr(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), self.ml_l, self.ml_m, self.ml_g,
             score=self.score, n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
@@ -187,6 +250,7 @@ class IRM(_DMLEstimator):
         self.random_state = random_state
 
     def fit(self, X, y, d, folds=None):
+        self._remember(X, y, d, folds=folds)
         result = _dml_rs.fit_irm(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), self.ml_g, self.ml_m,
             score=self.score, clipping_threshold=self.clipping_threshold, normalize_ipw=self.normalize_ipw,
@@ -256,6 +320,10 @@ class _DIDBase(_DMLEstimator):
         self.random_state = random_state
 
     def _fit(self, X, y, d, t, folds):
+        if t is None:
+            self._remember(X, y, d, folds=folds)
+        else:
+            self._remember(X, y, d, t, folds=folds)
         result = _dml_rs.fit_did(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), self.ml_g, self.ml_m,
             t=None if t is None else _as_1d(t, "t"), score=self.score,

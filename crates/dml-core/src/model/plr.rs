@@ -12,6 +12,7 @@ use crate::crossfit::{cross_fit_predict, Fold, SampleSplitting};
 use crate::error::{DmlError, Result};
 use crate::learner::Regressor;
 use crate::score::LinearScore;
+use crate::sensitivity::{Nu2Parts, SensitivityParts};
 
 /// Orthogonal score used by [`Plr`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -90,10 +91,20 @@ impl LinearScoreModel for Plr {
         let u: Array1<f64> = &y - &l_hat;
 
         match self.score {
-            PlrScore::PartiallingOut => Ok(ScoreEstimate {
-                score: LinearScore::new(-(&v * &v), &v * &u)?,
-                predictions: vec![("ml_l", l_hat), ("ml_m", m_hat)],
-            }),
+            PlrScore::PartiallingOut => {
+                // Outcome residual y − ℓ̂ − θ(d − m̂); ν² = 1 / mean((d − m̂)²).
+                let parts = SensitivityParts {
+                    outcome_residual: u.clone(),
+                    theta_factor: Some(v.clone()),
+                    riesz: Array1::zeros(v.len()),
+                    nu2: Nu2Parts::InverseMeanSquare(v.clone()),
+                };
+                Ok(ScoreEstimate::new(
+                    LinearScore::new(-(&v * &v), &v * &u)?,
+                    vec![("ml_l", l_hat), ("ml_m", m_hat)],
+                )
+                .with_sensitivity(parts))
+            }
             PlrScore::IvType => {
                 let theta_init = u.dot(&v) / v.dot(&v);
                 let target: Array1<f64> = &y - &(theta_init * &d);
@@ -107,10 +118,18 @@ impl LinearScoreModel for Plr {
                 };
                 let g_hat = cross_fit_predict(ml_g, x, target.view(), folds)?;
                 let resid_g: Array1<f64> = &y - &g_hat;
-                Ok(ScoreEstimate {
-                    score: LinearScore::new(-(&v * &d), &v * &resid_g)?,
-                    predictions: vec![("ml_l", l_hat), ("ml_m", m_hat), ("ml_g", g_hat)],
-                })
+                // Outcome residual y − ĝ − θd.
+                let parts = SensitivityParts {
+                    outcome_residual: resid_g.clone(),
+                    theta_factor: Some(d.to_owned()),
+                    riesz: Array1::zeros(v.len()),
+                    nu2: Nu2Parts::InverseMeanSquare(v.clone()),
+                };
+                Ok(ScoreEstimate::new(
+                    LinearScore::new(-(&v * &d), &v * &resid_g)?,
+                    vec![("ml_l", l_hat), ("ml_m", m_hat), ("ml_g", g_hat)],
+                )
+                .with_sensitivity(parts))
             }
         }
     }

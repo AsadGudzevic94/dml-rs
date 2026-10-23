@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Sensitivity analysis for omitted confounders (Chernozhukov et al., 2022), as DoubleML's
+  `sensitivity_analysis` / `sensitivity_benchmark`, for PLR (both scores), IRM (ATE / ATTE) and
+  DiD for panels and repeated cross-sections: `DmlFit::sensitivity_analysis` gives bounds on θ,
+  one-sided confidence bounds and robustness values (RV, RVa); `DmlFit::sensitivity_benchmark`
+  and the models' `sensitivity_benchmark` calibrate `cf_y`, `cf_d` and `rho` against observed
+  covariates; `DmlFit::sensitivity_elements` exposes σ² and ν². Robustness values are solved
+  exactly (DoubleML uses a bounded numerical minimiser).
+- `DmlData::without_covariates`.
+- Python: `sensitivity_analysis`, `sensitivity_summary`, `sensitivity_params_` and
+  `sensitivity_benchmark` on PLR, IRM, DID and DIDCS.
+- DoubleML parity checks for sensitivity analysis in all PLR, IRM and DiD fixtures.
+
+### Changed
+- `ScoreEstimate` is now `#[non_exhaustive]` with an optional `sensitivity` field; custom
+  `LinearScoreModel` implementations build it with `ScoreEstimate::new(score, predictions)`.
+
 ## [0.6.0] - 2026-10-24
 
 ### Added

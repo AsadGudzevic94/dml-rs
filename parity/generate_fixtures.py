@@ -95,6 +95,8 @@ def fit_case(name, model_kind, data, arrays, learners, options, n_folds=5, n_rep
         "folds": [[{"train": tr.tolist(), "test": te.tolist()} for tr, te in rep] for rep in reps],
         "expected": expected,
     }
+    if model_kind in ("plr", "irm", "did", "did_cs"):
+        expected["sensitivity"] = sensitivity_json(model, benchmark=model_kind in ("plr", "irm"))
     case["_model"] = model
     if boot is not None:
         method, n_boot, boot_seed = boot
@@ -109,6 +111,33 @@ def fit_case(name, model_kind, data, arrays, learners, options, n_folds=5, n_rep
             "romano_wolf": model.p_adjust("romano-wolf")["pval"].tolist(),
         }
     return case
+
+
+def sensitivity_json(model, benchmark):
+    """Sensitivity elements, two scenarios (lower and upper bounds) and a benchmark for X1."""
+    se = model.sensitivity_elements
+    out = {
+        "sigma2": np.transpose(se["sigma2"][0]).tolist(),  # (n_coefs, n_rep)
+        "nu2": np.transpose(se["nu2"][0]).tolist(),
+        "scenarios": [],
+    }
+    scenarios = [
+        {"cf_y": 0.04, "cf_d": 0.03, "rho": 0.8, "level": 0.95, "null_hypothesis": np.zeros(len(model.coef))},
+        {"cf_y": 0.03, "cf_d": 0.03, "rho": 1.0, "level": 0.95, "null_hypothesis": 1.5 * np.asarray(model.coef)},
+    ]
+    for sc in scenarios:
+        model.sensitivity_analysis(**sc)
+        sp = model.sensitivity_params
+        out["scenarios"].append({
+            "params": {k: (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in sc.items()},
+            **{f"{q}_{b}": np.asarray(sp[q][b]).tolist() for q in ("theta", "se", "ci") for b in ("lower", "upper")},
+            "rv": np.asarray(sp["rv"]).tolist(),
+            "rva": np.asarray(sp["rva"]).tolist(),
+        })
+    if benchmark:
+        bm = model.sensitivity_benchmark(benchmarking_set=["X1"])
+        out["benchmark"] = {"drop": [0], **{c: bm[c].tolist() for c in ("cf_y", "cf_d", "rho", "delta_theta")}}
+    return out
 
 
 def plr(name, seed, n_obs, dim_x, spec, score="partialling out", n_rep=1, boot=None):
