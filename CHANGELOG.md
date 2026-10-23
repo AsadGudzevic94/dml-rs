@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-24
+
 ### Added
 - `GradientBoostingRegressor` (squared error) and `GradientBoostingClassifier` (log loss with
   Newton leaf updates): shallow CART trees on the negative gradient with learning rate, depth and
@@ -15,6 +17,15 @@ All notable changes to this project are documented here. The format follows
   exactly equal gain, which scikit-learn itself resolves differently per `random_state`).
   About 9× faster than DoubleML with scikit-learn boosting for PLR. Python:
   `dml_rs.GradientBoostingRegressor` / `dml_rs.GradientBoostingClassifier`.
+- `CONTRIBUTING.md` and `CITATION.cff` (GitHub's "Cite this repository").
+
+### Changed
+- README rewritten: model overview, reproducible quick start, benchmarks, validation and
+  citation; matching crates.io and PyPI pages.
+
+## [0.5.0] - 2026-10-24
+
+### Added
 - Staggered DID for **repeated cross-sections**: `RepeatedCrossSections` data, accepted by
   `StaggeredDid::fit` alongside `PanelData` (both convert into the new `StaggeredInput`), as
   DoubleML's `DoubleMLDIDMulti(panel=False)`; folds are stratified by group × period.
@@ -91,7 +102,9 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.1.0...v0.2.0
