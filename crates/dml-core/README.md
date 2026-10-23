@@ -9,8 +9,8 @@ modelled on and numerically validated against the [DoubleML](https://docs.double
 
 - **Models:** partially linear regression (`Plr`, partialling-out and IV-type scores),
   interactive regression model (`Irm`, ATE / ATTE), partially linear IV (`Pliv`), interactive IV
-  model (`Iivm`, LATE), difference-in-differences for panels (`Did`) and repeated cross-sections
-  (`DidCs`)
+  model (`Iivm`, LATE), difference-in-differences for panels (`Did`), repeated cross-sections
+  (`DidCs`) and staggered adoption (`StaggeredDid`, with group / time / event-study aggregation)
 - **Inference:** DML2 estimation, standard errors, confidence intervals, multiple treatments,
   repeated sample splitting, multiplier bootstrap, joint intervals, Romano–Wolf / Holm / Bonferroni
 - **Heterogeneous effects:** S-, T-, X-, R- and DR-learners; best linear predictor of the CATE and

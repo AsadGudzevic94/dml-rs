@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `StaggeredDid`: difference-in-differences with staggered adoption (Callaway & Sant'Anna, 2021;
+  DoubleML's `DoubleMLDIDMulti` for panels). Estimates every group-time effect ATT(g, t) with the
+  doubly robust panel DID score; never-treated or not-yet-treated controls, anticipation periods,
+  standard / all / universal base periods. Results are a `DmlFit`, so joint bootstrap bands and
+  Romano–Wolf adjustment work across all ATT(g, t).
+- `StaggeredDidFit::aggregate` by cohort, calendar time or event time, plus the overall effect,
+  with influence-function based standard errors.
+- `PanelData` (wide, with `NaN` for missing periods, or `from_long`), unbalanced panels supported.
+- `KFold::split_stratified`.
+- Python: `dml_rs.StaggeredDID` (`fit` on long arrays or `fit_frame` on a DataFrame, `aggregate`).
+- DoubleML parity fixtures for three staggered settings, including all aggregations.
+
 ## [0.3.0] - 2026-10-23
 
 ### Added

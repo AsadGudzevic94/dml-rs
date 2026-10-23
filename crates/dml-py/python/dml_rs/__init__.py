@@ -34,10 +34,11 @@ from ._dml_rs import (
     fit_irm,
     fit_pliv,
     fit_plr,
+    fit_staggered_did,
 )
 from ._blp import BLP
 from ._cate import DRLearner, RLearner, SLearner, TLearner, XLearner
-from ._models import DID, DIDCS, IIVM, IRM, PLIV, PLR
+from ._models import DID, DIDCS, IIVM, IRM, PLIV, PLR, DIDAggregation, StaggeredDID
 
 __all__ = [
     "PLR",
@@ -46,6 +47,8 @@ __all__ = [
     "IIVM",
     "DID",
     "DIDCS",
+    "StaggeredDID",
+    "DIDAggregation",
     "SLearner",
     "TLearner",
     "XLearner",
@@ -64,6 +67,7 @@ __all__ = [
     "fit_cate",
     "fit_iivm",
     "fit_did",
+    "fit_staggered_did",
     "fit_plr",
     "fit_irm",
     "fit_pliv",

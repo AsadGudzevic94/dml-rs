@@ -10,6 +10,8 @@
 //! - [`Iivm`]: interactive IV model, local average treatment effect (LATE) with a binary instrument
 //! - [`Did`] / [`DidCs`]: doubly robust difference-in-differences for panel data and
 //!   repeated cross-sections (Sant'Anna & Zhao, 2020)
+//! - [`StaggeredDid`]: DID with staggered adoption, group-time effects `ATT(g, t)` and their
+//!   aggregation by cohort, calendar time or event time (Callaway & Sant'Anna, 2021)
 //!
 //! All of them have scores that are linear in θ and share one engine
 //! ([`fit_model`]): repeated cross-fitting, DML2 estimation, standard errors,
@@ -57,6 +59,7 @@ pub mod learner;
 pub(crate) mod linalg;
 pub mod model;
 pub mod score;
+pub mod staggered;
 pub mod stats;
 
 pub use blp::Blp;
@@ -78,3 +81,7 @@ pub use model::{
     ScoreEstimate, ScoreInput,
 };
 pub use score::LinearScore;
+pub use staggered::{
+    Aggregation, ControlGroup, DidAggregation, GroupTime, GtCombinations, PanelData, StaggeredDid,
+    StaggeredDidFit,
+};

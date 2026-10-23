@@ -8,7 +8,7 @@ use crate::data::DmlData;
 use crate::error::Result;
 use crate::score::LinearScore;
 
-mod did;
+pub(crate) mod did;
 mod iivm;
 pub(crate) mod irm;
 mod pliv;

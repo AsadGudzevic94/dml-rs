@@ -294,6 +294,110 @@ class DIDCS(_DIDBase):
         return self._fit(X, y, d, t, folds)
 
 
+class DIDAggregation:
+    """Aggregated staggered-DID effects (by cohort, calendar time or event time)."""
+
+    def __init__(self, how, effects, overall, weights, overall_weights):
+        self.aggregation = how
+        self._effects = effects
+        self._overall = overall
+        self.weights = weights
+        self.overall_weights = overall_weights
+
+    coef = property(lambda self: self._effects.coef)
+    se = property(lambda self: self._effects.se)
+    names = property(lambda self: self._effects.treatment_names)
+    overall_coef = property(lambda self: float(self._overall.coef[0]))
+    overall_se = property(lambda self: float(self._overall.se[0]))
+
+    def confint(self, level=0.95, joint=False, n_boot=500, random_state=0):
+        """Intervals for the aggregated effects; ``joint=True`` gives simultaneous bands."""
+        if joint:
+            return self._effects.bootstrap("normal", n_boot, random_state).joint_confint(level)
+        return self._effects.confint(level)
+
+    @property
+    def summary(self):
+        return _summary_table(self._effects)
+
+    @property
+    def overall_summary(self):
+        return _summary_table(self._overall)
+
+    def __str__(self):
+        return f"{self._effects}\n{self._overall}"
+
+
+def _summary_table(result):
+    ci = result.confint(0.95)
+    table = {"coef": result.coef, "std err": result.se, "t": result.t_stat, "P>|t|": result.pval,
+             "2.5 %": ci[:, 0], "97.5 %": ci[:, 1]}
+    try:
+        import pandas as pd
+    except ImportError:
+        return {"index": result.treatment_names, **table}
+    return pd.DataFrame(table, index=result.treatment_names)
+
+
+class StaggeredDID(_DMLEstimator):
+    """Difference-in-differences with staggered adoption (Callaway & Sant'Anna, 2021),
+    as DoubleML's ``DoubleMLDIDMulti`` for panel data.
+
+    Estimates every group-time effect ATT(g, t) by a doubly robust two-period DID and
+    aggregates them with :meth:`aggregate`.
+
+    Parameters
+    ----------
+    ml_g : regressor for the control group's outcome change given ``X``.
+    ml_m : classifier for the cohort propensity; required for ``score="observational"``.
+    control_group : ``"never_treated"`` or ``"not_yet_treated"``.
+    anticipation_periods : periods before treatment in which units may already react.
+    gt_combinations : ``"standard"`` (varying base), ``"all"`` or ``"universal"`` (fixed base).
+    score, in_sample_normalization, clipping_threshold : as :class:`DID`.
+    """
+
+    def __init__(self, ml_g, ml_m=None, control_group="never_treated", anticipation_periods=0,
+                 gt_combinations="standard", score="observational", in_sample_normalization=True,
+                 clipping_threshold=1e-2, n_folds=5, n_rep=1, random_state=0):
+        self.ml_g = ml_g
+        self.ml_m = ml_m
+        self.control_group = control_group
+        self.anticipation_periods = anticipation_periods
+        self.gt_combinations = gt_combinations
+        self.score = score
+        self.in_sample_normalization = in_sample_normalization
+        self.clipping_threshold = clipping_threshold
+        self.n_folds = n_folds
+        self.n_rep = n_rep
+        self.random_state = random_state
+
+    def fit(self, X, y, id, t, g):
+        """Fit on long-format data: one row per unit (``id``) and period (``t``), with the
+        unit's first treated period ``g`` (``np.inf`` or NaN for never treated) and
+        time-invariant covariates ``X``."""
+        self.staggered_result_ = _dml_rs.fit_staggered_did(
+            _as_1d(y, "y"), np.ascontiguousarray(id, dtype=np.int64), _as_1d(t, "t"), _as_1d(g, "g"),
+            _as_2d(X, "X"), self.ml_g, self.ml_m, control_group=self.control_group,
+            anticipation_periods=self.anticipation_periods, gt_combinations=self.gt_combinations,
+            score=self.score, in_sample_normalization=self.in_sample_normalization,
+            clipping_threshold=self.clipping_threshold, n_folds=self.n_folds, n_rep=self.n_rep,
+            seed=self.random_state,
+        )
+        self.group_times_ = self.staggered_result_.group_times
+        return self._store(self.staggered_result_.att)
+
+    def fit_frame(self, df, y_col, id_col, t_col, g_col, x_cols):
+        """Convenience wrapper for a pandas DataFrame in long format."""
+        return self.fit(df[list(x_cols)].to_numpy(), df[y_col].to_numpy(), df[id_col].to_numpy(),
+                        df[t_col].to_numpy(), df[g_col].to_numpy())
+
+    def aggregate(self, aggregation="group"):
+        """Aggregate the ATT(g, t): ``"group"``, ``"time"`` or ``"eventstudy"``."""
+        if not hasattr(self, "staggered_result_"):
+            raise AttributeError("StaggeredDID is not fitted yet; call fit() first")
+        return DIDAggregation(aggregation, *self.staggered_result_.aggregate(aggregation))
+
+
 class PLIV(_DMLEstimator):
     """Partially linear IV regression with one instrument ``z``.
 

@@ -13,6 +13,7 @@ use pyo3::prelude::*;
 mod cate;
 mod errors;
 mod learners;
+mod staggered;
 
 use cate::{fit_cate, PyBlp, PyCateResult};
 use errors::to_py_err;
@@ -20,6 +21,7 @@ use learners::{
     to_classifier, to_regressor, PyLasso, PyLogisticRegression, PyOls, PyRandomForestClassifier,
     PyRandomForestRegressor,
 };
+use staggered::{fit_staggered_did, PyStaggeredResult};
 
 /// Splits from Python: one list per repetition of `(train, test)` index lists.
 pub(crate) type PySplits = Vec<Vec<(Vec<usize>, Vec<usize>)>>;
@@ -69,6 +71,12 @@ fn build_data(
 #[pyclass(name = "DmlResult", module = "dml_rs", frozen)]
 pub struct PyDmlResult {
     fit: DmlFit,
+}
+
+impl PyDmlResult {
+    pub(crate) fn from_fit(fit: DmlFit) -> Self {
+        Self { fit }
+    }
 }
 
 #[pymethods]
@@ -423,7 +431,7 @@ fn fit_iivm(
     run_model!(py, model, data, splits)
 }
 
-fn did_score(score: &str) -> PyResult<DidScore> {
+pub(crate) fn did_score(score: &str) -> PyResult<DidScore> {
     match score {
         "observational" => Ok(DidScore::Observational),
         "experimental" => Ok(DidScore::Experimental),
@@ -486,9 +494,9 @@ fn fit_did(
 mod dml_rs_native {
     #[pymodule_export]
     use super::{
-        fit_cate, fit_did, fit_iivm, fit_irm, fit_pliv, fit_plr, PyBlp, PyBootstrap, PyCateResult,
-        PyDmlResult, PyLasso, PyLogisticRegression, PyOls, PyRandomForestClassifier,
-        PyRandomForestRegressor,
+        fit_cate, fit_did, fit_iivm, fit_irm, fit_pliv, fit_plr, fit_staggered_did, PyBlp,
+        PyBootstrap, PyCateResult, PyDmlResult, PyLasso, PyLogisticRegression, PyOls,
+        PyRandomForestClassifier, PyRandomForestRegressor, PyStaggeredResult,
     };
 
     #[pymodule_init]

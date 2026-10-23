@@ -10,7 +10,7 @@
 //! Identification rests on conditional parallel trends: absent treatment,
 //! treated and control units with the same covariates would have evolved alike.
 
-use ndarray::{Array1, ArrayView1};
+use ndarray::{Array1, ArrayView1, ArrayView2};
 
 use super::{dml_model_api, LinearScoreModel, ScoreEstimate, ScoreInput};
 use crate::crossfit::{cross_fit_predict_proba, cross_fit_predict_subset, Fold, SampleSplitting};
@@ -140,51 +140,87 @@ impl LinearScoreModel for Did {
 
     fn estimate_score(&self, input: &ScoreInput<'_>, folds: &[Fold]) -> Result<ScoreEstimate> {
         let ScoreInput { y, d, x, .. } = *input;
-        let treated: Vec<bool> = d.iter().map(|&v| v == 1.0).collect();
-        let control: Vec<bool> = treated.iter().map(|b| !b).collect();
-        let g0 = cross_fit_predict_subset(self.ml_g.as_ref(), x, y, folds, &control)?;
-        let g1 = cross_fit_predict_subset(self.ml_g.as_ref(), x, y, folds, &treated)?;
-        let d = d.to_owned();
-        let n = d.len();
-        let p = mean(&d);
-        let resid_d0: Array1<f64> = &y - &g0;
-        let mut predictions = vec![("ml_g0", g0.clone()), ("ml_g1", g1.clone())];
-
-        let (weight_a, psi_b) = match self.score {
-            DidScore::Observational => {
-                let ml_m = self.ml_m.as_ref().expect("checked in validate");
-                let t = self.clipping_threshold;
-                let m = cross_fit_predict_proba(ml_m.as_ref(), x, d.view(), folds)?
-                    .mapv(|q| q.clamp(t, 1.0 - t));
-                let (weight_a, weight_resid) = if self.in_sample_normalization {
-                    let weight_a = &d / mean(&d);
-                    let propensity_weight = (1.0 - &d) * &m / &(1.0 - &m);
-                    let weight_resid = &weight_a - &(&propensity_weight / mean(&propensity_weight));
-                    (weight_a, weight_resid)
-                } else {
-                    (&d / p, (&d - &m) / &(p * &(1.0 - &m)))
-                };
-                predictions.push(("ml_m", m));
-                let psi_b = &weight_resid * &resid_d0;
-                (weight_a, psi_b)
-            }
-            DidScore::Experimental => {
-                let (weight_g0, weight_g1, weight_resid) = if self.in_sample_normalization {
-                    let share = &d / mean(&d);
-                    let control_share = (1.0 - &d) / mean(&(1.0 - &d));
-                    (&share - 1.0, 1.0 - &share, &share - &control_share)
-                } else {
-                    (&d / p - 1.0, 1.0 - &d / p, (&d - p) / (p * (1.0 - p)))
-                };
-                let psi_b = &weight_g0 * &g0 + &weight_g1 * &g1 + &weight_resid * &resid_d0;
-                (Array1::ones(n), psi_b)
-            }
-        };
-        Ok(ScoreEstimate {
-            score: LinearScore::new(-weight_a, psi_b)?,
-            predictions,
-        })
+        panel_did_score(
+            &PanelDidSettings {
+                ml_g: self.ml_g.as_ref(),
+                ml_m: self.ml_m.as_deref(),
+                score: self.score,
+                in_sample_normalization: self.in_sample_normalization,
+                clipping_threshold: self.clipping_threshold,
+            },
+            x,
+            y,
+            d,
+            folds,
+        )
     }
+}
+
+/// Learners and options of the two-period panel DID score, shared by [`Did`]
+/// and the per-(cohort, period) models of
+/// [`StaggeredDid`](crate::StaggeredDid).
+pub(crate) struct PanelDidSettings<'a> {
+    pub ml_g: &'a dyn Regressor,
+    pub ml_m: Option<&'a dyn Classifier>,
+    pub score: DidScore,
+    pub in_sample_normalization: bool,
+    pub clipping_threshold: f64,
+}
+
+/// Panel DID score elements for outcome changes `y`, group indicator `d`.
+pub(crate) fn panel_did_score(
+    settings: &PanelDidSettings<'_>,
+    x: ArrayView2<'_, f64>,
+    y: ArrayView1<'_, f64>,
+    d: ArrayView1<'_, f64>,
+    folds: &[Fold],
+) -> Result<ScoreEstimate> {
+    let treated: Vec<bool> = d.iter().map(|&v| v == 1.0).collect();
+    let control: Vec<bool> = treated.iter().map(|b| !b).collect();
+    let g0 = cross_fit_predict_subset(settings.ml_g, x, y, folds, &control)?;
+    let g1 = cross_fit_predict_subset(settings.ml_g, x, y, folds, &treated)?;
+    let d = d.to_owned();
+    let n = d.len();
+    let p = mean(&d);
+    let resid_d0: Array1<f64> = &y - &g0;
+    let mut predictions = vec![("ml_g0", g0.clone()), ("ml_g1", g1.clone())];
+
+    let (weight_a, psi_b) = match settings.score {
+        DidScore::Observational => {
+            let ml_m = settings.ml_m.ok_or_else(|| {
+                DmlError::InvalidArgument("the observational DID score needs ml_m".into())
+            })?;
+            let t = settings.clipping_threshold;
+            let m =
+                cross_fit_predict_proba(ml_m, x, d.view(), folds)?.mapv(|q| q.clamp(t, 1.0 - t));
+            let (weight_a, weight_resid) = if settings.in_sample_normalization {
+                let weight_a = &d / mean(&d);
+                let propensity_weight = (1.0 - &d) * &m / &(1.0 - &m);
+                let weight_resid = &weight_a - &(&propensity_weight / mean(&propensity_weight));
+                (weight_a, weight_resid)
+            } else {
+                (&d / p, (&d - &m) / &(p * &(1.0 - &m)))
+            };
+            predictions.push(("ml_m", m));
+            let psi_b = &weight_resid * &resid_d0;
+            (weight_a, psi_b)
+        }
+        DidScore::Experimental => {
+            let (weight_g0, weight_g1, weight_resid) = if settings.in_sample_normalization {
+                let share = &d / mean(&d);
+                let control_share = (1.0 - &d) / mean(&(1.0 - &d));
+                (&share - 1.0, 1.0 - &share, &share - &control_share)
+            } else {
+                (&d / p - 1.0, 1.0 - &d / p, (&d - p) / (p * (1.0 - p)))
+            };
+            let psi_b = &weight_g0 * &g0 + &weight_g1 * &g1 + &weight_resid * &resid_d0;
+            (Array1::ones(n), psi_b)
+        }
+    };
+    Ok(ScoreEstimate {
+        score: LinearScore::new(-weight_a, psi_b)?,
+        predictions,
+    })
 }
 
 /// Difference-in-differences with **repeated cross-sections**: the data need

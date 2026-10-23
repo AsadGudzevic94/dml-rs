@@ -357,6 +357,106 @@ pub(crate) fn confint_from(
     ci
 }
 
+impl DmlFit {
+    /// Assemble a fit from per-repetition estimates and score elements that
+    /// are already laid out over all `n` units (zero for units a sub-model did
+    /// not use). Standard errors follow DoubleML: `J = mean(ψ_a)` and
+    /// `se = √(mean(ψ²) / J² / n)` over all `n` units.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_scores(
+        model: String,
+        treatment_names: Vec<String>,
+        n_folds: usize,
+        all_coef: Array2<f64>,
+        psi: Array3<f64>,
+        psi_a: Array3<f64>,
+        psi_b: Array3<f64>,
+        predictions: Vec<(String, Array3<f64>)>,
+    ) -> Self {
+        let (n, k, n_rep) = psi.dim();
+        let mut psi_deriv = Array2::<f64>::zeros((k, n_rep));
+        let mut all_se = Array2::<f64>::zeros((k, n_rep));
+        for j in 0..k {
+            for r in 0..n_rep {
+                let jac = psi_a.slice(ndarray::s![.., j, r]).sum() / n as f64;
+                let col = psi.slice(ndarray::s![.., j, r]);
+                psi_deriv[[j, r]] = jac;
+                all_se[[j, r]] = (col.dot(&col) / n as f64 / (jac * jac) / n as f64).sqrt();
+            }
+        }
+        let (coef, se) = aggregate(&all_coef, &all_se);
+        Self {
+            model,
+            treatment_names,
+            n_obs: n,
+            n_folds,
+            coef,
+            se,
+            all_coef,
+            all_se,
+            psi,
+            psi_a,
+            psi_b,
+            psi_deriv,
+            predictions,
+        }
+    }
+
+    /// Linear combinations `Σ_j w_cj θ_j` of this fit's estimates (one row of
+    /// `weights` per combination), with influence functions combined the same
+    /// way, so correlation between the estimates is accounted for.
+    pub(crate) fn linear_combination(
+        &self,
+        model: String,
+        names: Vec<String>,
+        weights: &Array2<f64>,
+    ) -> Self {
+        let (n, k, n_rep) = self.psi.dim();
+        assert_eq!(weights.ncols(), k, "one weight per estimate");
+        let n_comb = weights.nrows();
+        let mut scaled = Array3::<f64>::zeros((n, n_comb, n_rep));
+        let mut all_coef = Array2::<f64>::zeros((n_comb, n_rep));
+        let mut all_se = Array2::<f64>::zeros((n_comb, n_rep));
+        for r in 0..n_rep {
+            for c in 0..n_comb {
+                let mut col = Array1::<f64>::zeros(n);
+                let mut theta = 0.0;
+                for j in 0..k {
+                    let w = weights[[c, j]];
+                    if w != 0.0 {
+                        col.scaled_add(
+                            w / self.psi_deriv[[j, r]],
+                            &self.psi.slice(ndarray::s![.., j, r]),
+                        );
+                        theta += w * self.all_coef[[j, r]];
+                    }
+                }
+                all_coef[[c, r]] = theta;
+                all_se[[c, r]] = (col.dot(&col) / n as f64 / n as f64).sqrt();
+                scaled.slice_mut(ndarray::s![.., c, r]).assign(&col);
+            }
+        }
+        let (coef, se) = aggregate(&all_coef, &all_se);
+        Self {
+            model,
+            treatment_names: names,
+            n_obs: n,
+            n_folds: self.n_folds,
+            coef,
+            se,
+            all_coef,
+            all_se,
+            // Influence functions are stored already scaled (J = 1); the score
+            // elements are zero so CATE methods correctly refuse this fit.
+            psi: scaled,
+            psi_a: Array3::zeros((n, n_comb, n_rep)),
+            psi_b: Array3::zeros((n, n_comb, n_rep)),
+            psi_deriv: Array2::ones((n_comb, n_rep)),
+            predictions: Vec::new(),
+        }
+    }
+}
+
 pub(crate) fn check_level(level: f64) -> Result<()> {
     if level > 0.0 && level < 1.0 {
         Ok(())

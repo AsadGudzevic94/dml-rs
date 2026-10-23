@@ -42,7 +42,8 @@ pip install dml-rs
   interactive regression model (`Irm`, ATE and ATTE, propensity clipping, normalised IPW),
   partially linear IV (`Pliv`), interactive IV model (`Iivm`, LATE with a binary instrument),
   doubly robust difference-in-differences for panel data (`Did`) and repeated cross-sections
-  (`DidCs`)
+  (`DidCs`), and **staggered adoption** (`StaggeredDid`: group-time effects ATT(g, t) aggregated by
+  cohort, calendar time or event time)
 - **Inference:** DML2 estimation, standard errors, t-statistics, p-values, Wald confidence
   intervals; multiple treatments; repeated sample splitting with median aggregation
 - **Bootstrap:** normal, Bayes and wild multiplier bootstrap; simultaneous (joint) confidence
@@ -147,6 +148,21 @@ let data = DmlData::new(y, d, x)?.with_time_indicator(t)?;
 let att = DidCs::new(Ols::new(), LogisticRegression::default()).fit(&data)?;
 ```
 
+### Staggered adoption (event study)
+
+```rust
+use dml_core::{Aggregation, ControlGroup, LogisticRegression, Ols, PanelData, StaggeredDid};
+
+// Long format: one row per unit and period; g = first treated period (f64::INFINITY = never).
+let data = PanelData::from_long(&id, &t, &y, &g, &x)?;
+let fit = StaggeredDid::new(Ols::new(), LogisticRegression::default())
+    .control_group(ControlGroup::NotYetTreated)
+    .fit(&data)?;
+println!("{fit}");                                  // every ATT(g, t)
+let es = fit.aggregate(Aggregation::EventStudy)?;  // dynamic effects by event time
+let bands = fit.att().bootstrap(dml_core::BootstrapMethod::Normal, 999, 0)?.joint_confint(0.95)?;
+```
+
 ### Several treatments, joint inference
 
 ```rust
@@ -201,6 +217,12 @@ late = dml_rs.IIVM(RandomForestRegressor(), RandomForestClassifier(), RandomFore
 att = dml_rs.DID(dml_rs.Ols(), dml_rs.LogisticRegression()).fit(X, y_post - y_pre, d)
 att_cs = dml_rs.DIDCS(dml_rs.Ols(), dml_rs.LogisticRegression()).fit(X, y, d, t)
 
+# Staggered adoption from a long panel (id, t, g = first treated period, np.inf = never)
+stag = dml_rs.StaggeredDID(dml_rs.Ols(), dml_rs.LogisticRegression(), control_group="not_yet_treated")
+stag.fit_frame(df, y_col="y", id_col="id", t_col="t", g_col="g", x_cols=["x1", "x2"])
+stag.summary                              # every ATT(g, t)
+stag.aggregate("eventstudy").summary      # or "group" / "time"
+
 plr.bootstrap(method="normal", n_boot=1000)
 plr.confint(joint=True); plr.p_adjust("romano-wolf")
 
@@ -244,6 +266,7 @@ bootstrap joint intervals and Romano–Wolf p-values to agree to within `1e-9`
 | `irm_cate_gate` | BLP of the CATE (coefficients, HC0 errors, pointwise bands) and GATEs from IRM |
 | `iivm_late_rep2`, `iivm_no_always_takers` | IIVM (LATE), 2 repetitions; one-sided non-compliance |
 | `did_panel_*`, `did_cs_*` | DID for panels and repeated cross-sections, observational / experimental scores, with and without in-sample normalisation |
+| `staggered_*` | Staggered DID (`DoubleMLDIDMulti`): every ATT(g, t), group / time / event-study aggregation and overall effects; never- and not-yet-treated controls, repeated splits, universal base period with anticipation |
 
 To regenerate the fixtures:
 
@@ -301,6 +324,8 @@ cd crates/dml-py && maturin develop --release && pytest tests
 
 ## References
 
+- Callaway, B., & Sant'Anna, P. H. C. (2021). Difference-in-differences with multiple time periods.
+  *Journal of Econometrics*, 225(2), 200–230.
 - Chernozhukov, V., Chetverikov, D., Demirer, M., Duflo, E., Hansen, C., Newey, W., & Robins, J. (2018).
   Double/debiased machine learning for treatment and structural parameters. *The Econometrics Journal*, 21(1), C1–C68.
 - Sant'Anna, P. H. C., & Zhao, J. (2020). Doubly robust difference-in-differences estimators.

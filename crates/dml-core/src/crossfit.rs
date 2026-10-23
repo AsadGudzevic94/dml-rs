@@ -65,6 +65,53 @@ impl KFold {
         }
         Ok(folds)
     }
+
+    /// Stratified split: the rows of each stratum (e.g. treated / control) are
+    /// shuffled and dealt round-robin over the folds, so every fold holds about
+    /// the same share of each stratum. Fails if a stratum has fewer rows than
+    /// there are folds.
+    pub fn split_stratified(&self, strata: &[usize]) -> Result<Vec<Fold>> {
+        let n = strata.len();
+        if n < self.n_folds {
+            return Err(DmlError::InvalidArgument(format!(
+                "{n} observations is fewer than {} folds",
+                self.n_folds
+            )));
+        }
+        let mut groups: std::collections::BTreeMap<usize, Vec<usize>> = Default::default();
+        for (i, &s) in strata.iter().enumerate() {
+            groups.entry(s).or_default().push(i);
+        }
+        let mut rng = ChaCha8Rng::seed_from_u64(self.seed);
+        let mut tests: Vec<Vec<usize>> = vec![Vec::new(); self.n_folds];
+        let mut next = 0;
+        for (stratum, mut idx) in groups {
+            if idx.len() < self.n_folds {
+                return Err(DmlError::InvalidArgument(format!(
+                    "stratum {stratum} has {} observations, fewer than {} folds",
+                    idx.len(),
+                    self.n_folds
+                )));
+            }
+            idx.shuffle(&mut rng);
+            for i in idx {
+                tests[next].push(i);
+                next = (next + 1) % self.n_folds;
+            }
+        }
+        Ok(tests
+            .into_iter()
+            .map(|mut test| {
+                test.sort_unstable();
+                let mut in_test = vec![false; n];
+                for &i in &test {
+                    in_test[i] = true;
+                }
+                let train = (0..n).filter(|&i| !in_test[i]).collect();
+                Fold { train, test }
+            })
+            .collect())
+    }
 }
 
 /// How observations are split for cross-fitting: `n_rep` independent
@@ -288,6 +335,24 @@ mod tests {
         let pred =
             cross_fit_predict_subset(&Ols::new(), x.view(), y.view(), &folds, &keep).unwrap();
         assert!(pred.iter().all(|p| p.abs() < 1e-12));
+    }
+
+    #[test]
+    fn stratified_folds_balance_each_stratum() {
+        let strata: Vec<usize> = (0..53).map(|i| usize::from(i % 5 == 0)).collect(); // 11 treated
+        let folds = KFold::new(5, 3).unwrap().split_stratified(&strata).unwrap();
+        let mut seen: Vec<usize> = folds.iter().flat_map(|f| f.test.clone()).collect();
+        seen.sort_unstable();
+        assert_eq!(seen, (0..53).collect::<Vec<_>>());
+        for f in &folds {
+            let treated = f.test.iter().filter(|&&i| strata[i] == 1).count();
+            assert!((2..=3).contains(&treated), "treated per fold: {treated}");
+            assert_eq!(f.train.len() + f.test.len(), 53);
+        }
+        assert!(KFold::new(5, 0)
+            .unwrap()
+            .split_stratified(&[0, 0, 0, 0, 0, 1])
+            .is_err());
     }
 
     #[test]
