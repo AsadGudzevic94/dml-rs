@@ -9,7 +9,8 @@ use crate::error::{DmlError, Result};
 /// - `y`: outcome, length `n`
 /// - `d`: one or more treatments, shape `(n, k)` (continuous or 0/1)
 /// - `x`: covariates / confounders, shape `(n, p)`
-/// - `z`: optional instrument, length `n` (for [`Pliv`](crate::Pliv))
+/// - `z`: optional instrument, length `n` (for [`Pliv`](crate::Pliv) and, binary, [`Iivm`](crate::Iivm))
+/// - `t`: optional 0/1 time-period indicator (for repeated cross-sections, [`DidCs`](crate::DidCs))
 ///
 /// With several treatments each one is estimated in turn, and the other
 /// treatments are added to the covariates (as in DoubleML).
@@ -19,6 +20,7 @@ pub struct DmlData {
     d: Array2<f64>,
     x: Array2<f64>,
     z: Option<Array1<f64>>,
+    t: Option<Array1<f64>>,
     treatment_names: Vec<String>,
 }
 
@@ -69,6 +71,7 @@ impl DmlData {
             d,
             x,
             z: None,
+            t: None,
             treatment_names,
         })
     }
@@ -88,6 +91,25 @@ impl DmlData {
             ));
         }
         self.z = Some(z);
+        Ok(self)
+    }
+
+    /// Attach a 0/1 time-period indicator (post-period = 1), required by
+    /// [`DidCs`](crate::DidCs) for repeated cross-sections.
+    pub fn with_time_indicator(mut self, t: Array1<f64>) -> Result<Self> {
+        if t.len() != self.n_obs() {
+            return Err(DmlError::DimensionMismatch(format!(
+                "t has {} rows, expected {}",
+                t.len(),
+                self.n_obs()
+            )));
+        }
+        if !is_binary(t.view()) {
+            return Err(DmlError::InvalidArgument(
+                "time indicator must contain only 0 and 1".into(),
+            ));
+        }
+        self.t = Some(t);
         Ok(self)
     }
 
@@ -142,6 +164,11 @@ impl DmlData {
         self.z.as_ref().map(|z| z.view())
     }
 
+    /// The 0/1 time-period indicator, if attached.
+    pub fn time(&self) -> Option<ArrayView1<'_, f64>> {
+        self.t.as_ref().map(|t| t.view())
+    }
+
     pub fn treatment_names(&self) -> &[String] {
         &self.treatment_names
     }
@@ -161,8 +188,13 @@ impl DmlData {
 
     /// True when every value of treatment `j` is exactly 0 or 1.
     pub fn is_binary_treatment(&self, j: usize) -> bool {
-        self.d.column(j).iter().all(|&v| v == 0.0 || v == 1.0)
+        is_binary(self.d.column(j))
     }
+}
+
+/// True when every value is exactly 0 or 1.
+pub(crate) fn is_binary(v: ArrayView1<'_, f64>) -> bool {
+    v.iter().all(|&x| x == 0.0 || x == 1.0)
 }
 
 /// Gather `v[idx]` into a new array.
@@ -208,6 +240,18 @@ mod tests {
             array![[5.0, 1.0, 100.0], [6.0, 2.0, 200.0]]
         );
         assert!(matches!(data.covariates_for(0), Cow::Owned(_)));
+    }
+
+    #[test]
+    fn time_indicator_must_be_binary() {
+        let data = DmlData::new(array![1.0, 2.0], array![0.0, 1.0], array![[1.0], [2.0]]).unwrap();
+        assert!(data.clone().with_time_indicator(array![0.0, 2.0]).is_err());
+        assert!(data.clone().with_time_indicator(array![1.0]).is_err());
+        assert!(data
+            .with_time_indicator(array![0.0, 1.0])
+            .unwrap()
+            .time()
+            .is_some());
     }
 
     #[test]

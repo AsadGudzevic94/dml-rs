@@ -78,7 +78,7 @@ impl Irm {
 
 /// DoubleML's `_normalize_ipw`: rescale `m̂` so that `mean(D/m̂)` and
 /// `mean((1−D)/(1−m̂))` both become one.
-fn normalize_propensity(m: &Array1<f64>, d: &Array1<f64>) -> Array1<f64> {
+pub(crate) fn normalize_propensity(m: &Array1<f64>, d: &Array1<f64>) -> Array1<f64> {
     let n = m.len() as f64;
     let mean1 = d.iter().zip(m).map(|(&di, &mi)| di / mi).sum::<f64>() / n;
     let mean0 = d

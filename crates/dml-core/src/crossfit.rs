@@ -139,10 +139,25 @@ pub fn cross_fit_predict_subset(
     folds: &[Fold],
     keep: &[bool],
 ) -> Result<Array1<f64>> {
-    if keep.len() != x.nrows() {
-        return Err(DmlError::DimensionMismatch(
-            "cross_fit_predict_subset mask length".into(),
-        ));
+    cross_fit_predict(learner, x, target, &subset_folds(folds, keep, x.nrows())?)
+}
+
+/// Like [`cross_fit_predict_proba`], but each model is trained only on the
+/// training rows where `keep[i]` is true; predictions cover every test row.
+pub fn cross_fit_predict_proba_subset(
+    learner: &dyn Classifier,
+    x: ArrayView2<'_, f64>,
+    labels: ArrayView1<'_, f64>,
+    folds: &[Fold],
+    keep: &[bool],
+) -> Result<Array1<f64>> {
+    cross_fit_predict_proba(learner, x, labels, &subset_folds(folds, keep, x.nrows())?)
+}
+
+/// Restrict every training set to the rows where `keep` is true.
+fn subset_folds(folds: &[Fold], keep: &[bool], n: usize) -> Result<Vec<Fold>> {
+    if keep.len() != n {
+        return Err(DmlError::DimensionMismatch("subgroup mask length".into()));
     }
     let subset: Vec<Fold> = folds
         .iter()
@@ -156,7 +171,7 @@ pub fn cross_fit_predict_subset(
             "a training fold has no observations in the requested subgroup".into(),
         ));
     }
-    cross_fit_predict(learner, x, target, &subset)
+    Ok(subset)
 }
 
 /// Out-of-fold class-1 probabilities from a [`Classifier`].

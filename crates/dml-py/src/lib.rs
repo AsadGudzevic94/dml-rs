@@ -3,7 +3,8 @@
 //! `fit_*` functions below.
 
 use dml_core::{
-    BootstrapMethod, DmlData, DmlFit, Fold, Irm, IrmScore, PAdjust, Pliv, Plr, PlrScore,
+    BootstrapMethod, Did, DidCs, DidScore, DmlData, DmlFit, Fold, Iivm, Irm, IrmScore, PAdjust,
+    Pliv, Plr, PlrScore,
 };
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -39,6 +40,7 @@ fn build_data(
     d: PyReadonlyArray2<'_, f64>,
     x: PyReadonlyArray2<'_, f64>,
     z: Option<PyReadonlyArray1<'_, f64>>,
+    t: Option<PyReadonlyArray1<'_, f64>>,
     treatment_names: Option<Vec<String>>,
 ) -> PyResult<DmlData> {
     let mut data = DmlData::with_treatments(
@@ -50,6 +52,11 @@ fn build_data(
     if let Some(z) = z {
         data = data
             .with_instrument(z.as_array().to_owned())
+            .map_err(to_py_err)?;
+    }
+    if let Some(t) = t {
+        data = data
+            .with_time_indicator(t.as_array().to_owned())
             .map_err(to_py_err)?;
     }
     if let Some(names) = treatment_names {
@@ -293,7 +300,7 @@ fn fit_plr(
             )))
         }
     };
-    let data = build_data(y, d, x, None, treatment_names)?;
+    let data = build_data(y, d, x, None, None, treatment_names)?;
     let mut model = Plr::from_boxed(to_regressor(ml_l)?, to_regressor(ml_m)?)
         .score(score)
         .n_folds(n_folds)
@@ -335,7 +342,7 @@ fn fit_irm(
             )))
         }
     };
-    let data = build_data(y, d, x, None, treatment_names)?;
+    let data = build_data(y, d, x, None, None, treatment_names)?;
     let model = Irm::from_boxed(to_regressor(ml_g)?, to_classifier(ml_m)?)
         .score(score)
         .clipping_threshold(clipping_threshold)
@@ -365,7 +372,7 @@ fn fit_pliv(
     splits: Option<PySplits>,
     treatment_names: Option<Vec<String>>,
 ) -> PyResult<PyDmlResult> {
-    let data = build_data(y, d, x, Some(z), treatment_names)?;
+    let data = build_data(y, d, x, Some(z), None, treatment_names)?;
     let model = Pliv::from_boxed(
         to_regressor(ml_l)?,
         to_regressor(ml_m)?,
@@ -377,12 +384,111 @@ fn fit_pliv(
     run_model!(py, model, data, splits)
 }
 
+#[pyfunction]
+#[pyo3(signature = (y, d, x, z, ml_g, ml_m, ml_r, always_takers = true, never_takers = true,
+                    clipping_threshold = 1e-2, normalize_ipw = false, n_folds = 5, n_rep = 1,
+                    seed = 0, splits = None, treatment_names = None))]
+#[allow(clippy::too_many_arguments)]
+fn fit_iivm(
+    py: Python<'_>,
+    y: PyReadonlyArray1<'_, f64>,
+    d: PyReadonlyArray2<'_, f64>,
+    x: PyReadonlyArray2<'_, f64>,
+    z: PyReadonlyArray1<'_, f64>,
+    ml_g: &Bound<'_, PyAny>,
+    ml_m: &Bound<'_, PyAny>,
+    ml_r: &Bound<'_, PyAny>,
+    always_takers: bool,
+    never_takers: bool,
+    clipping_threshold: f64,
+    normalize_ipw: bool,
+    n_folds: usize,
+    n_rep: usize,
+    seed: u64,
+    splits: Option<PySplits>,
+    treatment_names: Option<Vec<String>>,
+) -> PyResult<PyDmlResult> {
+    let data = build_data(y, d, x, Some(z), None, treatment_names)?;
+    let model = Iivm::from_boxed(
+        to_regressor(ml_g)?,
+        to_classifier(ml_m)?,
+        to_classifier(ml_r)?,
+    )
+    .subgroups(always_takers, never_takers)
+    .clipping_threshold(clipping_threshold)
+    .normalize_ipw(normalize_ipw)
+    .n_folds(n_folds)
+    .n_rep(n_rep)
+    .seed(seed);
+    run_model!(py, model, data, splits)
+}
+
+fn did_score(score: &str) -> PyResult<DidScore> {
+    match score {
+        "observational" => Ok(DidScore::Observational),
+        "experimental" => Ok(DidScore::Experimental),
+        other => Err(PyValueError::new_err(format!(
+            "unknown DID score {other:?} (use 'observational' or 'experimental')"
+        ))),
+    }
+}
+
+/// Two-period DID. Panel data when `t` is `None` (then `y` is the outcome
+/// change), repeated cross-sections when the time indicator `t` is given.
+#[pyfunction]
+#[pyo3(signature = (y, d, x, ml_g, ml_m = None, t = None, score = "observational",
+                    in_sample_normalization = true, clipping_threshold = 1e-2, n_folds = 5,
+                    n_rep = 1, seed = 0, splits = None, treatment_names = None))]
+#[allow(clippy::too_many_arguments)]
+fn fit_did(
+    py: Python<'_>,
+    y: PyReadonlyArray1<'_, f64>,
+    d: PyReadonlyArray2<'_, f64>,
+    x: PyReadonlyArray2<'_, f64>,
+    ml_g: &Bound<'_, PyAny>,
+    ml_m: Option<&Bound<'_, PyAny>>,
+    t: Option<PyReadonlyArray1<'_, f64>>,
+    score: &str,
+    in_sample_normalization: bool,
+    clipping_threshold: f64,
+    n_folds: usize,
+    n_rep: usize,
+    seed: u64,
+    splits: Option<PySplits>,
+    treatment_names: Option<Vec<String>>,
+) -> PyResult<PyDmlResult> {
+    let score = did_score(score)?;
+    let ml_m = ml_m.map(to_classifier).transpose()?;
+    let cross_section = t.is_some();
+    let data = build_data(y, d, x, None, t, treatment_names)?;
+    if cross_section {
+        let model = DidCs::from_boxed(to_regressor(ml_g)?, ml_m)
+            .score(score)
+            .in_sample_normalization(in_sample_normalization)
+            .clipping_threshold(clipping_threshold)
+            .n_folds(n_folds)
+            .n_rep(n_rep)
+            .seed(seed);
+        run_model!(py, model, data, splits)
+    } else {
+        let model = Did::from_boxed(to_regressor(ml_g)?, ml_m)
+            .score(score)
+            .in_sample_normalization(in_sample_normalization)
+            .clipping_threshold(clipping_threshold)
+            .n_folds(n_folds)
+            .n_rep(n_rep)
+            .seed(seed);
+        run_model!(py, model, data, splits)
+    }
+}
+
 #[pymodule(name = "_dml_rs")]
 mod dml_rs_native {
     #[pymodule_export]
     use super::{
-        fit_cate, fit_irm, fit_pliv, fit_plr, PyBlp, PyBootstrap, PyCateResult, PyDmlResult,
-        PyLasso, PyLogisticRegression, PyOls, PyRandomForestClassifier, PyRandomForestRegressor,
+        fit_cate, fit_did, fit_iivm, fit_irm, fit_pliv, fit_plr, PyBlp, PyBootstrap, PyCateResult,
+        PyDmlResult, PyLasso, PyLogisticRegression, PyOls, PyRandomForestClassifier,
+        PyRandomForestRegressor,
     };
 
     #[pymodule_init]

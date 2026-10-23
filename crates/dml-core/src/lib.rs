@@ -7,8 +7,11 @@
 //! - [`Plr`]: partially linear regression (partialling-out or IV-type score)
 //! - [`Irm`]: interactive regression model for a binary treatment (ATE / ATTE)
 //! - [`Pliv`]: partially linear IV regression
+//! - [`Iivm`]: interactive IV model, local average treatment effect (LATE) with a binary instrument
+//! - [`Did`] / [`DidCs`]: doubly robust difference-in-differences for panel data and
+//!   repeated cross-sections (Sant'Anna & Zhao, 2020)
 //!
-//! All three have scores that are linear in θ and share one engine
+//! All of them have scores that are linear in θ and share one engine
 //! ([`fit_model`]): repeated cross-fitting, DML2 estimation, standard errors,
 //! confidence intervals, a multiplier [`Bootstrap`] for joint inference and
 //! multiple-testing adjustment. New scores plug in via [`LinearScoreModel`].
@@ -60,8 +63,8 @@ pub use blp::Blp;
 pub use bootstrap::{Bootstrap, BootstrapMethod};
 pub use cate::{CateFit, DrLearner, RLearner, SLearner, TLearner, XLearner};
 pub use crossfit::{
-    cross_fit_predict, cross_fit_predict_proba, cross_fit_predict_subset, Fold, KFold,
-    SampleSplitting,
+    cross_fit_predict, cross_fit_predict_proba, cross_fit_predict_proba_subset,
+    cross_fit_predict_subset, Fold, KFold, SampleSplitting,
 };
 pub use data::DmlData;
 pub use error::{DmlError, Result};
@@ -70,5 +73,8 @@ pub use learner::{
     Classifier, Lasso, LogisticRegression, MaxFeatures, Ols, RandomForestClassifier,
     RandomForestRegressor, Regressor,
 };
-pub use model::{Irm, IrmScore, LinearScoreModel, Pliv, Plr, PlrScore, ScoreEstimate, ScoreInput};
+pub use model::{
+    Did, DidCs, DidScore, Iivm, Irm, IrmScore, LinearScoreModel, Pliv, Plr, PlrScore,
+    ScoreEstimate, ScoreInput,
+};
 pub use score::LinearScore;

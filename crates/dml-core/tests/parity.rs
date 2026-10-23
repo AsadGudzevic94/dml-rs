@@ -4,7 +4,7 @@
 mod common;
 
 use common::{assert_all_close, assert_close, to_matrix, to_vec, Fixture};
-use dml_core::{DmlFit, Irm, IrmScore, PAdjust, Pliv, Plr, PlrScore};
+use dml_core::{Did, DidCs, DidScore, DmlFit, Iivm, Irm, IrmScore, PAdjust, Pliv, Plr, PlrScore};
 use ndarray::Array2;
 
 /// Closed-form learners (OLS, ridge) and the DML algebra agree to ~1e-12;
@@ -45,6 +45,37 @@ fn fit_fixture(fx: &Fixture) -> DmlFit {
             fx.regressor("ml_r"),
         )
         .fit_with_folds(&data, &folds),
+        "iivm" => {
+            let sub = &fx.0["options"]["subgroups"];
+            let flag = |k: &str| sub[k].as_bool().unwrap_or(true);
+            Iivm::from_boxed(
+                fx.regressor("ml_g"),
+                fx.classifier("ml_m"),
+                fx.classifier("ml_r"),
+            )
+            .subgroups(flag("always_takers"), flag("never_takers"))
+            .fit_with_folds(&data, &folds)
+        }
+        kind @ ("did" | "did_cs") => {
+            let score = match fx.option_str("score") {
+                "observational" => DidScore::Observational,
+                "experimental" => DidScore::Experimental,
+                s => panic!("unknown DID score {s}"),
+            };
+            let ml_m = fx.has_learner("ml_m").then(|| fx.classifier("ml_m"));
+            let normalize = fx.option_bool("in_sample_normalization");
+            if kind == "did" {
+                Did::from_boxed(fx.regressor("ml_g"), ml_m)
+                    .score(score)
+                    .in_sample_normalization(normalize)
+                    .fit_with_folds(&data, &folds)
+            } else {
+                DidCs::from_boxed(fx.regressor("ml_g"), ml_m)
+                    .score(score)
+                    .in_sample_normalization(normalize)
+                    .fit_with_folds(&data, &folds)
+            }
+        }
         m => panic!("unknown model {m}"),
     }
     .unwrap()
@@ -268,4 +299,34 @@ fn dr_learner_pseudo_outcomes_equal_irm_orthogonal_signal() {
         &psi_b,
         1e-12,
     );
+}
+
+#[test]
+fn iivm_late_repeated_splits() {
+    check("iivm_late_rep2", TOL_ITERATIVE);
+}
+
+#[test]
+fn iivm_without_always_takers() {
+    check("iivm_no_always_takers", TOL_ITERATIVE);
+}
+
+#[test]
+fn did_panel_observational() {
+    check("did_panel_observational", TOL_ITERATIVE);
+}
+
+#[test]
+fn did_panel_experimental_without_normalization() {
+    check("did_panel_experimental_nonorm", TOL);
+}
+
+#[test]
+fn did_cross_section_observational_without_normalization() {
+    check("did_cs_observational_nonorm", TOL_ITERATIVE);
+}
+
+#[test]
+fn did_cross_section_experimental() {
+    check("did_cs_experimental", TOL);
 }

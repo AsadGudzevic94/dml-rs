@@ -18,7 +18,8 @@ import doubleml as dml
 import numpy as np
 import pandas as pd
 import sklearn
-from doubleml.irm.datasets import make_irm_data
+from doubleml.did.datasets import make_did_SZ2020
+from doubleml.irm.datasets import make_iivm_data, make_irm_data
 from doubleml.plm.datasets import make_pliv_CHS2015, make_plr_CCDDHNR2018
 from doubleml.utils._estimation import _draw_weights
 from sklearn.linear_model import Lasso, LinearRegression, LogisticRegression, Ridge
@@ -57,7 +58,14 @@ def fit_case(name, model_kind, data, arrays, learners, options, n_folds=5, n_rep
     n = len(arrays["y"])
     reps = draw_folds(n, n_folds, n_rep, seed)
     kwargs = {k: learner(v) for k, v in learners.items()}
-    cls = {"plr": dml.DoubleMLPLR, "irm": dml.DoubleMLIRM, "pliv": dml.DoubleMLPLIV}[model_kind]
+    cls = {
+        "plr": dml.DoubleMLPLR,
+        "irm": dml.DoubleMLIRM,
+        "pliv": dml.DoubleMLPLIV,
+        "iivm": dml.DoubleMLIIVM,
+        "did": dml.DoubleMLDID,
+        "did_cs": dml.DoubleMLDIDCS,
+    }[model_kind]
     model = cls(data, **kwargs, n_folds=n_folds, n_rep=n_rep, draw_sample_splitting=False, **options)
     model.set_sample_splitting(reps)
     model.fit(store_predictions=True)
@@ -136,6 +144,35 @@ def irm(name, seed, score, normalize_ipw=False, n_rep=1, boot=None):
                     {"score": score, "normalize_ipw": normalize_ipw}, n_rep=n_rep, seed=seed, boot=boot)
 
 
+def iivm(name, seed, subgroups=None, n_rep=1):
+    np.random.seed(seed)
+    x, y, d, z = make_iivm_data(n_obs=600, dim_x=6, theta=0.5, alpha_x=1.0, return_type="array")
+    z = np.asarray(z).reshape(-1)
+    data = dml.DoubleMLData.from_arrays(x, y, d, z=z)
+    options = {"score": "LATE"}
+    if subgroups is not None:
+        options["subgroups"] = subgroups
+    return fit_case(name, "iivm", data, {"x": x, "y": y, "d": d, "z": z},
+                    {"ml_g": OLS, "ml_m": LOGIT, "ml_r": LOGIT}, options, n_rep=n_rep, seed=seed)
+
+
+def did(name, seed, score, normalize, cross_section=False):
+    np.random.seed(seed)
+    if cross_section:
+        x, y, d, t = make_did_SZ2020(n_obs=800, dgp_type=1, cross_sectional_data=True, return_type="array")
+        data = dml.DoubleMLDIDData.from_arrays(x, y, d, t=t)
+        arrays = {"x": x, "y": y, "d": d, "t": t}
+    else:
+        x, y, d, _ = make_did_SZ2020(n_obs=600, dgp_type=1, cross_sectional_data=False, return_type="array")
+        data = dml.DoubleMLDIDData.from_arrays(x, y, d)
+        arrays = {"x": x, "y": y, "d": d}
+    learners = {"ml_g": OLS}
+    if score == "observational":
+        learners["ml_m"] = LOGIT
+    return fit_case(name, "did_cs" if cross_section else "did", data, arrays, learners,
+                    {"score": score, "in_sample_normalization": normalize}, seed=seed)
+
+
 def irm_cate(name, seed):
     case = irm(name, seed, "ATE", n_rep=2)
     model = case["_model"]
@@ -182,6 +219,12 @@ CASES = [
     lambda: irm("irm_ate_normalized", 23, "ATE", normalize_ipw=True),
     lambda: pliv("pliv_ols", 31, n_rep=2),
     lambda: irm_cate("irm_cate_gate", 41),
+    lambda: iivm("iivm_late_rep2", 51, n_rep=2),
+    lambda: iivm("iivm_no_always_takers", 52, subgroups={"always_takers": False, "never_takers": True}),
+    lambda: did("did_panel_observational", 61, "observational", True),
+    lambda: did("did_panel_experimental_nonorm", 62, "experimental", False),
+    lambda: did("did_cs_observational_nonorm", 63, "observational", False, cross_section=True),
+    lambda: did("did_cs_experimental", 64, "experimental", True, cross_section=True),
 ]
 
 

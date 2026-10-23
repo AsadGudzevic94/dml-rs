@@ -8,7 +8,9 @@ Double / debiased machine learning (Chernozhukov et al., 2018) for causal infere
 modelled on and numerically validated against the [DoubleML](https://docs.doubleml.org) package.
 
 - **Models:** partially linear regression (`Plr`, partialling-out and IV-type scores),
-  interactive regression model (`Irm`, ATE / ATTE), partially linear IV (`Pliv`)
+  interactive regression model (`Irm`, ATE / ATTE), partially linear IV (`Pliv`), interactive IV
+  model (`Iivm`, LATE), difference-in-differences for panels (`Did`) and repeated cross-sections
+  (`DidCs`)
 - **Inference:** DML2 estimation, standard errors, confidence intervals, multiple treatments,
   repeated sample splitting, multiplier bootstrap, joint intervals, Romano–Wolf / Holm / Bonferroni
 - **Heterogeneous effects:** S-, T-, X-, R- and DR-learners; best linear predictor of the CATE and

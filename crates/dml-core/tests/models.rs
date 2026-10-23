@@ -216,3 +216,125 @@ fn random_forest_nuisances_remove_nonlinear_confounding_bias() {
     assert_eq!(irm.n_obs(), n);
     assert!(irm.coef()[0].is_finite() && irm.se()[0] > 0.0);
 }
+
+fn sigmoid(v: f64) -> f64 {
+    1.0 / (1.0 + (-v).exp())
+}
+
+/// Binary instrument with always-takers (15%), never-takers (15%) and
+/// compliers; effect 1 for everyone, so LATE = 1. Naive regression is
+/// confounded through an unobserved `u` that also drives compliance type.
+fn iivm_data(n: usize, seed: u64) -> DmlData {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let x = normal_matrix(&mut rng, n, 2);
+    let (mut y, mut d, mut z) = (Array1::zeros(n), Array1::zeros(n), Array1::zeros(n));
+    for i in 0..n {
+        z[i] = f64::from(rng.gen::<f64>() < sigmoid(0.5 * x[[i, 0]]));
+        let u: f64 = rng.gen();
+        let (always, never) = (u < 0.15, u > 0.85);
+        d[i] = f64::from(always || (!never && z[i] == 1.0));
+        y[i] = d[i] + x[[i, 0]] + 0.5 * x[[i, 1]] + 2.0 * (u - 0.5) + std_normal(&mut rng);
+    }
+    DmlData::new(y, d, x).unwrap().with_instrument(z).unwrap()
+}
+
+#[test]
+fn iivm_late_has_nominal_coverage() {
+    use dml_core::Iivm;
+    let reps = 120;
+    let mut covered = 0;
+    for r in 0..reps {
+        let data = iivm_data(1000, 7000 + r);
+        let fit = Iivm::new(
+            Ols::new(),
+            LogisticRegression::default(),
+            LogisticRegression::default(),
+        )
+        .seed(r)
+        .fit(&data)
+        .unwrap();
+        covered += usize::from(covers(&fit.confint(0.95).unwrap(), 0, 1.0));
+    }
+    let coverage = covered as f64 / reps as f64;
+    assert!((0.88..=0.99).contains(&coverage), "coverage = {coverage}");
+}
+
+/// Two-period design with confounded treatment, covariate-dependent trends
+/// and level differences between groups; ATT = 1. Returns the panel
+/// (outcome change) and a repeated cross-section built from the same units.
+fn did_data(n: usize, seed: u64) -> (DmlData, DmlData) {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let x = normal_matrix(&mut rng, n, 2);
+    let (mut d, mut dy, mut y_obs, mut t) = (
+        Array1::zeros(n),
+        Array1::zeros(n),
+        Array1::zeros(n),
+        Array1::zeros(n),
+    );
+    for i in 0..n {
+        d[i] = f64::from(rng.gen::<f64>() < sigmoid(0.6 * x[[i, 0]]));
+        let level = 1.0 + x[[i, 1]] + 0.8 * d[i]; // groups differ in levels
+        let trend = 0.3 + 0.5 * x[[i, 0]]; // covariate-dependent common trend
+        let y0 = level + std_normal(&mut rng);
+        let y1 = level + trend + d[i] * 1.0 + std_normal(&mut rng);
+        dy[i] = y1 - y0;
+        t[i] = f64::from(rng.gen::<f64>() < 0.5);
+        y_obs[i] = if t[i] == 1.0 { y1 } else { y0 };
+    }
+    let panel = DmlData::new(dy, d.clone(), x.clone()).unwrap();
+    let cross = DmlData::new(y_obs, d, x)
+        .unwrap()
+        .with_time_indicator(t)
+        .unwrap();
+    (panel, cross)
+}
+
+#[test]
+fn did_panel_and_cross_section_have_nominal_coverage() {
+    use dml_core::{Did, DidCs};
+    let reps = 120;
+    let (mut panel_cov, mut cs_cov) = (0, 0);
+    for r in 0..reps {
+        let (panel, cross) = did_data(1500, 9000 + r);
+        let p = Did::new(Ols::new(), LogisticRegression::default())
+            .seed(r)
+            .fit(&panel)
+            .unwrap();
+        let c = DidCs::new(Ols::new(), LogisticRegression::default())
+            .seed(r)
+            .fit(&cross)
+            .unwrap();
+        panel_cov += usize::from(covers(&p.confint(0.95).unwrap(), 0, 1.0));
+        cs_cov += usize::from(covers(&c.confint(0.95).unwrap(), 0, 1.0));
+    }
+    // 120 runs give coverage ±2 pp of binomial noise, so only under-coverage
+    // is tested. (A 600-run check of the panel estimator gave 93.5% coverage
+    // with mean se / sd(θ̂) = 0.95, i.e. well-calibrated intervals.)
+    for (name, c) in [("panel", panel_cov), ("cross-section", cs_cov)] {
+        let coverage = c as f64 / reps as f64;
+        assert!(coverage >= 0.88, "{name} coverage = {coverage}");
+    }
+}
+
+#[test]
+fn naive_difference_in_means_is_biased_where_did_is_not() {
+    use dml_core::Did;
+    let (panel, _) = did_data(5000, 3);
+    let d = panel.treatment(0);
+    let dy = panel.y();
+    let mean_by = |g: f64| {
+        let (s, c) = d
+            .iter()
+            .zip(dy)
+            .filter(|(&di, _)| di == g)
+            .fold((0.0, 0.0), |(s, c), (_, &v)| (s + v, c + 1.0));
+        s / c
+    };
+    // Unconditional DiD ignores that the trend depends on x₀, which drives treatment.
+    let naive = mean_by(1.0) - mean_by(0.0);
+    let dml = Did::new(Ols::new(), LogisticRegression::default())
+        .fit(&panel)
+        .unwrap();
+    assert!((naive - 1.0).abs() > 0.15, "naive = {naive}");
+    assert!((dml.coef()[0] - 1.0).abs() < 0.1, "dml = {}", dml.coef()[0]);
+}

@@ -204,6 +204,96 @@ class IRM(_DMLEstimator):
         return blp_from(self._check_fitted().gate(_as_2d(groups, "groups")), groups, "group_")
 
 
+class IIVM(_DMLEstimator):
+    """Interactive IV model: local average treatment effect (LATE) of a binary
+    treatment ``d`` using a binary instrument ``z``.
+
+    Parameters
+    ----------
+    ml_g : regressor for ``E[Y | Z, X]`` (fitted separately for ``Z = 0`` and ``Z = 1``).
+    ml_m : classifier for the instrument propensity ``P(Z = 1 | X)``.
+    ml_r : classifier for ``P(D = 1 | Z, X)`` (fitted separately for ``Z = 0`` and ``Z = 1``).
+    subgroups : dict with ``always_takers`` / ``never_takers`` (default both True). Set one
+        to False under one-sided non-compliance.
+    clipping_threshold : instrument propensities are clipped to ``[t, 1 - t]``.
+    normalize_ipw : normalise the inverse-probability weights within instrument arms.
+    """
+
+    def __init__(self, ml_g, ml_m, ml_r, subgroups=None, clipping_threshold=1e-2, normalize_ipw=False,
+                 n_folds=5, n_rep=1, random_state=0):
+        self.ml_g = ml_g
+        self.ml_m = ml_m
+        self.ml_r = ml_r
+        self.subgroups = subgroups
+        self.clipping_threshold = clipping_threshold
+        self.normalize_ipw = normalize_ipw
+        self.n_folds = n_folds
+        self.n_rep = n_rep
+        self.random_state = random_state
+
+    def fit(self, X, y, d, z, folds=None):
+        subgroups = {"always_takers": True, "never_takers": True, **(self.subgroups or {})}
+        result = _dml_rs.fit_iivm(
+            _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), _as_1d(z, "z"), self.ml_g, self.ml_m, self.ml_r,
+            always_takers=subgroups["always_takers"], never_takers=subgroups["never_takers"],
+            clipping_threshold=self.clipping_threshold, normalize_ipw=self.normalize_ipw,
+            n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
+            splits=_splits(folds), treatment_names=_treatment_names(d),
+        )
+        return self._store(result)
+
+
+class _DIDBase(_DMLEstimator):
+    def __init__(self, ml_g, ml_m=None, score="observational", in_sample_normalization=True,
+                 clipping_threshold=1e-2, n_folds=5, n_rep=1, random_state=0):
+        self.ml_g = ml_g
+        self.ml_m = ml_m
+        self.score = score
+        self.in_sample_normalization = in_sample_normalization
+        self.clipping_threshold = clipping_threshold
+        self.n_folds = n_folds
+        self.n_rep = n_rep
+        self.random_state = random_state
+
+    def _fit(self, X, y, d, t, folds):
+        result = _dml_rs.fit_did(
+            _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), self.ml_g, self.ml_m,
+            t=None if t is None else _as_1d(t, "t"), score=self.score,
+            in_sample_normalization=self.in_sample_normalization, clipping_threshold=self.clipping_threshold,
+            n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
+            splits=_splits(folds), treatment_names=_treatment_names(d),
+        )
+        return self._store(result)
+
+
+class DID(_DIDBase):
+    """Doubly robust difference-in-differences (ATT) with **panel data** over two periods.
+
+    ``y`` passed to :meth:`fit` is each unit's outcome change ``Y_post - Y_pre``.
+
+    Parameters
+    ----------
+    ml_g : regressor for ``E[ΔY | D = d, X]`` (fitted per treatment group).
+    ml_m : classifier for the propensity ``P(D = 1 | X)``; required for ``score="observational"``.
+    score : ``"observational"`` (doubly robust) or ``"experimental"`` (randomised treatment).
+    in_sample_normalization : normalise the weights by their sample means (DoubleML default).
+    """
+
+    def fit(self, X, y, d, folds=None):
+        return self._fit(X, y, d, None, folds)
+
+
+class DIDCS(_DIDBase):
+    """Doubly robust difference-in-differences (ATT) with **repeated cross-sections**.
+
+    Each row is observed once; ``t`` passed to :meth:`fit` is 1 in the post-period, 0 before.
+    Parameters as :class:`DID`, with ``ml_g`` fitted in each treatment-group x period cell.
+    """
+
+    def fit(self, X, y, d, t, folds=None):
+        return self._fit(X, y, d, t, folds)
+
+
 class PLIV(_DMLEstimator):
     """Partially linear IV regression with one instrument ``z``.
 

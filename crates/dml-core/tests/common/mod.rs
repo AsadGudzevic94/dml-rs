@@ -68,6 +68,11 @@ impl Fixture {
         self.0["options"][key].as_bool().unwrap_or(false)
     }
 
+    /// A nuisance learner that may be absent (e.g. `ml_m` for experimental DID).
+    pub fn has_learner(&self, nuisance: &str) -> bool {
+        !self.0["learners"][nuisance].is_null()
+    }
+
     pub fn regressor(&self, nuisance: &str) -> Box<dyn Regressor> {
         regressor_from_spec(&self.0["learners"][nuisance])
     }
@@ -90,8 +95,12 @@ impl Fixture {
             DmlData::new(y, to_vec(d), x)
         }
         .unwrap();
-        match self.0.get("z") {
+        let data = match self.0.get("z") {
             Some(z) => data.with_instrument(to_vec(z)).unwrap(),
+            None => data,
+        };
+        match self.0.get("t") {
+            Some(t) => data.with_time_indicator(to_vec(t)).unwrap(),
             None => data,
         }
     }

@@ -65,7 +65,7 @@ impl LinearScoreModel for Pliv {
     }
 
     fn estimate_score(&self, input: &ScoreInput<'_>, folds: &[Fold]) -> Result<ScoreEstimate> {
-        let ScoreInput { y, d, x, z } = *input;
+        let ScoreInput { y, d, x, z, .. } = *input;
         let z = z.ok_or_else(|| DmlError::InvalidArgument("PLIV requires an instrument".into()))?;
         let l_hat = cross_fit_predict(self.ml_l.as_ref(), x, y, folds)?;
         let m_hat = cross_fit_predict(self.ml_m.as_ref(), x, z, folds)?;

@@ -29,18 +29,23 @@ from ._dml_rs import (
     RandomForestRegressor,
     __version__,
     fit_cate,
+    fit_did,
+    fit_iivm,
     fit_irm,
     fit_pliv,
     fit_plr,
 )
 from ._blp import BLP
 from ._cate import DRLearner, RLearner, SLearner, TLearner, XLearner
-from ._models import IRM, PLIV, PLR
+from ._models import DID, DIDCS, IIVM, IRM, PLIV, PLR
 
 __all__ = [
     "PLR",
     "IRM",
     "PLIV",
+    "IIVM",
+    "DID",
+    "DIDCS",
     "SLearner",
     "TLearner",
     "XLearner",
@@ -57,6 +62,8 @@ __all__ = [
     "Blp",
     "CateResult",
     "fit_cate",
+    "fit_iivm",
+    "fit_did",
     "fit_plr",
     "fit_irm",
     "fit_pliv",

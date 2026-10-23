@@ -8,16 +8,24 @@ use crate::data::DmlData;
 use crate::error::Result;
 use crate::score::LinearScore;
 
+mod did;
+mod iivm;
 pub(crate) mod irm;
 mod pliv;
 mod plr;
 
+pub use did::{Did, DidCs, DidScore};
+pub use iivm::Iivm;
 pub use irm::{Irm, IrmScore};
 pub use pliv::Pliv;
 pub use plr::{Plr, PlrScore};
 
 /// The data a model sees when estimating the effect of one treatment.
+///
+/// `#[non_exhaustive]`: fields may be added in future versions, so code outside
+/// this crate reads the fields but cannot construct the struct.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct ScoreInput<'a> {
     pub y: ArrayView1<'a, f64>,
     /// The treatment being estimated.
@@ -25,6 +33,8 @@ pub struct ScoreInput<'a> {
     /// Covariates, including any other treatments.
     pub x: ArrayView2<'a, f64>,
     pub z: Option<ArrayView1<'a, f64>>,
+    /// 0/1 time-period indicator (repeated cross-sections).
+    pub t: Option<ArrayView1<'a, f64>>,
 }
 
 /// Score elements plus the cross-fitted nuisance predictions behind them.

@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `Iivm`: interactive IV model for the local average treatment effect (LATE) with a binary
+  instrument; always-/never-taker subgroup switches for one-sided non-compliance.
+- `Did` (panel data) and `DidCs` (repeated cross-sections): doubly robust difference-in-differences
+  for the ATT (Sant'Anna & Zhao, 2020) with observational and experimental scores and optional
+  in-sample normalisation. `DmlData::with_time_indicator` for the period indicator.
+- `cross_fit_predict_proba_subset`.
+- Python: `dml_rs.IIVM`, `dml_rs.DID`, `dml_rs.DIDCS`.
+- DoubleML parity fixtures for IIVM and all DID score / normalisation variants.
+
+### Changed
+- `ScoreInput` gains a time-indicator field `t` and is now `#[non_exhaustive]`; custom
+  `LinearScoreModel` implementations that destructure it need a trailing `..`.
+
+### Notes
+- `Iivm::normalize_ipw` normalises with the instrument, whereas DoubleML 0.11 normalises with
+  the treatment; results differ from DoubleML only when this option is enabled.
+
 ## [0.2.0] - 2026-10-23
 
 ### Added

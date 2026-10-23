@@ -43,6 +43,7 @@ pub fn fit_model<M: LinearScoreModel + ?Sized>(
             d: data.treatment(j),
             x: x_j.view(),
             z: data.z(),
+            t: data.time(),
         };
         for (r, folds) in splits.iter().enumerate() {
             let est = model.estimate_score(&input, folds)?;

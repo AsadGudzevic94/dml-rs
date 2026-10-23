@@ -40,7 +40,9 @@ pip install dml-rs
 
 - **Models:** partially linear regression (`Plr`, partialling-out and IV-type scores),
   interactive regression model (`Irm`, ATE and ATTE, propensity clipping, normalised IPW),
-  partially linear IV (`Pliv`)
+  partially linear IV (`Pliv`), interactive IV model (`Iivm`, LATE with a binary instrument),
+  doubly robust difference-in-differences for panel data (`Did`) and repeated cross-sections
+  (`DidCs`)
 - **Inference:** DML2 estimation, standard errors, t-statistics, p-values, Wald confidence
   intervals; multiple treatments; repeated sample splitting with median aggregation
 - **Bootstrap:** normal, Bayes and wild multiplier bootstrap; simultaneous (joint) confidence
@@ -121,6 +123,30 @@ let data = DmlData::new(y, d, x)?.with_instrument(z)?;
 let fit = Pliv::new(Ols::new(), Ols::new(), Ols::new()).fit(&data)?; // E[Y|X], E[Z|X], E[D|X]
 ```
 
+### Local average treatment effect (binary instrument)
+
+```rust
+use dml_core::{DmlData, Iivm, LogisticRegression, Ols};
+
+let data = DmlData::new(y, d, x)?.with_instrument(z)?; // z: 0/1 instrument
+let fit = Iivm::new(Ols::new(), LogisticRegression::default(), LogisticRegression::default())
+    .subgroups(false, true) // one-sided non-compliance: no always-takers
+    .fit(&data)?;
+```
+
+### Difference-in-differences
+
+```rust
+use dml_core::{Did, DidCs, DmlData, LogisticRegression, Ols};
+
+// Panel: y is each unit's outcome change between the two periods.
+let att = Did::new(Ols::new(), LogisticRegression::default()).fit(&DmlData::new(dy, d, x)?)?;
+
+// Repeated cross-sections: each row observed once, t = 1 in the post-period.
+let data = DmlData::new(y, d, x)?.with_time_indicator(t)?;
+let att = DidCs::new(Ols::new(), LogisticRegression::default()).fit(&data)?;
+```
+
 ### Several treatments, joint inference
 
 ```rust
@@ -171,6 +197,9 @@ plr.predictions_["ml_l"]      # cross-fitted nuisance predictions (n, n_rep, n_t
 
 irm = dml_rs.IRM(ml_g=RandomForestRegressor(), ml_m=RandomForestClassifier(), score="ATTE").fit(X, y, d)
 pliv = dml_rs.PLIV(dml_rs.Ols(), dml_rs.Ols(), dml_rs.Ols()).fit(X, y, d, z)
+late = dml_rs.IIVM(RandomForestRegressor(), RandomForestClassifier(), RandomForestClassifier()).fit(X, y, d, z)
+att = dml_rs.DID(dml_rs.Ols(), dml_rs.LogisticRegression()).fit(X, y_post - y_pre, d)
+att_cs = dml_rs.DIDCS(dml_rs.Ols(), dml_rs.LogisticRegression()).fit(X, y, d, t)
 
 plr.bootstrap(method="normal", n_boot=1000)
 plr.confint(joint=True); plr.p_adjust("romano-wolf")
@@ -213,6 +242,8 @@ bootstrap joint intervals and Romano–Wolf p-values to agree to within `1e-9`
 | `irm_ate`, `irm_atte`, `irm_ate_normalized` | IRM ATE / ATTE with logistic propensity, normalised IPW |
 | `pliv_ols` | PLIV partialling-out, 2 repetitions |
 | `irm_cate_gate` | BLP of the CATE (coefficients, HC0 errors, pointwise bands) and GATEs from IRM |
+| `iivm_late_rep2`, `iivm_no_always_takers` | IIVM (LATE), 2 repetitions; one-sided non-compliance |
+| `did_panel_*`, `did_cs_*` | DID for panels and repeated cross-sections, observational / experimental scores, with and without in-sample normalisation |
 
 To regenerate the fixtures:
 
@@ -272,6 +303,8 @@ cd crates/dml-py && maturin develop --release && pytest tests
 
 - Chernozhukov, V., Chetverikov, D., Demirer, M., Duflo, E., Hansen, C., Newey, W., & Robins, J. (2018).
   Double/debiased machine learning for treatment and structural parameters. *The Econometrics Journal*, 21(1), C1–C68.
+- Sant'Anna, P. H. C., & Zhao, J. (2020). Doubly robust difference-in-differences estimators.
+  *Journal of Econometrics*, 219(1), 101–122.
 - Semenova, V., & Chernozhukov, V. (2021). Debiased machine learning of conditional average treatment
   effects and other causal functions. *The Econometrics Journal*, 24(2), 264–289.
 - Künzel, S. R., Sekhon, J. S., Bickel, P. J., & Yu, B. (2019). Metalearners for estimating heterogeneous
