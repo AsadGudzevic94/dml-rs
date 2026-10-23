@@ -3,43 +3,58 @@
 [![crates.io](https://img.shields.io/crates/v/dml-core.svg)](https://crates.io/crates/dml-core)
 [![docs.rs](https://img.shields.io/docsrs/dml-core)](https://docs.rs/dml-core)
 [![CI](https://github.com/AsadGudzevic94/dml-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/AsadGudzevic94/dml-rs/actions/workflows/ci.yml)
+[![License](https://img.shields.io/crates/l/dml-core.svg)](https://github.com/AsadGudzevic94/dml-rs#license)
 
-Double / debiased machine learning (Chernozhukov et al., 2018) for causal inference in Rust,
-modelled on and numerically validated against the [DoubleML](https://docs.doubleml.org) package.
+**Double / debiased machine learning for causal inference in Rust.**
 
-- **Models:** partially linear regression (`Plr`, partialling-out and IV-type scores),
-  interactive regression model (`Irm`, ATE / ATTE), partially linear IV (`Pliv`), interactive IV
-  model (`Iivm`, LATE), difference-in-differences for panels (`Did`), repeated cross-sections
-  (`DidCs`) and staggered adoption (`StaggeredDid`, with group / time / event-study aggregation,
-  for panels and repeated cross-sections)
-- **Inference:** DML2 estimation, standard errors, confidence intervals, multiple treatments,
-  repeated sample splitting, multiplier bootstrap, joint intervals, Romano–Wolf / Holm / Bonferroni
-- **Heterogeneous effects:** S-, T-, X-, R- and DR-learners; best linear predictor of the CATE and
-  group average treatment effects with robust inference
-- **Learners:** `GradientBoostingRegressor` / `GradientBoostingClassifier`, `RandomForestRegressor` /
-  `RandomForestClassifier`, `Ols` (ridge), `Lasso`,
-  `LogisticRegression`, or your own via the `Regressor` / `Classifier` traits
-- **Fast:** pure Rust, no BLAS; folds fitted in parallel with rayon (`parallel` feature, default)
+`dml-core` implements the double / debiased machine learning framework of
+[Chernozhukov et al. (2018)](https://doi.org/10.1111/ectj.12097): Neyman-orthogonal scores,
+flexible nuisance learners and cross-fitting, with valid standard errors, confidence intervals
+and tests. Every model is tested for numerical agreement with the reference
+[DoubleML](https://docs.doubleml.org) package. It is the core of the
+[`dml-rs`](https://pypi.org/project/dml-rs/) Python package.
 
 ```sh
 cargo add dml-core
 ```
 
+## Example
+
 ```rust
-use dml_core::{DmlData, Lasso, Plr};
+use dml_core::{DmlData, GradientBoostingRegressor, Plr};
 
 let data = DmlData::new(y, d, x)?;
-let fit = Plr::new(Lasso::new(0.01), Lasso::new(0.01)) // learners for E[Y|X] and E[D|X]
+let learner = GradientBoostingRegressor::new().n_estimators(200).learning_rate(0.05);
+let fit = Plr::new(learner.clone(), learner) // learners for E[Y|X] and E[D|X]
     .n_folds(5)
-    .n_rep(10)
+    .n_rep(10) // repeated sample splitting, aggregated by the median
     .seed(42)
     .fit(&data)?;
+
 println!("{fit}");
+let ci = fit.confint(0.95)?;
 ```
 
-Every model is tested for parity with Python DoubleML on identical data and sample splits
-(agreement to 1e-9). Python bindings, benchmarks and the full documentation live in the
-[repository](https://github.com/AsadGudzevic94/dml-rs).
+## Features
+
+- **Models:** partially linear regression (`Plr`), interactive regression (`Irm`, ATE / ATTE),
+  partially linear IV (`Pliv`), interactive IV (`Iivm`, LATE), difference-in-differences for
+  panels and repeated cross-sections (`Did`, `DidCs`) and staggered adoption (`StaggeredDid`, with
+  group, time and event-study aggregation)
+- **Heterogeneous effects:** S-, T-, X-, R- and DR-learners; best linear predictor of the CATE and
+  group average treatment effects (`Blp`)
+- **Inference:** multiple treatments, repeated sample splitting, multiplier bootstrap with
+  simultaneous confidence bands, Romano–Wolf / Holm / Bonferroni adjustment
+- **Learners:** `GradientBoostingRegressor` / `GradientBoostingClassifier`,
+  `RandomForestRegressor` / `RandomForestClassifier`, `Ols` (ridge), `Lasso`,
+  `LogisticRegression`, or your own through the `Regressor` / `Classifier` traits
+- **Extensible:** implement `LinearScoreModel` to add a new orthogonal score and reuse the whole
+  cross-fitting and inference engine
+- **Fast and lightweight:** pure Rust without BLAS; folds and trees are fitted in parallel with
+  rayon (`parallel` feature, on by default); minimum supported Rust version 1.80
+
+See the [repository](https://github.com/AsadGudzevic94/dml-rs) for benchmarks, validation
+details and Python usage.
 
 ## License
 

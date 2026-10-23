@@ -1,0 +1,43 @@
+cff-version: 1.2.0
+message: "If you use dml-rs, please cite it as below, together with Chernozhukov et al. (2018)."
+type: software
+title: "dml-rs: Double / debiased machine learning in Rust and Python"
+authors:
+  - family-names: Gudzevic
+    given-names: Asad
+    email: asadgudzevic94@gmail.com
+repository-code: "https://github.com/AsadGudzevic94/dml-rs"
+url: "https://github.com/AsadGudzevic94/dml-rs"
+license: "MIT OR Apache-2.0"
+keywords:
+  - causal inference
+  - double machine learning
+  - debiased machine learning
+  - econometrics
+  - Rust
+  - Python
+references:
+  - type: article
+    title: "Double/debiased machine learning for treatment and structural parameters"
+    authors:
+      - family-names: Chernozhukov
+        given-names: Victor
+      - family-names: Chetverikov
+        given-names: Denis
+      - family-names: Demirer
+        given-names: Mert
+      - family-names: Duflo
+        given-names: Esther
+      - family-names: Hansen
+        given-names: Christian
+      - family-names: Newey
+        given-names: Whitney
+      - family-names: Robins
+        given-names: James
+    journal: "The Econometrics Journal"
+    volume: 21
+    issue: 1
+    start: C1
+    end: C68
+    year: 2018
+    doi: "10.1111/ectj.12097"

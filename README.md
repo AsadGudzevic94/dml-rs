@@ -1,349 +1,299 @@
-# dml-rs
+<h1 align="center">dml-rs</h1>
 
-[![crates.io](https://img.shields.io/crates/v/dml-core.svg)](https://crates.io/crates/dml-core)
-[![PyPI](https://img.shields.io/pypi/v/dml-rs.svg)](https://pypi.org/project/dml-rs/)
-[![Python versions](https://img.shields.io/pypi/pyversions/dml-rs.svg)](https://pypi.org/project/dml-rs/)
-[![docs.rs](https://img.shields.io/docsrs/dml-core)](https://docs.rs/dml-core)
-[![CI](https://github.com/AsadGudzevic94/dml-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/AsadGudzevic94/dml-rs/actions/workflows/ci.yml)
-[![License: MIT OR Apache-2.0](https://img.shields.io/crates/l/dml-core.svg)](#license)
+<p align="center">
+  <b>Double / debiased machine learning for causal inference, in Rust with Python bindings</b>
+</p>
 
-Double / debiased machine learning (DML) for causal inference, in Rust and Python.
+<p align="center">
+  <a href="https://github.com/AsadGudzevic94/dml-rs/actions/workflows/ci.yml"><img src="https://github.com/AsadGudzevic94/dml-rs/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://pypi.org/project/dml-rs/"><img src="https://img.shields.io/pypi/v/dml-rs.svg?label=PyPI" alt="PyPI"></a>
+  <a href="https://pypi.org/project/dml-rs/"><img src="https://img.shields.io/pypi/pyversions/dml-rs.svg" alt="Python versions"></a>
+  <a href="https://crates.io/crates/dml-core"><img src="https://img.shields.io/crates/v/dml-core.svg?label=crates.io" alt="crates.io"></a>
+  <a href="https://docs.rs/dml-core"><img src="https://img.shields.io/docsrs/dml-core?label=docs.rs" alt="docs.rs"></a>
+  <a href="#license"><img src="https://img.shields.io/crates/l/dml-core.svg" alt="License: MIT OR Apache-2.0"></a>
+</p>
 
-DML (Chernozhukov et al., 2018) estimates causal effects when many confounders
-must be controlled for. It combines three ingredients:
+<p align="center">
+  <a href="https://pypi.org/project/dml-rs/">Python package</a> ·
+  <a href="https://crates.io/crates/dml-core">Rust crate</a> ·
+  <a href="https://docs.rs/dml-core">API documentation</a> ·
+  <a href="CHANGELOG.md">Changelog</a> ·
+  <a href="https://github.com/AsadGudzevic94/dml-rs/releases">Releases</a>
+</p>
 
-1. **Neyman-orthogonal scores**, so small errors in the nuisance models do not bias the effect estimate
-2. **Flexible ML learners** for the nuisance functions (e.g. `E[Y|X]`, `E[D|X]`)
-3. **Cross-fitting**, so every observation is predicted by a model that never saw it
+---
 
-`dml-rs` is a fast, dependency-light Rust implementation modelled on the reference
-[DoubleML](https://docs.doubleml.org) package and tested for numerical parity with it.
+**dml-rs** implements the double / debiased machine learning (DML) framework of
+[Chernozhukov et al. (2018)](https://doi.org/10.1111/ectj.12097) for estimating causal effects
+when many confounders must be controlled for. It combines Neyman-orthogonal scores, flexible
+machine-learning models for the nuisance functions and cross-fitting, and delivers valid
+standard errors, confidence intervals and hypothesis tests.
 
-> **Status:** 0.1.0 released. The API may still change in 0.x releases.
+The core is written in Rust and exposed to Python with a scikit-learn style API. Every model is
+tested for numerical agreement with the reference [DoubleML](https://docs.doubleml.org) package.
+
+## Why dml-rs
+
+- **Validated.** Estimates, standard errors, confidence intervals, bootstrap inference and
+  aggregations agree with DoubleML to `1e-9` on identical data and sample splits.
+- **Fast.** A pure-Rust core with parallel cross-fitting and built-in learners: typically **3–24×
+  faster** than DoubleML with scikit-learn learners ([benchmarks](#performance)).
+- **Complete.** Partially linear and interactive models, instrumental variables,
+  difference-in-differences (including staggered adoption) and heterogeneous effects.
+- **Rust and Python.** Use it as a Rust crate or as a Python package that accepts any
+  scikit-learn estimator.
+
+## Main features
+
+| Model | Target parameter | Rust | Python |
+|---|---|---|---|
+| Partially linear regression | Effect of a continuous or binary treatment (partialling-out or IV-type score) | `Plr` | `PLR` |
+| Interactive regression model | ATE and ATTE of a binary treatment | `Irm` | `IRM` |
+| Partially linear IV regression | Effect of an endogenous treatment with an instrument | `Pliv` | `PLIV` |
+| Interactive IV model | Local average treatment effect (LATE) with a binary instrument | `Iivm` | `IIVM` |
+| Difference-in-differences | ATT for panel data and repeated cross-sections | `Did`, `DidCs` | `DID`, `DIDCS` |
+| Staggered difference-in-differences | Group-time effects ATT(g, t), aggregated by cohort, period or event time | `StaggeredDid` | `StaggeredDID` |
+| Heterogeneous effects | CATE meta-learners (S, T, X, R, DR); best linear predictor and group effects (GATE) | `DrLearner`, `Blp`, … | `DRLearner`, `IRM.cate`, … |
+
+**Inference:** standard errors and confidence intervals, multiple treatments, repeated sample
+splitting, multiplier bootstrap (normal, Bayes, wild) with simultaneous confidence bands, and
+Romano–Wolf, Holm and Bonferroni multiple-testing adjustment.
+
+**Learners:** gradient boosting and random forests (both implemented in Rust; the boosting
+reproduces scikit-learn's predictions), OLS / ridge, Lasso and logistic regression, or any
+scikit-learn estimator from Python. New learners and new orthogonal scores plug in through the
+`Regressor`, `Classifier` and `LinearScoreModel` traits.
 
 ## Installation
 
-**Rust** ([crates.io](https://crates.io/crates/dml-core), API docs on [docs.rs](https://docs.rs/dml-core)):
+**Python** (3.9 or newer; prebuilt wheels for Linux, macOS and Windows):
+
+```sh
+pip install dml-rs
+```
+
+**Rust:**
 
 ```sh
 cargo add dml-core
 ```
 
-**Python** ([PyPI](https://pypi.org/project/dml-rs/); prebuilt wheels for Windows, macOS and
-Linux, Python 3.9+):
+## Quick start
 
-```sh
-pip install dml-rs
+### Python
+
+```python
+import numpy as np
+import dml_rs
+
+# Simulated data: the true effect of d on y is 0.5; X confounds both
+rng = np.random.default_rng(42)
+n = 2000
+X = rng.normal(size=(n, 5))
+d = np.sin(X[:, 0]) + X[:, 1] ** 2 + rng.normal(size=n)
+y = 0.5 * d + np.cos(X[:, 0]) + X[:, 1] ** 2 + rng.normal(size=n)
+
+model = dml_rs.PLR(
+    ml_l=dml_rs.RandomForestRegressor(min_samples_leaf=5),  # learner for E[y | X]
+    ml_m=dml_rs.RandomForestRegressor(min_samples_leaf=5),  # learner for E[d | X]
+    n_folds=5,
+)
+model.fit(X, y, d)
+print(model.summary)
 ```
 
-## Features
-
-- **Models:** partially linear regression (`Plr`, partialling-out and IV-type scores),
-  interactive regression model (`Irm`, ATE and ATTE, propensity clipping, normalised IPW),
-  partially linear IV (`Pliv`), interactive IV model (`Iivm`, LATE with a binary instrument),
-  doubly robust difference-in-differences for panel data (`Did`) and repeated cross-sections
-  (`DidCs`), and **staggered adoption** (`StaggeredDid`: group-time effects ATT(g, t) aggregated by
-  cohort, calendar time or event time, for panels and repeated cross-sections)
-- **Inference:** DML2 estimation, standard errors, t-statistics, p-values, Wald confidence
-  intervals; multiple treatments; repeated sample splitting with median aggregation
-- **Bootstrap:** normal, Bayes and wild multiplier bootstrap; simultaneous (joint) confidence
-  intervals; Romano–Wolf, Holm and Bonferroni multiple-testing adjustment
-- **Heterogeneous effects:** S-, T-, X-, R- and DR-learners for the CATE; best linear predictor
-  (BLP) of the CATE and group average treatment effects (GATE) with HC0 inference, pointwise and
-  simultaneous confidence bands
-- **Learners:** `GradientBoostingRegressor` / `GradientBoostingClassifier` (reproduce scikit-learn's
-  predictions), `RandomForestRegressor` / `RandomForestClassifier` (parallel, seeded CART forests),
-  `Ols` (with optional ridge), `Lasso` (coordinate descent), `LogisticRegression` (Newton), or any
-  type implementing the `Regressor` / `Classifier` traits (with optional weighted fitting)
-- **Extensible:** implement `LinearScoreModel` to add a new orthogonal score and reuse the
-  whole cross-fitting and inference engine
-- **Fast:** folds fitted in parallel with rayon; no BLAS or C dependencies
-- **Python:** `pip install`-able bindings (`dml_rs`) with a scikit-learn style API that accepts
-  any scikit-learn estimator as a nuisance learner
-
-## Roadmap
-
-- [x] **Phase 1 – Foundation:** data container, `Regressor` / `Classifier` traits, seeded K-fold cross-fitting, OLS/ridge learner
-- [x] **Phase 2 – PLR:** partially linear regression (DML2), partialling-out score, standard errors, confidence intervals
-- [x] **Phase 3 – Validation:** numerical parity tests against Python DoubleML, benchmarks
-- [x] **Phase 4 – More models:** IRM (ATE/ATTE), PLIV, multiplier bootstrap, repeated sample splitting
-- [x] **Phase 5 – Python:** PyO3 + maturin bindings with a scikit-learn-style API
-- [x] **Phase 6 – CATE:** meta-learners (S/T/X/R/DR), best linear predictor and GATE inference
-
-## Layout
-
 ```
-crates/
-  dml-core/   # Rust library: data, learners, cross-fitting, models, inference
-  dml-py/     # Python bindings (PyO3 + maturin), package `dml_rs`
-parity/       # DoubleML fixture generator and benchmark script
+       coef   std err          t         P>|t|     2.5 %    97.5 %
+d  0.516919  0.029474  17.538215  7.319031e-69  0.459151  0.574687
 ```
 
-## Examples
+Any scikit-learn estimator can be used instead, for example
+`ml_l=sklearn.ensemble.HistGradientBoostingRegressor()`. The built-in learners
+(`dml_rs.GradientBoostingRegressor`, `dml_rs.RandomForestRegressor`, `dml_rs.Lasso`, …) run the
+whole estimation in Rust, in parallel and without the GIL.
 
-### Partially linear regression
+### Rust
 
 ```rust
-use dml_core::{DmlData, Lasso, Plr};
+use dml_core::{DmlData, GradientBoostingRegressor, Plr};
 
-// y: outcome, d: treatment, x: confounders (ndarray Array1 / Array2)
 let data = DmlData::new(y, d, x)?;
-let fit = Plr::new(Lasso::new(0.01), Lasso::new(0.01)) // learners for E[Y|X] and E[D|X]
+let learner = GradientBoostingRegressor::new().n_estimators(200).learning_rate(0.05);
+let fit = Plr::new(learner.clone(), learner)
     .n_folds(5)
-    .n_rep(10)          // repeated sample splitting, median-aggregated
+    .n_rep(10) // repeated sample splitting, aggregated by the median
     .seed(42)
     .fit(&data)?;
 
 println!("{fit}");
-// PLR (partialling out)  |  n_obs = 2000, n_folds = 5, n_rep = 10
-//            coef    std err        t    P>|t|      2.5 %     97.5 %
-// d        0.5007     0.0236   21.259   0.0000     0.4545     0.5468
-let ci = fit.confint(0.95)?;            // shape (n_treat, 2)
-let l_hat = fit.prediction("ml_l", 0, 0); // cross-fitted E[Y|X], repetition 0
+let ci = fit.confint(0.95)?;
 ```
 
-### Average treatment effect with a binary treatment
+### More examples
 
-```rust
-use dml_core::{Irm, IrmScore, RandomForestClassifier, RandomForestRegressor};
-
-let fit = Irm::new(
-    RandomForestRegressor::new().min_samples_leaf(5),  // E[Y|D,X]
-    RandomForestClassifier::new().min_samples_leaf(5), // P(D=1|X)
-)
-.score(IrmScore::Ate) // or IrmScore::Atte
-.clipping_threshold(0.01)
-.fit(&data)?;
-```
-
-### Instrumental variables
-
-```rust
-use dml_core::{DmlData, Ols, Pliv};
-
-let data = DmlData::new(y, d, x)?.with_instrument(z)?;
-let fit = Pliv::new(Ols::new(), Ols::new(), Ols::new()).fit(&data)?; // E[Y|X], E[Z|X], E[D|X]
-```
-
-### Local average treatment effect (binary instrument)
-
-```rust
-use dml_core::{DmlData, Iivm, LogisticRegression, Ols};
-
-let data = DmlData::new(y, d, x)?.with_instrument(z)?; // z: 0/1 instrument
-let fit = Iivm::new(Ols::new(), LogisticRegression::default(), LogisticRegression::default())
-    .subgroups(false, true) // one-sided non-compliance: no always-takers
-    .fit(&data)?;
-```
-
-### Difference-in-differences
-
-```rust
-use dml_core::{Did, DidCs, DmlData, LogisticRegression, Ols};
-
-// Panel: y is each unit's outcome change between the two periods.
-let att = Did::new(Ols::new(), LogisticRegression::default()).fit(&DmlData::new(dy, d, x)?)?;
-
-// Repeated cross-sections: each row observed once, t = 1 in the post-period.
-let data = DmlData::new(y, d, x)?.with_time_indicator(t)?;
-let att = DidCs::new(Ols::new(), LogisticRegression::default()).fit(&data)?;
-```
-
-### Staggered adoption (event study)
-
-```rust
-use dml_core::{Aggregation, ControlGroup, LogisticRegression, Ols, PanelData, StaggeredDid};
-
-// Long format: one row per unit and period; g = first treated period (f64::INFINITY = never).
-let data = PanelData::from_long(&id, &t, &y, &g, &x)?;
-let fit = StaggeredDid::new(Ols::new(), LogisticRegression::default())
-    .control_group(ControlGroup::NotYetTreated)
-    .fit(&data)?;
-println!("{fit}");                                  // every ATT(g, t)
-let es = fit.aggregate(Aggregation::EventStudy)?;  // dynamic effects by event time
-let bands = fit.att().bootstrap(dml_core::BootstrapMethod::Normal, 999, 0)?.joint_confint(0.95)?;
-
-// Repeated cross-sections: every row is its own observation.
-let rcs = dml_core::RepeatedCrossSections::new(y_rows, t_rows, g_rows, x_rows)?;
-let fit_cs = StaggeredDid::new(Ols::new(), LogisticRegression::default()).fit(&rcs)?;
-```
-
-### Several treatments, joint inference
-
-```rust
-use dml_core::{BootstrapMethod, DmlData, Ols, PAdjust, Plr};
-
-let data = DmlData::with_treatments(y, d_matrix, x)?.with_treatment_names(["price", "ads"])?;
-let fit = Plr::new(Ols::new(), Ols::new()).fit(&data)?;
-let boot = fit.bootstrap(BootstrapMethod::Normal, 1000, 7)?;
-let joint_ci = boot.joint_confint(0.95)?;   // simultaneous coverage for all treatments
-let p_rw = boot.romano_wolf();              // Romano–Wolf adjusted p-values
-let p_holm = fit.p_adjust(PAdjust::Holm);
-```
-
-### Heterogeneous effects (CATE)
-
-```rust
-use dml_core::{DrLearner, Irm, LogisticRegression, Ols, XLearner};
-
-// DR-learner: cross-fitted AIPW pseudo-outcomes regressed on X
-let dr = DrLearner::new(Ols::new(), LogisticRegression::default(), Ols::new()).fit(&data)?;
-let tau_hat = dr.effect(x_new.view())?;               // τ̂(x) for new covariates
-let blp = dr.blp(basis.view())?;                      // best linear predictor, HC0 inference
-let bands = blp.joint_confint_at(grid.view(), 0.95, 1000, 0)?; // simultaneous bands
-
-// X-learner (Künzel et al.)
-let x = XLearner::new(Ols::new(), Ols::new(), LogisticRegression::default()).fit(&data)?;
-
-// From an IRM fit, as in DoubleML: BLP and group effects
-let irm = Irm::new(Ols::new(), LogisticRegression::default()).n_rep(5).fit(&data)?;
-let gate = irm.gate(group_dummies.view())?;
-```
-
-## Python
-
-```sh
-pip install dml-rs
-```
+<details>
+<summary><b>Average treatment effect of a binary treatment (IRM)</b></summary>
 
 ```python
-import dml_rs
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
-plr = dml_rs.PLR(ml_l=RandomForestRegressor(), ml_m=RandomForestRegressor(), n_folds=5, n_rep=3)
-plr.fit(X, y, d)              # X, d may be NumPy arrays or pandas objects
-plr.summary                   # pandas DataFrame: coef, std err, t, P>|t|, CI
-plr.confint(level=0.95)
-plr.predictions_["ml_l"]      # cross-fitted nuisance predictions (n, n_rep, n_treat)
+irm = dml_rs.IRM(ml_g=RandomForestRegressor(), ml_m=RandomForestClassifier(), score="ATE")
+irm.fit(X, y, d)
+irm.summary
+```
+</details>
 
-irm = dml_rs.IRM(ml_g=RandomForestRegressor(), ml_m=RandomForestClassifier(), score="ATTE").fit(X, y, d)
-pliv = dml_rs.PLIV(dml_rs.Ols(), dml_rs.Ols(), dml_rs.Ols()).fit(X, y, d, z)
-late = dml_rs.IIVM(RandomForestRegressor(), RandomForestClassifier(), RandomForestClassifier()).fit(X, y, d, z)
-att = dml_rs.DID(dml_rs.Ols(), dml_rs.LogisticRegression()).fit(X, y_post - y_pre, d)
-att_cs = dml_rs.DIDCS(dml_rs.Ols(), dml_rs.LogisticRegression()).fit(X, y, d, t)
+<details>
+<summary><b>Instrumental variables (PLIV, IIVM)</b></summary>
 
-# Staggered adoption from a long panel (id, t, g = first treated period, np.inf = never)
+```python
+pliv = dml_rs.PLIV(dml_rs.Lasso(alpha=0.01), dml_rs.Lasso(alpha=0.01), dml_rs.Lasso(alpha=0.01))
+pliv.fit(X, y, d, z)
+
+# Local average treatment effect with a binary instrument
+late = dml_rs.IIVM(dml_rs.GradientBoostingRegressor(),
+                   dml_rs.GradientBoostingClassifier(),
+                   dml_rs.GradientBoostingClassifier())
+late.fit(X, y, d, z)
+```
+</details>
+
+<details>
+<summary><b>Difference-in-differences and staggered adoption (event study)</b></summary>
+
+```python
+# Two periods, panel data: y is each unit's change between the periods
+did = dml_rs.DID(dml_rs.Ols(), dml_rs.LogisticRegression()).fit(X, y_post - y_pre, d)
+
+# Staggered adoption from a long panel (g = first treated period, np.inf = never treated)
 stag = dml_rs.StaggeredDID(dml_rs.Ols(), dml_rs.LogisticRegression(), control_group="not_yet_treated")
 stag.fit_frame(df, y_col="y", id_col="id", t_col="t", g_col="g", x_cols=["x1", "x2"])
-stag.summary                              # every ATT(g, t)
-stag.aggregate("eventstudy").summary      # or "group" / "time"
-dml_rs.StaggeredDID(dml_rs.Ols(), dml_rs.LogisticRegression(), panel=False)  # repeated cross-sections
+stag.summary                              # every group-time effect ATT(g, t)
+stag.aggregate("eventstudy").summary      # dynamic effects; also "group" and "time"
 
-plr.bootstrap(method="normal", n_boot=1000)
-plr.confint(joint=True); plr.p_adjust("romano-wolf")
-
-# Heterogeneous effects
-dr = dml_rs.DRLearner(RandomForestRegressor(), RandomForestClassifier(), dml_rs.Ols()).fit(X, y, d)
-dr.effect(X_new)                       # τ̂(x)
-dr.blp(basis).summary                  # BLP coefficients with robust standard errors
-irm.cate(basis).confint(basis_grid)    # DoubleML-compatible CATE / GATE inference
-irm.gate(groups).confint()
+# Repeated cross-sections instead of a panel
+dml_rs.StaggeredDID(dml_rs.Ols(), dml_rs.LogisticRegression(), panel=False)
 ```
+</details>
 
-Nuisance learners can be the built-in Rust learners (`dml_rs.GradientBoostingRegressor`,
-`dml_rs.GradientBoostingClassifier`, `dml_rs.RandomForestRegressor`, `dml_rs.RandomForestClassifier`, `dml_rs.Ols`, `dml_rs.Lasso`, `dml_rs.LogisticRegression`) — the
-whole fit then runs in Rust, in parallel, without the GIL — or any object with scikit-learn's `fit` / `predict` (`predict_proba` for
-classifiers). Python learners are cloned per fold with `sklearn.base.clone` and called
-from Rust's worker threads. Estimators follow scikit-learn conventions (`get_params`,
-`set_params`, `sklearn.base.clone`, fitted attributes ending in `_`), and `fit(..., folds=...)`
-accepts explicit sample splits.
+<details>
+<summary><b>Heterogeneous treatment effects (CATE)</b></summary>
 
-The Python test suite (`pytest crates/dml-py/tests`) checks the bindings against
-DoubleML with scikit-learn learners (including random forests) on identical folds.
+```python
+dr = dml_rs.DRLearner(dml_rs.GradientBoostingRegressor(),
+                      dml_rs.GradientBoostingClassifier(),
+                      dml_rs.Ols()).fit(X, y, d)
+dr.effect(X_new)                    # estimated CATE for new covariates
+dr.blp(basis).summary               # best linear predictor with robust standard errors
 
-## Validation against DoubleML
-
-`parity/generate_fixtures.py` runs Python [DoubleML](https://docs.doubleml.org) 0.11.4
-on fixed data and fixed sample splits and stores the results as JSON fixtures in
-`crates/dml-core/tests/fixtures/`. `cargo test` refits each case in Rust on the same folds
-and requires the nuisance predictions, per-repetition and aggregated coefficients and
-standard errors, t-statistics, p-values (raw, Bonferroni, Holm), confidence intervals,
-bootstrap joint intervals and Romano–Wolf p-values to agree to within `1e-9`
-(`1e-7` for the iterative Lasso / logistic learners).
-
-| Fixture | Covers |
-|---|---|
-| `plr_ols`, `plr_ridge`, `plr_lasso` | PLR partialling-out with OLS, ridge and Lasso nuisances |
-| `plr_ivtype_rep3` | PLR IV-type score, 3 repeated sample splits |
-| `plr_boot_bayes`, `plr_boot_wild` | Bayes and wild multiplier bootstrap |
-| `plr_multi_rep3_boot` | 3 treatments, 3 repetitions, normal bootstrap, joint CI, Romano–Wolf |
-| `irm_ate`, `irm_atte`, `irm_ate_normalized` | IRM ATE / ATTE with logistic propensity, normalised IPW |
-| `pliv_ols` | PLIV partialling-out, 2 repetitions |
-| `irm_cate_gate` | BLP of the CATE (coefficients, HC0 errors, pointwise bands) and GATEs from IRM |
-| `iivm_late_rep2`, `iivm_no_always_takers` | IIVM (LATE), 2 repetitions; one-sided non-compliance |
-| `did_panel_*`, `did_cs_*` | DID for panels and repeated cross-sections, observational / experimental scores, with and without in-sample normalisation |
-| `staggered_*` | Staggered DID (`DoubleMLDIDMulti`): every ATT(g, t), group / time / event-study aggregation and overall effects; never- and not-yet-treated controls, repeated splits, universal base period with anticipation |
-| `staggered_cs_*` | Staggered DID for repeated cross-sections (`DoubleMLDIDMulti(panel=False)`), observational and experimental scores |
-
-To regenerate the fixtures:
-
-```sh
-python -m venv .venv
-.venv/Scripts/pip install -r parity/requirements.txt   # .venv/bin/pip on Linux/macOS
-.venv/Scripts/python parity/generate_fixtures.py
+irm.cate(basis).confint(basis_grid) # CATE inference from an IRM fit, as in DoubleML
+irm.gate(groups).confint()          # group average treatment effects
 ```
+</details>
+
+<details>
+<summary><b>Several treatments and joint inference</b></summary>
+
+```python
+model = dml_rs.PLR(dml_rs.Ols(), dml_rs.Ols()).fit(X, y, D)  # D with one column per treatment
+model.bootstrap(method="normal", n_boot=1000)
+model.confint(joint=True)           # simultaneous confidence bands
+model.p_adjust("romano-wolf")       # also "holm" and "bonferroni"
+```
+</details>
 
 ## Performance
 
-PLR with OLS nuisances and 5-fold cross-fitting (`cargo bench -p dml-core`, versus
-`parity/bench_doubleml.py` with scikit-learn `LinearRegression`, same machine):
+Partially linear regression with 5-fold cross-fitting, run on the same machine (16 cores).
+DoubleML uses scikit-learn learners with `n_jobs=-1` where available.
 
-| n × p        | dml-rs  | DoubleML (Python) | speed-up |
-|--------------|---------|-------------------|----------|
-| 1 000 × 10   | 0.52 ms | 12.4 ms           | ~24×     |
-| 10 000 × 20  | 7.5 ms  | 54 ms             | ~7×      |
-| 100 000 × 50 | 241 ms  | 1 244 ms          | ~5×      |
+| Nuisance learner | n × p | dml-rs | DoubleML | Speed-up |
+|---|---|---|---|---|
+| Linear regression | 10 000 × 20 | 7.5 ms | 54 ms | ~7× |
+| Random forest (100 trees) | 10 000 × 20 | 4.4 s | 12.4 s | ~3× |
+| Gradient boosting (200 stages) | 10 000 × 20 | 10.0 s | 84.9 s | ~8.5× |
 
-PLR with **random-forest** nuisances (100 trees, `min_samples_leaf=5`, all features per split,
-5 folds; `parity/bench_forest.py`, 16 cores, scikit-learn with `n_jobs=-1`):
+<details>
+<summary>All benchmark sizes</summary>
 
-| n × p       | dml-rs native forest | dml-rs + scikit-learn forest | DoubleML + scikit-learn forest |
-|-------------|----------------------|------------------------------|--------------------------------|
-| 2 000 × 10  | 0.30 s               | 1.68 s                       | 1.82 s (~6× slower)            |
-| 10 000 × 20 | 4.4 s                | 10.5 s                       | 12.4 s (~3× slower)            |
+| Nuisance learner | n × p | dml-rs | DoubleML |
+|---|---|---|---|
+| Linear regression | 1 000 × 10 | 0.52 ms | 12.4 ms |
+| Linear regression | 100 000 × 50 | 241 ms | 1 244 ms |
+| Random forest | 2 000 × 10 | 0.30 s | 1.82 s |
+| Gradient boosting | 2 000 × 10 | 0.87 s | 8.1 s |
 
-All three estimate θ within 0.02 of the true 0.5 on this nonlinear design.
+Scripts: [`parity/bench_doubleml.py`](parity/bench_doubleml.py),
+[`parity/bench_forest.py`](parity/bench_forest.py),
+[`parity/bench_boosting.py`](parity/bench_boosting.py) and `cargo bench -p dml-core`.
+In every comparison the estimates agree.
+</details>
 
-PLR with **gradient-boosting** nuisances (200 stages, learning rate 0.05, depth 3, 5 folds;
-`parity/bench_boosting.py`). dml-rs boosting reproduces scikit-learn's `GradientBoostingRegressor`
-predictions to ~1e-14, so the difference is purely speed:
+## Validation
 
-| n × p       | dml-rs native boosting | dml-rs + scikit-learn boosting | DoubleML + scikit-learn boosting |
-|-------------|------------------------|--------------------------------|----------------------------------|
-| 2 000 × 10  | 0.87 s                 | 2.8 s                          | 8.1 s (~9× slower)               |
-| 10 000 × 20 | 10.0 s                 | 28.0 s                         | 84.9 s (~8.5× slower)            |
+[`parity/generate_fixtures.py`](parity/generate_fixtures.py) runs DoubleML 0.11.4 on fixed data
+and fixed sample splits and stores the results; the Rust test suite refits every case on the same
+folds. Nuisance predictions, coefficients, standard errors, p-values (raw and adjusted),
+confidence intervals, bootstrap bands, BLP / GATE inference and staggered-DiD aggregations must
+agree to `1e-9` (`1e-7` for iterative learners). Monte-Carlo tests additionally check that
+confidence intervals reach their nominal coverage.
 
-Folds (and trees) are fitted in parallel with [rayon](https://docs.rs/rayon) (the default
-`parallel` feature; disable with `default-features = false`). Results do not depend on the
-number of threads.
+<details>
+<summary>Validated configurations</summary>
 
-## Development
+| Fixtures | Coverage |
+|---|---|
+| `plr_ols`, `plr_ridge`, `plr_lasso`, `plr_ivtype_rep3` | PLR with partialling-out and IV-type scores, several learners, repeated splits |
+| `plr_boot_bayes`, `plr_boot_wild`, `plr_multi_rep3_boot` | Bootstrap methods, multiple treatments, joint intervals, Romano–Wolf |
+| `irm_ate`, `irm_atte`, `irm_ate_normalized`, `irm_cate_gate` | IRM (ATE / ATTE, normalised IPW), BLP and GATE |
+| `pliv_ols`, `iivm_late_rep2`, `iivm_no_always_takers` | PLIV and IIVM, including one-sided non-compliance |
+| `did_panel_*`, `did_cs_*` | Two-period DiD for panels and cross-sections, all score / normalisation variants |
+| `staggered_*`, `staggered_cs_*` | Staggered DiD: every ATT(g, t) and all aggregations, panels and cross-sections |
 
-```sh
-cargo test
-cargo clippy --all-targets -- -D warnings
-cargo fmt --check
-cargo bench -p dml-core
+The Python test suite additionally checks the bindings against DoubleML and scikit-learn
+(including random forests and gradient boosting).
+</details>
 
-# Python bindings (inside a virtualenv with parity/requirements.txt + pytest + maturin)
-cd crates/dml-py && maturin develop --release && pytest tests
+## Citation
+
+If you use dml-rs in your work, please cite the package and the underlying method:
+
+```bibtex
+@software{gudzevic_dml_rs,
+  author  = {Gudzevic, Asad},
+  title   = {dml-rs: Double / debiased machine learning in Rust and Python},
+  url     = {https://github.com/AsadGudzevic94/dml-rs},
+  year    = {2026}
+}
+
+@article{chernozhukov2018double,
+  author  = {Chernozhukov, Victor and Chetverikov, Denis and Demirer, Mert and Duflo, Esther and
+             Hansen, Christian and Newey, Whitney and Robins, James},
+  title   = {Double/debiased machine learning for treatment and structural parameters},
+  journal = {The Econometrics Journal},
+  volume  = {21},
+  number  = {1},
+  pages   = {C1--C68},
+  year    = {2018},
+  doi     = {10.1111/ectj.12097}
+}
 ```
 
-## Releasing
+## Contributing
 
-1. Bump `version` in the root `Cargo.toml` and move the `Unreleased` notes in `CHANGELOG.md`
-   under the new version.
-2. Commit, then tag and push: `git tag -a v0.2.0 -m "dml-rs 0.2.0" && git push origin v0.2.0`.
-3. Approve the two deployments in the Actions tab. `release-crate.yml` publishes `dml-core` to
-   crates.io and `wheels.yml` publishes `dml-rs` to PyPI, both through Trusted Publishing
-   (no API tokens). The tag must match the `Cargo.toml` version or both workflows stop.
+Bug reports and feature requests are welcome in the
+[issue tracker](https://github.com/AsadGudzevic94/dml-rs/issues). See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, the test and parity suites, and
+the release process.
 
 ## References
 
-- Callaway, B., & Sant'Anna, P. H. C. (2021). Difference-in-differences with multiple time periods.
-  *Journal of Econometrics*, 225(2), 200–230.
 - Chernozhukov, V., Chetverikov, D., Demirer, M., Duflo, E., Hansen, C., Newey, W., & Robins, J. (2018).
   Double/debiased machine learning for treatment and structural parameters. *The Econometrics Journal*, 21(1), C1–C68.
+- Bach, P., Chernozhukov, V., Kurz, M. S., & Spindler, M. (2022). DoubleML – An object-oriented
+  implementation of double machine learning in Python. *Journal of Machine Learning Research*, 23(53), 1–6.
+- Callaway, B., & Sant'Anna, P. H. C. (2021). Difference-in-differences with multiple time periods.
+  *Journal of Econometrics*, 225(2), 200–230.
 - Sant'Anna, P. H. C., & Zhao, J. (2020). Doubly robust difference-in-differences estimators.
   *Journal of Econometrics*, 219(1), 101–122.
 - Semenova, V., & Chernozhukov, V. (2021). Debiased machine learning of conditional average treatment
@@ -354,9 +304,8 @@ cd crates/dml-py && maturin develop --release && pytest tests
   *Biometrika*, 108(2), 299–319.
 - Kennedy, E. H. (2023). Towards optimal doubly robust estimation of heterogeneous causal effects.
   *Electronic Journal of Statistics*, 17(2), 3008–3049.
-- Bach, P., Chernozhukov, V., Kurz, M. S., & Spindler, M. (2022). DoubleML – An object-oriented
-  implementation of double machine learning in Python. *JMLR*, 23(53), 1–6.
 
 ## License
 
-Licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT), at your option.
+Licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT), at
+your option.
