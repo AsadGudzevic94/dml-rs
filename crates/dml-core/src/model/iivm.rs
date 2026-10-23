@@ -87,6 +87,8 @@ impl Iivm {
     /// Note: DoubleML 0.11 normalises with the treatment `D` here; this
     /// implementation uses the instrument `Z`, whose propensity the weights
     /// invert. Results therefore differ from DoubleML when this is enabled.
+    /// Reported upstream as
+    /// [DoubleML#411](https://github.com/DoubleML/doubleml-for-py/issues/411).
     pub fn normalize_ipw(mut self, normalize: bool) -> Self {
         self.normalize_ipw = normalize;
         self

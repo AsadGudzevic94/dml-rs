@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-23
+
 ### Added
 - `Iivm`: interactive IV model for the local average treatment effect (LATE) with a binary
   instrument; always-/never-taker subgroup switches for one-sided non-compliance.
@@ -22,7 +24,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Notes
 - `Iivm::normalize_ipw` normalises with the instrument, whereas DoubleML 0.11 normalises with
-  the treatment; results differ from DoubleML only when this option is enabled.
+  the treatment; results differ from DoubleML only when this option is enabled (reported upstream
+  as [DoubleML#411](https://github.com/DoubleML/doubleml-for-py/issues/411)).
 
 ## [0.2.0] - 2026-10-23
 
@@ -51,6 +54,7 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/AsadGudzevic94/dml-rs/releases/tag/v0.1.0
