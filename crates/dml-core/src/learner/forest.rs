@@ -38,7 +38,7 @@ pub enum MaxFeatures {
 }
 
 impl MaxFeatures {
-    fn resolve(self, p: usize) -> usize {
+    pub(super) fn resolve(self, p: usize) -> usize {
         let k = match self {
             MaxFeatures::All => p,
             MaxFeatures::Sqrt => (p as f64).sqrt() as usize,
@@ -50,16 +50,17 @@ impl MaxFeatures {
     }
 }
 
+/// Growth limits of one CART tree (shared with gradient boosting).
 #[derive(Debug, Clone, Copy)]
-struct TreeParams {
-    max_depth: Option<usize>,
-    min_samples_split: usize,
-    min_samples_leaf: usize,
-    max_features: MaxFeatures,
+pub(super) struct TreeParams {
+    pub max_depth: Option<usize>,
+    pub min_samples_split: usize,
+    pub min_samples_leaf: usize,
+    pub max_features: MaxFeatures,
 }
 
 #[derive(Debug, Clone, Copy)]
-enum Node {
+pub(super) enum Node {
     Leaf {
         value: f64,
     },
@@ -72,16 +73,24 @@ enum Node {
 }
 
 #[derive(Debug, Clone)]
-struct Tree {
-    nodes: Vec<Node>,
+pub(super) struct Tree {
+    pub nodes: Vec<Node>,
 }
 
 impl Tree {
-    fn predict_row(&self, row: ArrayView1<'_, f64>) -> f64 {
+    pub(super) fn predict_row(&self, row: ArrayView1<'_, f64>) -> f64 {
+        match self.nodes[self.leaf_index(row)] {
+            Node::Leaf { value } => value,
+            Node::Split { .. } => unreachable!("leaf_index returns a leaf"),
+        }
+    }
+
+    /// Index of the leaf node that `row` falls into.
+    pub(super) fn leaf_index(&self, row: ArrayView1<'_, f64>) -> usize {
         let mut i = 0;
         loop {
             match self.nodes[i] {
-                Node::Leaf { value } => return value,
+                Node::Leaf { .. } => return i,
                 Node::Split {
                     feature,
                     threshold,
@@ -104,15 +113,15 @@ impl Tree {
 ///
 /// Two lifetimes: `'x` for the caller's feature matrix and `'b` for the
 /// per-tree buffers, which live much shorter.
-struct TreeBuilder<'x, 'b> {
-    x: ArrayView2<'x, f64>,
-    y: &'b [f64],
-    w: &'b [f64],
-    params: TreeParams,
-    n_try: usize,
-    rng: ChaCha8Rng,
+pub(super) struct TreeBuilder<'x, 'b> {
+    pub x: ArrayView2<'x, f64>,
+    pub y: &'b [f64],
+    pub w: &'b [f64],
+    pub params: TreeParams,
+    pub n_try: usize,
+    pub rng: ChaCha8Rng,
     /// Total squared-error reduction per feature.
-    importance: Vec<f64>,
+    pub importance: Vec<f64>,
 }
 
 struct Best {
@@ -122,7 +131,7 @@ struct Best {
 }
 
 impl TreeBuilder<'_, '_> {
-    fn grow(mut self, rows: Vec<usize>) -> (Tree, Vec<f64>) {
+    pub(super) fn grow(mut self, rows: Vec<usize>) -> (Tree, Vec<f64>) {
         let mut nodes = vec![Node::Leaf { value: 0.0 }];
         // Explicit stack instead of recursion: deep trees cannot overflow.
         let mut stack = vec![(0usize, rows, 0usize)];

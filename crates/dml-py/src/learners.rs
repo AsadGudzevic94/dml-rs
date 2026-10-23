@@ -2,8 +2,8 @@
 //! estimator act as a Rust [`Regressor`] / [`Classifier`].
 
 use dml_core::{
-    Classifier, DmlError, Lasso, LogisticRegression, MaxFeatures, Ols, RandomForestClassifier,
-    RandomForestRegressor, Regressor,
+    Classifier, DmlError, GradientBoostingClassifier, GradientBoostingRegressor, Lasso,
+    LogisticRegression, MaxFeatures, Ols, RandomForestClassifier, RandomForestRegressor, Regressor,
 };
 use ndarray::{Array1, ArrayView1, ArrayView2};
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
@@ -324,6 +324,112 @@ forest_pyclass!(
     "Probability of class 1 (a 1-D array, unlike scikit-learn's two columns)."
 );
 
+/// Generate a gradient-boosting pyclass with scikit-learn's parameter names.
+macro_rules! boosting_pyclass {
+    ($py_ty:ident, $rust_ty:ty, $name:literal, $predict:ident, $predict_doc:literal) => {
+        #[doc = concat!("Gradient boosting implemented in Rust (`fit` releases the GIL). ",
+                        "Parameters follow scikit-learn's `", $name, "`.")]
+        #[pyclass(name = $name, module = "dml_rs")]
+        #[derive(Clone)]
+        pub struct $py_ty {
+            pub(crate) inner: $rust_ty,
+            n_estimators: usize,
+            learning_rate: f64,
+            max_depth: Option<usize>,
+        }
+
+        #[pymethods]
+        impl $py_ty {
+            #[new]
+            #[pyo3(signature = (n_estimators = 100, learning_rate = 0.1, max_depth = Some(3),
+                                min_samples_split = 2, min_samples_leaf = 1, max_features = None,
+                                subsample = 1.0, random_state = 0))]
+            #[allow(clippy::too_many_arguments)]
+            fn new(
+                n_estimators: usize,
+                learning_rate: f64,
+                max_depth: Option<usize>,
+                min_samples_split: usize,
+                min_samples_leaf: usize,
+                max_features: Option<&Bound<'_, PyAny>>,
+                subsample: f64,
+                random_state: u64,
+            ) -> PyResult<Self> {
+                let max_features = match max_features {
+                    Some(obj) => parse_max_features(obj, MaxFeatures::All)?,
+                    None => MaxFeatures::All,
+                };
+                Ok(Self {
+                    inner: <$rust_ty>::new()
+                        .n_estimators(n_estimators)
+                        .learning_rate(learning_rate)
+                        .max_depth(max_depth)
+                        .min_samples_split(min_samples_split)
+                        .min_samples_leaf(min_samples_leaf)
+                        .max_features(max_features)
+                        .subsample(subsample)
+                        .seed(random_state),
+                    n_estimators,
+                    learning_rate,
+                    max_depth,
+                })
+            }
+
+            fn fit<'py>(
+                mut slf: PyRefMut<'py, Self>,
+                x: PyReadonlyArray2<'py, f64>,
+                y: PyReadonlyArray1<'py, f64>,
+            ) -> PyResult<PyRefMut<'py, Self>> {
+                let (x, y) = (x.as_array().to_owned(), y.as_array().to_owned());
+                let mut model = slf.inner.clone();
+                slf.py()
+                    .detach(|| model.fit(x.view(), y.view()))
+                    .map_err(to_py_err)?;
+                slf.inner = model;
+                Ok(slf)
+            }
+
+            #[doc = $predict_doc]
+            fn $predict<'py>(
+                &self,
+                py: Python<'py>,
+                x: PyReadonlyArray2<'py, f64>,
+            ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+                Ok(self.inner.$predict(x.as_array()).map_err(to_py_err)?.into_pyarray(py))
+            }
+
+            /// Total impurity reduction per feature over all trees (sums to one).
+            #[getter]
+            fn feature_importances_<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyArray1<f64>>> {
+                self.inner.feature_importances().map(|a| a.clone().into_pyarray(py))
+            }
+
+            fn __repr__(&self) -> String {
+                format!(
+                    "{}(n_estimators={}, learning_rate={}, max_depth={:?})",
+                    $name, self.n_estimators, self.learning_rate, self.max_depth
+                )
+            }
+        }
+    };
+}
+
+boosting_pyclass!(
+    PyGradientBoostingRegressor,
+    GradientBoostingRegressor,
+    "GradientBoostingRegressor",
+    predict,
+    "Predicted values."
+);
+
+boosting_pyclass!(
+    PyGradientBoostingClassifier,
+    GradientBoostingClassifier,
+    "GradientBoostingClassifier",
+    predict_proba,
+    "Probability of class 1 (a 1-D array, unlike scikit-learn's two columns)."
+);
+
 // ---------------------------------------------------------------------------
 // Adapters for arbitrary Python estimators.
 // ---------------------------------------------------------------------------
@@ -512,6 +618,9 @@ pub fn to_regressor(obj: &Bound<'_, PyAny>) -> PyResult<Box<dyn Regressor>> {
     if let Ok(o) = obj.cast::<PyRandomForestRegressor>() {
         return Ok(Box::new(o.borrow().inner.clone()));
     }
+    if let Ok(o) = obj.cast::<PyGradientBoostingRegressor>() {
+        return Ok(Box::new(o.borrow().inner.clone()));
+    }
     Ok(Box::new(PyRegressor::new(obj)?))
 }
 
@@ -520,6 +629,9 @@ pub fn to_classifier(obj: &Bound<'_, PyAny>) -> PyResult<Box<dyn Classifier>> {
         return Ok(Box::new(o.borrow().inner.clone()));
     }
     if let Ok(o) = obj.cast::<PyRandomForestClassifier>() {
+        return Ok(Box::new(o.borrow().inner.clone()));
+    }
+    if let Ok(o) = obj.cast::<PyGradientBoostingClassifier>() {
         return Ok(Box::new(o.borrow().inner.clone()));
     }
     Ok(Box::new(PyClassifier::new(obj)?))

@@ -51,7 +51,8 @@ pip install dml-rs
 - **Heterogeneous effects:** S-, T-, X-, R- and DR-learners for the CATE; best linear predictor
   (BLP) of the CATE and group average treatment effects (GATE) with HC0 inference, pointwise and
   simultaneous confidence bands
-- **Learners:** `RandomForestRegressor` / `RandomForestClassifier` (parallel, seeded CART forests),
+- **Learners:** `GradientBoostingRegressor` / `GradientBoostingClassifier` (reproduce scikit-learn's
+  predictions), `RandomForestRegressor` / `RandomForestClassifier` (parallel, seeded CART forests),
   `Ols` (with optional ridge), `Lasso` (coordinate descent), `LogisticRegression` (Newton), or any
   type implementing the `Regressor` / `Classifier` traits (with optional weighted fitting)
 - **Extensible:** implement `LinearScoreModel` to add a new orthogonal score and reuse the
@@ -239,8 +240,8 @@ irm.cate(basis).confint(basis_grid)    # DoubleML-compatible CATE / GATE inferen
 irm.gate(groups).confint()
 ```
 
-Nuisance learners can be the built-in Rust learners (`dml_rs.RandomForestRegressor`,
-`dml_rs.RandomForestClassifier`, `dml_rs.Ols`, `dml_rs.Lasso`, `dml_rs.LogisticRegression`) — the
+Nuisance learners can be the built-in Rust learners (`dml_rs.GradientBoostingRegressor`,
+`dml_rs.GradientBoostingClassifier`, `dml_rs.RandomForestRegressor`, `dml_rs.RandomForestClassifier`, `dml_rs.Ols`, `dml_rs.Lasso`, `dml_rs.LogisticRegression`) — the
 whole fit then runs in Rust, in parallel, without the GIL — or any object with scikit-learn's `fit` / `predict` (`predict_proba` for
 classifiers). Python learners are cloned per fold with `sklearn.base.clone` and called
 from Rust's worker threads. Estimators follow scikit-learn conventions (`get_params`,
@@ -302,6 +303,15 @@ PLR with **random-forest** nuisances (100 trees, `min_samples_leaf=5`, all featu
 | 10 000 × 20 | 4.4 s                | 10.5 s                       | 12.4 s (~3× slower)            |
 
 All three estimate θ within 0.02 of the true 0.5 on this nonlinear design.
+
+PLR with **gradient-boosting** nuisances (200 stages, learning rate 0.05, depth 3, 5 folds;
+`parity/bench_boosting.py`). dml-rs boosting reproduces scikit-learn's `GradientBoostingRegressor`
+predictions to ~1e-14, so the difference is purely speed:
+
+| n × p       | dml-rs native boosting | dml-rs + scikit-learn boosting | DoubleML + scikit-learn boosting |
+|-------------|------------------------|--------------------------------|----------------------------------|
+| 2 000 × 10  | 0.87 s                 | 2.8 s                          | 8.1 s (~9× slower)               |
+| 10 000 × 20 | 10.0 s                 | 28.0 s                         | 84.9 s (~8.5× slower)            |
 
 Folds (and trees) are fitted in parallel with [rayon](https://docs.rs/rayon) (the default
 `parallel` feature; disable with `default-features = false`). Results do not depend on the

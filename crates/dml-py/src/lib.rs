@@ -18,8 +18,8 @@ mod staggered;
 use cate::{fit_cate, PyBlp, PyCateResult};
 use errors::to_py_err;
 use learners::{
-    to_classifier, to_regressor, PyLasso, PyLogisticRegression, PyOls, PyRandomForestClassifier,
-    PyRandomForestRegressor,
+    to_classifier, to_regressor, PyGradientBoostingClassifier, PyGradientBoostingRegressor,
+    PyLasso, PyLogisticRegression, PyOls, PyRandomForestClassifier, PyRandomForestRegressor,
 };
 use staggered::{fit_staggered_did, PyStaggeredResult};
 
@@ -495,7 +495,8 @@ mod dml_rs_native {
     #[pymodule_export]
     use super::{
         fit_cate, fit_did, fit_iivm, fit_irm, fit_pliv, fit_plr, fit_staggered_did, PyBlp,
-        PyBootstrap, PyCateResult, PyDmlResult, PyLasso, PyLogisticRegression, PyOls,
+        PyBootstrap, PyCateResult, PyDmlResult, PyGradientBoostingClassifier,
+        PyGradientBoostingRegressor, PyLasso, PyLogisticRegression, PyOls,
         PyRandomForestClassifier, PyRandomForestRegressor, PyStaggeredResult,
     };
 

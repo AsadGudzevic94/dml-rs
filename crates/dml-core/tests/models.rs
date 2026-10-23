@@ -338,3 +338,27 @@ fn naive_difference_in_means_is_biased_where_did_is_not() {
     assert!((naive - 1.0).abs() > 0.15, "naive = {naive}");
     assert!((dml.coef()[0] - 1.0).abs() < 0.1, "dml = {}", dml.coef()[0]);
 }
+
+#[test]
+fn gradient_boosting_nuisances_remove_nonlinear_confounding_bias() {
+    use dml_core::{GradientBoostingClassifier, GradientBoostingRegressor};
+    let data = nonlinear_plr_data(3000, 12);
+    let gb = GradientBoostingRegressor::new()
+        .n_estimators(200)
+        .learning_rate(0.05)
+        .max_depth(Some(3));
+    let fit = Plr::new(gb.clone(), gb).fit(&data).unwrap();
+    let ci = fit.confint(0.95).unwrap();
+    assert!(ci[[0, 0]] < 0.5 && 0.5 < ci[[0, 1]], "boosting CI {ci}");
+
+    let d_bin: Array1<f64> = data.treatment(0).mapv(|v| f64::from(v > 0.0));
+    let y_bin = &data.y().to_owned() + &d_bin;
+    let irm_data = DmlData::new(y_bin, d_bin, data.x().to_owned()).unwrap();
+    let irm = Irm::new(
+        GradientBoostingRegressor::new().n_estimators(100),
+        GradientBoostingClassifier::new().n_estimators(100),
+    )
+    .fit(&irm_data)
+    .unwrap();
+    assert!(irm.coef()[0].is_finite() && irm.se()[0] > 0.0);
+}

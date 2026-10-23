@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `GradientBoostingRegressor` (squared error) and `GradientBoostingClassifier` (log loss with
+  Newton leaf updates): shallow CART trees on the negative gradient with learning rate, depth and
+  leaf-size limits, stochastic row subsampling, random feature subsets, sample weights and
+  feature importances. Predictions reproduce scikit-learn's `GradientBoostingRegressor` /
+  `GradientBoostingClassifier` to ~1e-14 (the classifier can differ only where two splits have
+  exactly equal gain, which scikit-learn itself resolves differently per `random_state`).
+  About 9× faster than DoubleML with scikit-learn boosting for PLR. Python:
+  `dml_rs.GradientBoostingRegressor` / `dml_rs.GradientBoostingClassifier`.
 - Staggered DID for **repeated cross-sections**: `RepeatedCrossSections` data, accepted by
   `StaggeredDid::fit` alongside `PanelData` (both convert into the new `StaggeredInput`), as
   DoubleML's `DoubleMLDIDMulti(panel=False)`; folds are stratified by group × period.
