@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.4.0] - 2026-10-24
+## [0.4.0] - 2026-10-23
 
 ### Added
 - `StaggeredDid`: difference-in-differences with staggered adoption (Callaway & Sant'Anna, 2021;
