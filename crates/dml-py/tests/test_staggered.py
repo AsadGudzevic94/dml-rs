@@ -72,3 +72,26 @@ def test_staggered_errors(panel):
         dml_rs.StaggeredDID(dml_rs.Ols(), score="experimental").fit(*args).aggregate("weekly")
     with pytest.raises(AttributeError, match="not fitted"):
         dml_rs.StaggeredDID(dml_rs.Ols()).aggregate()
+
+
+def test_staggered_cross_sections_agree_with_doubleml():
+    from doubleml.did.datasets import make_did_cs_CS2021
+
+    np.random.seed(8)
+    df = make_did_cs_CS2021(n_obs=800, dgp_type=1, include_never_treated=True, time_type="float")
+    df = df.sort_values(["id", "t"]).reset_index(drop=True)
+    x_cols = [c for c in df.columns if c.startswith("Z")]
+    ours = dml_rs.StaggeredDID(LinearRegression(), LogisticRegression(), panel=False)
+    ours.fit_frame(df, "y", "id", "t", "d", x_cols)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        data = dml.data.DoubleMLPanelData(df, y_col="y", d_cols="d", id_col="id", t_col="t", x_cols=x_cols)
+        ref = dml.did.DoubleMLDIDMulti(data, LinearRegression(), LogisticRegression(), panel=False).fit()
+    assert "repeated cross-sections" in str(ours)
+    # Each ATT(g, t) splits its rows over four group x period cells, so redrawing the folds
+    # moves estimates noticeably: DoubleML against itself with another split differs by up
+    # to ~0.7 se. (With identical folds the results agree to 1e-7, see the Rust parity tests.)
+    assert np.all(np.abs(ours.coef_ - ref.coef) < 1.0 * ref.se)
+    np.testing.assert_allclose(ours.se_, ref.se, rtol=0.15)
+    for how in ["group", "time", "eventstudy"]:
+        np.testing.assert_allclose(ours.aggregate(how).weights, ref.aggregate(how).aggregation_weights, atol=1e-12)

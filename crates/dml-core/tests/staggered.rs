@@ -5,7 +5,7 @@ mod common;
 use common::{assert_all_close, assert_close, to_matrix, to_vec, Fixture};
 use dml_core::{
     Aggregation, ControlGroup, DidScore, Fold, GtCombinations, LogisticRegression, Ols, PanelData,
-    StaggeredDid,
+    RepeatedCrossSections, StaggeredDid, StaggeredInput,
 };
 use ndarray::{Array1, Array2};
 use rand::{Rng, SeedableRng};
@@ -46,14 +46,23 @@ fn folds_of(v: &Value) -> Vec<Vec<Vec<Fold>>> {
 
 fn check_staggered(name: &str) {
     let fx = Fixture::load(name);
-    let periods: Vec<f64> = to_vec(&fx.0["periods"]).to_vec();
     let cohort: Array1<f64> = fx.0["cohort"]
         .as_array()
         .unwrap()
         .iter()
         .map(|g| g.as_f64().unwrap_or(f64::INFINITY))
         .collect();
-    let data = PanelData::new(fx.matrix("y_wide"), periods, cohort, fx.matrix("x")).unwrap();
+    // Either a wide panel or repeated cross-sections (rows in data order).
+    let (panel, cross);
+    let data: StaggeredInput = if fx.0["model"] == "staggered_cs" {
+        cross = RepeatedCrossSections::new(fx.vec("y"), fx.vec("time"), cohort, fx.matrix("x"))
+            .unwrap();
+        (&cross).into()
+    } else {
+        let periods: Vec<f64> = to_vec(&fx.0["periods"]).to_vec();
+        panel = PanelData::new(fx.matrix("y_wide"), periods, cohort, fx.matrix("x")).unwrap();
+        (&panel).into()
+    };
 
     let opt = &fx.0["options"];
     let score = match opt["score"].as_str().unwrap() {
@@ -79,7 +88,7 @@ fn check_staggered(name: &str) {
 
     // Same group-time combinations, in the same order.
     let expected_gt = to_matrix(fx.expected("gt"));
-    let gts = model.group_times(&data).unwrap();
+    let gts = model.group_times(data).unwrap();
     assert_eq!(
         gts.len(),
         expected_gt.nrows(),
@@ -98,7 +107,7 @@ fn check_staggered(name: &str) {
     }
 
     let fit = model
-        .fit_with_folds(&data, &folds_of(&fx.0["gt_folds"]))
+        .fit_with_folds(data, &folds_of(&fx.0["gt_folds"]))
         .unwrap();
     let att = fit.att();
     assert_all_close(
@@ -189,6 +198,16 @@ fn parity_never_treated_observational() {
 #[test]
 fn parity_not_yet_treated_experimental_repeated_splits() {
     check_staggered("staggered_notyet_experimental_rep2");
+}
+
+#[test]
+fn parity_cross_sections_never_treated_observational() {
+    check_staggered("staggered_cs_never_observational");
+}
+
+#[test]
+fn parity_cross_sections_not_yet_treated_experimental_repeated_splits() {
+    check_staggered("staggered_cs_notyet_experimental_rep2");
 }
 
 #[test]
@@ -341,4 +360,35 @@ fn unbalanced_panels_and_errors() {
         x
     )
     .is_err());
+}
+
+#[test]
+fn cross_sections_recover_dynamic_effects() {
+    // Observe every simulated unit in one random period only.
+    let (y, periods, cohort, x) = simulate_parts(8000, 21);
+    let mut rng = ChaCha8Rng::seed_from_u64(22);
+    let n = y.nrows();
+    let (mut ys, mut ts) = (Array1::zeros(n), Array1::zeros(n));
+    for i in 0..n {
+        let j = rng.gen_range(0..periods.len());
+        ys[i] = y[[i, j]];
+        ts[i] = periods[j];
+    }
+    let data = RepeatedCrossSections::new(ys, ts, cohort, x).unwrap();
+    let fit = StaggeredDid::new(Ols::new(), LogisticRegression::default())
+        .control_group(ControlGroup::NotYetTreated)
+        .fit(&data)
+        .unwrap();
+    assert!(fit.att().model_name().contains("repeated cross-sections"));
+    let es = fit.aggregate(Aggregation::EventStudy).unwrap();
+    let ci = es.effects().confint(0.99).unwrap();
+    for (j, name) in es.effects().treatment_names().iter().enumerate() {
+        let e: f64 = name.parse().unwrap();
+        let truth = if e >= 0.0 { 1.0 + 0.5 * e } else { 0.0 };
+        assert!(
+            ci[[j, 0]] < truth && truth < ci[[j, 1]],
+            "event time {e}: CI {:?}",
+            ci.row(j)
+        );
+    }
 }

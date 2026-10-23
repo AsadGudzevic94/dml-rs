@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Staggered DID for **repeated cross-sections**: `RepeatedCrossSections` data, accepted by
+  `StaggeredDid::fit` alongside `PanelData` (both convert into the new `StaggeredInput`), as
+  DoubleML's `DoubleMLDIDMulti(panel=False)`; folds are stratified by group × period.
+- Python: `StaggeredDID(..., panel=False)`.
+- DoubleML parity fixtures for staggered DID with repeated cross-sections.
+
+### Changed
+- Staggered aggregation weights use each cohort's share of *observations* (DoubleML's
+  convention). Identical to unit shares for balanced panels; for unbalanced panels results now
+  match DoubleML.
+- `StaggeredDid::fit`, `fit_with_folds` and `group_times` take `impl Into<StaggeredInput>`;
+  existing calls with `&PanelData` keep working.
+
 ## [0.4.0] - 2026-10-23
 
 ### Added

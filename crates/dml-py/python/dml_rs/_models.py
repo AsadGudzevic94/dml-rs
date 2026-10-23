@@ -354,11 +354,13 @@ class StaggeredDID(_DMLEstimator):
     anticipation_periods : periods before treatment in which units may already react.
     gt_combinations : ``"standard"`` (varying base), ``"all"`` or ``"universal"`` (fixed base).
     score, in_sample_normalization, clipping_threshold : as :class:`DID`.
+    panel : ``True`` for panel data (rows linked by ``id``); ``False`` for repeated
+        cross-sections, where every row is a separate observation.
     """
 
     def __init__(self, ml_g, ml_m=None, control_group="never_treated", anticipation_periods=0,
                  gt_combinations="standard", score="observational", in_sample_normalization=True,
-                 clipping_threshold=1e-2, n_folds=5, n_rep=1, random_state=0):
+                 clipping_threshold=1e-2, n_folds=5, n_rep=1, random_state=0, panel=True):
         self.ml_g = ml_g
         self.ml_m = ml_m
         self.control_group = control_group
@@ -370,18 +372,20 @@ class StaggeredDID(_DMLEstimator):
         self.n_folds = n_folds
         self.n_rep = n_rep
         self.random_state = random_state
+        self.panel = panel
 
     def fit(self, X, y, id, t, g):
-        """Fit on long-format data: one row per unit (``id``) and period (``t``), with the
-        unit's first treated period ``g`` (``np.inf`` or NaN for never treated) and
-        time-invariant covariates ``X``."""
+        """Fit on long-format data: one row per observation with period ``t`` and cohort
+        ``g`` (first treated period; ``np.inf`` or NaN for never treated). For panels, rows
+        are linked by ``id`` and ``X`` must be time-invariant; for repeated cross-sections
+        (``panel=False``) ``id`` is ignored."""
         self.staggered_result_ = _dml_rs.fit_staggered_did(
             _as_1d(y, "y"), np.ascontiguousarray(id, dtype=np.int64), _as_1d(t, "t"), _as_1d(g, "g"),
             _as_2d(X, "X"), self.ml_g, self.ml_m, control_group=self.control_group,
             anticipation_periods=self.anticipation_periods, gt_combinations=self.gt_combinations,
             score=self.score, in_sample_normalization=self.in_sample_normalization,
             clipping_threshold=self.clipping_threshold, n_folds=self.n_folds, n_rep=self.n_rep,
-            seed=self.random_state,
+            seed=self.random_state, panel=self.panel,
         )
         self.group_times_ = self.staggered_result_.group_times
         return self._store(self.staggered_result_.att)

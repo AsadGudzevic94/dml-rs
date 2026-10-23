@@ -13,6 +13,9 @@
 //! `t_pre` and `t`. The per-unit scores of all `ATT(g, t)` share one index of
 //! units, so joint inference and aggregation (by cohort, calendar time or
 //! event time) account for their correlation.
+//!
+//! Works with panel data ([`PanelData`]: outcome changes per unit) and with
+//! repeated cross-sections ([`RepeatedCrossSections`]: each row observed once).
 
 use std::fmt;
 
@@ -22,7 +25,7 @@ use crate::crossfit::{Fold, KFold};
 use crate::error::{DmlError, Result};
 use crate::fit::DmlFit;
 use crate::learner::{Classifier, Regressor};
-use crate::model::did::{panel_did_score, PanelDidSettings};
+use crate::model::did::{cs_did_score, panel_did_score, DidSettings};
 use crate::model::DidScore;
 
 /// Panel data for staggered DID: one row per unit, one column per period.
@@ -172,12 +175,166 @@ impl PanelData {
         g.dedup();
         g
     }
+}
 
-    fn period_index(&self, value: f64) -> usize {
-        self.periods
+impl PanelData {
+    /// Number of observed outcomes per unit (non-`NaN` cells).
+    fn observations(&self, u: usize) -> usize {
+        self.y.row(u).iter().filter(|v| !v.is_nan()).count()
+    }
+}
+
+/// Repeated cross-sections for staggered DID: every row is a separate
+/// observation in one period (DoubleML's `DoubleMLDIDMulti(panel=False)`).
+///
+/// - `y`: outcome of each row
+/// - `time`: the period of each row
+/// - `cohort`: the first treated period of the row's group, or
+///   `f64::INFINITY` / `NaN` for never treated; must be one of the periods
+/// - `x`: covariates of each row, shape `(n_rows, p)`
+#[derive(Debug, Clone)]
+pub struct RepeatedCrossSections {
+    y: Array1<f64>,
+    time: Array1<f64>,
+    cohort: Array1<f64>,
+    x: Array2<f64>,
+    periods: Vec<f64>,
+}
+
+impl RepeatedCrossSections {
+    pub fn new(
+        y: Array1<f64>,
+        time: Array1<f64>,
+        cohort: Array1<f64>,
+        x: Array2<f64>,
+    ) -> Result<Self> {
+        let n = y.len();
+        if time.len() != n || cohort.len() != n || x.nrows() != n {
+            return Err(DmlError::DimensionMismatch(format!(
+                "y has {n} rows, time {}, cohort {}, x {}",
+                time.len(),
+                cohort.len(),
+                x.nrows()
+            )));
+        }
+        if !y
             .iter()
-            .position(|&p| p == value)
-            .expect("period value from this panel")
+            .chain(time.iter())
+            .chain(x.iter())
+            .all(|v| v.is_finite())
+        {
+            return Err(DmlError::InvalidArgument(
+                "outcomes, periods and covariates must be finite".into(),
+            ));
+        }
+        let mut periods: Vec<f64> = time.to_vec();
+        periods.sort_by(f64::total_cmp);
+        periods.dedup();
+        if periods.len() < 2 {
+            return Err(DmlError::InvalidArgument(
+                "need at least two periods".into(),
+            ));
+        }
+        let cohort = cohort.mapv(|g| if g.is_nan() { f64::INFINITY } else { g });
+        if let Some(bad) = cohort
+            .iter()
+            .find(|&&g| g.is_finite() && !periods.contains(&g))
+        {
+            return Err(DmlError::InvalidArgument(format!(
+                "cohort {bad} is not one of the periods"
+            )));
+        }
+        Ok(Self {
+            y,
+            time,
+            cohort,
+            x,
+            periods,
+        })
+    }
+
+    pub fn n_rows(&self) -> usize {
+        self.y.len()
+    }
+
+    pub fn periods(&self) -> &[f64] {
+        &self.periods
+    }
+}
+
+/// Data for [`StaggeredDid::fit`]: a panel or repeated cross-sections.
+/// `&PanelData` and `&RepeatedCrossSections` convert into it automatically.
+#[derive(Debug, Clone, Copy)]
+pub enum StaggeredInput<'a> {
+    Panel(&'a PanelData),
+    CrossSections(&'a RepeatedCrossSections),
+}
+
+impl<'a> From<&'a PanelData> for StaggeredInput<'a> {
+    fn from(data: &'a PanelData) -> Self {
+        StaggeredInput::Panel(data)
+    }
+}
+
+impl<'a> From<&'a RepeatedCrossSections> for StaggeredInput<'a> {
+    fn from(data: &'a RepeatedCrossSections) -> Self {
+        StaggeredInput::CrossSections(data)
+    }
+}
+
+impl StaggeredInput<'_> {
+    /// Observations: units for panels, rows for cross-sections.
+    fn n_obs(&self) -> usize {
+        match self {
+            StaggeredInput::Panel(p) => p.n_units(),
+            StaggeredInput::CrossSections(c) => c.n_rows(),
+        }
+    }
+
+    fn periods(&self) -> &[f64] {
+        match self {
+            StaggeredInput::Panel(p) => p.periods(),
+            StaggeredInput::CrossSections(c) => c.periods(),
+        }
+    }
+
+    fn cohort_values(&self) -> &Array1<f64> {
+        match self {
+            StaggeredInput::Panel(p) => &p.cohort,
+            StaggeredInput::CrossSections(c) => &c.cohort,
+        }
+    }
+
+    /// Distinct treated cohorts, ascending.
+    fn cohorts(&self) -> Vec<f64> {
+        let mut g: Vec<f64> = self
+            .cohort_values()
+            .iter()
+            .copied()
+            .filter(|v| v.is_finite())
+            .collect();
+        g.sort_by(f64::total_cmp);
+        g.dedup();
+        g
+    }
+
+    /// Share of all observed outcomes (panel cells or rows) in each cohort,
+    /// as DoubleML's aggregation weights.
+    fn cohort_shares(&self) -> Vec<f64> {
+        let cohorts = self.cohorts();
+        let mut counts = vec![0.0; cohorts.len()];
+        let mut total = 0.0;
+        for (u, &g) in self.cohort_values().iter().enumerate() {
+            let w = match self {
+                StaggeredInput::Panel(p) => p.observations(u) as f64,
+                StaggeredInput::CrossSections(_) => 1.0,
+            };
+            total += w;
+            if let Some(i) = cohorts.iter().position(|&c| c == g) {
+                counts[i] += w;
+            }
+        }
+        counts.into_iter().map(|c| c / total).collect()
     }
 }
 
@@ -321,7 +478,8 @@ impl StaggeredDid {
     }
 
     /// The group-time combinations this estimator evaluates on `data`.
-    pub fn group_times(&self, data: &PanelData) -> Result<Vec<GroupTime>> {
+    pub fn group_times<'a>(&self, data: impl Into<StaggeredInput<'a>>) -> Result<Vec<GroupTime>> {
+        let data = data.into();
         construct_group_times(
             self.gt_combinations,
             &data.cohorts(),
@@ -330,26 +488,28 @@ impl StaggeredDid {
         )
     }
 
-    /// Fit every `ATT(g, t)` with seeded, stratified folds.
-    pub fn fit(&self, data: &PanelData) -> Result<StaggeredDidFit> {
-        self.fit_impl(data, None)
+    /// Fit every `ATT(g, t)` with seeded, stratified folds, on a
+    /// [`PanelData`] or [`RepeatedCrossSections`].
+    pub fn fit<'a>(&self, data: impl Into<StaggeredInput<'a>>) -> Result<StaggeredDidFit> {
+        self.fit_impl(data.into(), None)
     }
 
     /// Fit with caller-supplied folds: `folds[i][r]` are the splits of
     /// repetition `r` for the `i`-th group-time combination, indexing that
-    /// combination's sample (its treated and control units observed in both
-    /// periods, in unit order).
-    pub fn fit_with_folds(
+    /// combination's sample in data order (panels: its cohort and control
+    /// units observed in both periods; cross-sections: its cohort and control
+    /// rows from the two periods).
+    pub fn fit_with_folds<'a>(
         &self,
-        data: &PanelData,
+        data: impl Into<StaggeredInput<'a>>,
         folds: &[Vec<Vec<Fold>>],
     ) -> Result<StaggeredDidFit> {
-        self.fit_impl(data, Some(folds))
+        self.fit_impl(data.into(), Some(folds))
     }
 
     fn fit_impl(
         &self,
-        data: &PanelData,
+        data: StaggeredInput<'_>,
         folds: Option<&[Vec<Vec<Fold>>]>,
     ) -> Result<StaggeredDidFit> {
         if self.score == DidScore::Observational && self.ml_m.is_none() {
@@ -373,9 +533,9 @@ impl StaggeredDid {
             }
         }
         let n_rep = folds.map_or(self.n_rep, |f| f[0].len());
-        let n = data.n_units();
+        let n = data.n_obs();
         let k = gts.len();
-        let settings = PanelDidSettings {
+        let settings = DidSettings {
             ml_g: self.ml_g.as_ref(),
             ml_m: self.ml_m.as_deref(),
             score: self.score,
@@ -392,7 +552,6 @@ impl StaggeredDid {
 
         for (i, gt) in gts.iter().enumerate() {
             let sample = self.group_time_sample(data, gt)?;
-            let strata: Vec<usize> = sample.d.iter().map(|&v| v as usize).collect();
             for r in 0..n_rep {
                 let rep_folds = match folds {
                     Some(f) => f[i][r].clone(),
@@ -401,24 +560,36 @@ impl StaggeredDid {
                             .seed
                             .wrapping_add((i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15))
                             .wrapping_add((r as u64).wrapping_mul(0xD1B5_4A32_D192_ED03));
-                        KFold::new(self.n_folds, seed)?.split_stratified(&strata)?
+                        KFold::new(self.n_folds, seed)?
+                            .split_stratified(&sample.strata)
+                            .map_err(|e| context(gt, e))?
                     }
                 };
                 n_folds_used = rep_folds.len();
-                let est = panel_did_score(
-                    &settings,
-                    sample.x.view(),
-                    sample.dy.view(),
-                    sample.d.view(),
-                    &rep_folds,
-                )
+                let est = match &sample.t {
+                    None => panel_did_score(
+                        &settings,
+                        sample.x.view(),
+                        sample.y.view(),
+                        sample.d.view(),
+                        &rep_folds,
+                    ),
+                    Some(t) => cs_did_score(
+                        &settings,
+                        sample.x.view(),
+                        sample.y.view(),
+                        sample.d.view(),
+                        t.view(),
+                        &rep_folds,
+                    ),
+                }
                 .map_err(|e| context(gt, e))?;
                 let sol = est.score.solve().map_err(|e| context(gt, e))?;
                 all_coef[[i, r]] = sol.theta;
-                for (pos, &unit) in sample.units.iter().enumerate() {
-                    psi[[unit, i, r]] = sol.psi[pos];
-                    psi_a[[unit, i, r]] = est.score.psi_a[pos];
-                    psi_b[[unit, i, r]] = est.score.psi_b[pos];
+                for (pos, &obs) in sample.positions.iter().enumerate() {
+                    psi[[obs, i, r]] = sol.psi[pos];
+                    psi_a[[obs, i, r]] = est.score.psi_a[pos];
+                    psi_b[[obs, i, r]] = est.score.psi_b[pos];
                 }
                 for (name, pred) in est.predictions {
                     let slot = match predictions.iter().position(|(nm, _)| nm == name) {
@@ -431,15 +602,19 @@ impl StaggeredDid {
                             predictions.len() - 1
                         }
                     };
-                    for (pos, &unit) in sample.units.iter().enumerate() {
-                        predictions[slot].1[[unit, r, i]] = pred[pos];
+                    for (pos, &obs) in sample.positions.iter().enumerate() {
+                        predictions[slot].1[[obs, r, i]] = pred[pos];
                     }
                 }
             }
         }
 
         let model = format!(
-            "Staggered DID ({}, {} control group)",
+            "Staggered DID {} ({}, {} control group)",
+            match data {
+                StaggeredInput::Panel(_) => "panel",
+                StaggeredInput::CrossSections(_) => "repeated cross-sections",
+            },
             match self.score {
                 DidScore::Observational => "observational",
                 DidScore::Experimental => "experimental",
@@ -460,68 +635,118 @@ impl StaggeredDid {
             psi_b,
             predictions,
         );
-        let n_f = n as f64;
-        let cohort_share: Vec<f64> = data
-            .cohorts()
-            .iter()
-            .map(|&g| data.cohort.iter().filter(|&&c| c == g).count() as f64 / n_f)
-            .collect();
         Ok(StaggeredDidFit {
             group_times: gts,
             cohorts: data.cohorts(),
-            cohort_share,
+            cohort_share: data.cohort_shares(),
             fit,
         })
     }
 
-    /// Units used for one group-time combination, their outcome change, cohort
-    /// indicator and covariates.
-    fn group_time_sample(&self, data: &PanelData, gt: &GroupTime) -> Result<GroupTimeSample> {
-        let (i_pre, i_eval) = (data.period_index(gt.t_pre), data.period_index(gt.t_eval));
-        // Controls must not be treated (or anticipating) by the evaluation period.
-        let max_g = data.periods[(i_eval + self.anticipation_periods).min(data.periods.len() - 1)];
-        let mut units = Vec::new();
-        let mut d = Vec::new();
-        for u in 0..data.n_units() {
-            let g = data.cohort[u];
-            let treated = g == gt.cohort;
-            let control = match self.control_group {
-                ControlGroup::NeverTreated => g.is_infinite(),
-                ControlGroup::NotYetTreated => g.is_infinite() || (g > max_g && !treated),
-            };
-            let observed = !data.y[[u, i_pre]].is_nan() && !data.y[[u, i_eval]].is_nan();
-            if (treated || control) && observed {
-                units.push(u);
-                d.push(f64::from(treated));
+    /// Is a member of `g_obs`'s cohort a control for `gt`?
+    fn is_control(&self, g_obs: f64, gt: &GroupTime, max_g: f64) -> bool {
+        match self.control_group {
+            ControlGroup::NeverTreated => g_obs.is_infinite(),
+            ControlGroup::NotYetTreated => {
+                g_obs.is_infinite() || (g_obs > max_g && g_obs != gt.cohort)
             }
         }
-        let n_treated = d.iter().filter(|&&v| v == 1.0).count();
-        if n_treated == 0 || n_treated == d.len() {
+    }
+
+    /// Observations used for one group-time combination.
+    fn group_time_sample(
+        &self,
+        data: StaggeredInput<'_>,
+        gt: &GroupTime,
+    ) -> Result<GroupTimeSample> {
+        let periods = data.periods();
+        let index = |v: f64| {
+            periods
+                .iter()
+                .position(|&p| p == v)
+                .expect("period of this data")
+        };
+        let (i_pre, i_eval) = (index(gt.t_pre), index(gt.t_eval));
+        // Controls must not be treated (or anticipating) by the evaluation period.
+        let max_g = periods[(i_eval + self.anticipation_periods).min(periods.len() - 1)];
+        let sample = match data {
+            StaggeredInput::Panel(p) => {
+                let mut positions = Vec::new();
+                let mut d = Vec::new();
+                for u in 0..p.n_units() {
+                    let g = p.cohort[u];
+                    let treated = g == gt.cohort;
+                    let observed = !p.y[[u, i_pre]].is_nan() && !p.y[[u, i_eval]].is_nan();
+                    if (treated || self.is_control(g, gt, max_g)) && observed {
+                        positions.push(u);
+                        d.push(f64::from(treated));
+                    }
+                }
+                let y = positions
+                    .iter()
+                    .map(|&u| p.y[[u, i_eval]] - p.y[[u, i_pre]])
+                    .collect();
+                GroupTimeSample {
+                    x: p.x.select(Axis(0), &positions),
+                    strata: d.iter().map(|&v| v as usize).collect(),
+                    y,
+                    d: Array1::from(d),
+                    t: None,
+                    positions,
+                }
+            }
+            StaggeredInput::CrossSections(c) => {
+                let mut positions = Vec::new();
+                let (mut d, mut t) = (Vec::new(), Vec::new());
+                for r in 0..c.n_rows() {
+                    let (g, time) = (c.cohort[r], c.time[r]);
+                    let treated = g == gt.cohort;
+                    let in_periods = time == gt.t_pre || time == gt.t_eval;
+                    if in_periods && (treated || self.is_control(g, gt, max_g)) {
+                        positions.push(r);
+                        d.push(f64::from(treated));
+                        t.push(f64::from(time == gt.t_eval));
+                    }
+                }
+                // Four strata: group × period, so every fold covers every cell.
+                let strata = d
+                    .iter()
+                    .zip(&t)
+                    .map(|(&di, &ti)| di as usize + 2 * ti as usize)
+                    .collect();
+                GroupTimeSample {
+                    x: c.x.select(Axis(0), &positions),
+                    y: positions.iter().map(|&r| c.y[r]).collect(),
+                    strata,
+                    d: Array1::from(d),
+                    t: Some(Array1::from(t)),
+                    positions,
+                }
+            }
+        };
+        let n_treated = sample.d.iter().filter(|&&v| v == 1.0).count();
+        if n_treated == 0 || n_treated == sample.d.len() {
             return Err(DmlError::InvalidArgument(format!(
-                "{}: need both cohort and control units observed in periods {} and {}",
+                "{}: need both cohort and control observations in periods {} and {}",
                 gt.label(),
                 gt.t_pre,
                 gt.t_eval
             )));
         }
-        let dy = units
-            .iter()
-            .map(|&u| data.y[[u, i_eval]] - data.y[[u, i_pre]])
-            .collect();
-        Ok(GroupTimeSample {
-            x: data.x.select(Axis(0), &units),
-            units,
-            dy,
-            d: Array1::from(d),
-        })
+        Ok(sample)
     }
 }
 
+/// The observations of one group-time combination: positions in the data,
+/// outcome (panel: change; cross-section: level), cohort indicator, optional
+/// post-period indicator (cross-sections), covariates and fold strata.
 struct GroupTimeSample {
-    units: Vec<usize>,
-    dy: Array1<f64>,
+    positions: Vec<usize>,
+    y: Array1<f64>,
     d: Array1<f64>,
+    t: Option<Array1<f64>>,
     x: Array2<f64>,
+    strata: Vec<usize>,
 }
 
 fn context(gt: &GroupTime, err: DmlError) -> DmlError {

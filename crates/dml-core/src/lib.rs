@@ -82,6 +82,6 @@ pub use model::{
 };
 pub use score::LinearScore;
 pub use staggered::{
-    Aggregation, ControlGroup, DidAggregation, GroupTime, GtCombinations, PanelData, StaggeredDid,
-    StaggeredDidFit,
+    Aggregation, ControlGroup, DidAggregation, GroupTime, GtCombinations, PanelData,
+    RepeatedCrossSections, StaggeredDid, StaggeredDidFit, StaggeredInput,
 };

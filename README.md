@@ -43,7 +43,7 @@ pip install dml-rs
   partially linear IV (`Pliv`), interactive IV model (`Iivm`, LATE with a binary instrument),
   doubly robust difference-in-differences for panel data (`Did`) and repeated cross-sections
   (`DidCs`), and **staggered adoption** (`StaggeredDid`: group-time effects ATT(g, t) aggregated by
-  cohort, calendar time or event time)
+  cohort, calendar time or event time, for panels and repeated cross-sections)
 - **Inference:** DML2 estimation, standard errors, t-statistics, p-values, Wald confidence
   intervals; multiple treatments; repeated sample splitting with median aggregation
 - **Bootstrap:** normal, Bayes and wild multiplier bootstrap; simultaneous (joint) confidence
@@ -161,6 +161,10 @@ let fit = StaggeredDid::new(Ols::new(), LogisticRegression::default())
 println!("{fit}");                                  // every ATT(g, t)
 let es = fit.aggregate(Aggregation::EventStudy)?;  // dynamic effects by event time
 let bands = fit.att().bootstrap(dml_core::BootstrapMethod::Normal, 999, 0)?.joint_confint(0.95)?;
+
+// Repeated cross-sections: every row is its own observation.
+let rcs = dml_core::RepeatedCrossSections::new(y_rows, t_rows, g_rows, x_rows)?;
+let fit_cs = StaggeredDid::new(Ols::new(), LogisticRegression::default()).fit(&rcs)?;
 ```
 
 ### Several treatments, joint inference
@@ -222,6 +226,7 @@ stag = dml_rs.StaggeredDID(dml_rs.Ols(), dml_rs.LogisticRegression(), control_gr
 stag.fit_frame(df, y_col="y", id_col="id", t_col="t", g_col="g", x_cols=["x1", "x2"])
 stag.summary                              # every ATT(g, t)
 stag.aggregate("eventstudy").summary      # or "group" / "time"
+dml_rs.StaggeredDID(dml_rs.Ols(), dml_rs.LogisticRegression(), panel=False)  # repeated cross-sections
 
 plr.bootstrap(method="normal", n_boot=1000)
 plr.confint(joint=True); plr.p_adjust("romano-wolf")
@@ -267,6 +272,7 @@ bootstrap joint intervals and Romano–Wolf p-values to agree to within `1e-9`
 | `iivm_late_rep2`, `iivm_no_always_takers` | IIVM (LATE), 2 repetitions; one-sided non-compliance |
 | `did_panel_*`, `did_cs_*` | DID for panels and repeated cross-sections, observational / experimental scores, with and without in-sample normalisation |
 | `staggered_*` | Staggered DID (`DoubleMLDIDMulti`): every ATT(g, t), group / time / event-study aggregation and overall effects; never- and not-yet-treated controls, repeated splits, universal base period with anticipation |
+| `staggered_cs_*` | Staggered DID for repeated cross-sections (`DoubleMLDIDMulti(panel=False)`), observational and experimental scores |
 
 To regenerate the fixtures:
 

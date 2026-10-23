@@ -18,7 +18,7 @@ import doubleml as dml
 import numpy as np
 import pandas as pd
 import sklearn
-from doubleml.did.datasets import make_did_CS2021, make_did_SZ2020
+from doubleml.did.datasets import make_did_CS2021, make_did_cs_CS2021, make_did_SZ2020
 from doubleml.irm.datasets import make_iivm_data, make_irm_data
 from doubleml.plm.datasets import make_pliv_CHS2015, make_plr_CCDDHNR2018
 from doubleml.utils._estimation import _draw_weights
@@ -234,6 +234,61 @@ def staggered(name, seed, control_group, score, normalize, gt_setting="standard"
     }
 
 
+def staggered_cs(name, seed, control_group, score, normalize, n_rep=1):
+    """DoubleMLDIDMulti(panel=False) on repeated cross-sections; rows kept in data order."""
+    np.random.seed(seed)
+    df = make_did_cs_CS2021(n_obs=500, dgp_type=1, include_never_treated=True, time_type="float")
+    df = df.sort_values(["id", "t"]).reset_index(drop=True)
+    x_cols = [c for c in df.columns if c.startswith("Z")]
+    data = dml.data.DoubleMLPanelData(df, y_col="y", d_cols="d", id_col="id", t_col="t", x_cols=x_cols)
+    learners = {"ml_g": OLS}
+    if score == "observational":
+        learners["ml_m"] = LOGIT
+    model = dml.did.DoubleMLDIDMulti(
+        data, ml_g=learner(OLS), ml_m=learner(LOGIT) if score == "observational" else None,
+        control_group=control_group, score=score, in_sample_normalization=normalize,
+        panel=False, n_folds=5, n_rep=n_rep,
+    )
+    model.fit()
+    expected = {
+        "gt": [[float(g), float(a), float(b)] for g, a, b in model.gt_combinations],
+        "coef": model.coef.tolist(),
+        "se": model.se.tolist(),
+        "all_coef": model.all_coef.tolist(),
+        "all_se": model.all_se.tolist(),
+        "aggregations": {},
+    }
+    for how in ["group", "time", "eventstudy"]:
+        agg = model.aggregate(how)
+        expected["aggregations"][how] = {
+            "names": list(agg.aggregation_names),
+            "weights": np.asarray(agg.aggregation_weights).tolist(),
+            "overall_weights": np.asarray(agg.overall_aggregation_weights).tolist(),
+            "coef": agg.aggregated_frameworks.thetas.tolist(),
+            "se": agg.aggregated_frameworks.ses.tolist(),
+            "overall_coef": agg.overall_aggregated_framework.thetas.tolist(),
+            "overall_se": agg.overall_aggregated_framework.ses.tolist(),
+        }
+    gt_folds = [
+        [[{"train": tr.tolist(), "test": te.tolist()} for tr, te in rep] for rep in m.smpls]
+        for m in model.modellist
+    ]
+    return {
+        "name": name,
+        "model": "staggered_cs",
+        "options": {"control_group": control_group, "score": score, "in_sample_normalization": normalize,
+                    "gt_combinations": "standard", "anticipation_periods": 0},
+        "learners": learners,
+        "y": df["y"].tolist(),
+        "time": df["t"].astype(float).tolist(),
+        "cohort": [None if np.isinf(g) else float(g) for g in df["d"]],
+        "x": df[x_cols].to_numpy().tolist(),
+        "gt_folds": gt_folds,
+        "expected": expected,
+        "_model": model,
+    }
+
+
 def irm_cate(name, seed):
     case = irm(name, seed, "ATE", n_rep=2)
     model = case["_model"]
@@ -290,6 +345,9 @@ CASES = [
     lambda: staggered("staggered_notyet_experimental_rep2", 72, "not_yet_treated", "experimental", False, n_rep=2),
     lambda: staggered("staggered_universal_anticipation", 73, "never_treated", "observational", True,
                       gt_setting="universal", anticipation=1),
+    lambda: staggered_cs("staggered_cs_never_observational", 81, "never_treated", "observational", True),
+    lambda: staggered_cs("staggered_cs_notyet_experimental_rep2", 82, "not_yet_treated", "experimental", False,
+                         n_rep=2),
 ]
 
 

@@ -1,7 +1,8 @@
 //! Staggered-adoption DID for Python.
 
 use dml_core::{
-    Aggregation, ControlGroup, GtCombinations, PanelData, StaggeredDid, StaggeredDidFit,
+    Aggregation, ControlGroup, GtCombinations, PanelData, RepeatedCrossSections, StaggeredDid,
+    StaggeredDidFit,
 };
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -68,13 +69,15 @@ impl PyStaggeredResult {
     }
 }
 
-/// Staggered DID from long-format data: one row per unit and period, with the
-/// unit's first treated period `g` (`inf` or `nan` = never treated).
+/// Staggered DID from long-format data: one row per observation with its
+/// period `t` and cohort `g` (first treated period; `inf` or `nan` = never).
+/// With `panel=True` rows are unit-periods linked by `id`; with `panel=False`
+/// every row is a separate cross-sectional observation (`id` is ignored).
 #[pyfunction]
 #[pyo3(signature = (y, id, t, g, x, ml_g, ml_m = None, control_group = "never_treated",
                     anticipation_periods = 0, gt_combinations = "standard", score = "observational",
                     in_sample_normalization = true, clipping_threshold = 1e-2, n_folds = 5,
-                    n_rep = 1, seed = 0))]
+                    n_rep = 1, seed = 0, panel = true))]
 #[allow(clippy::too_many_arguments)]
 pub fn fit_staggered_did(
     py: Python<'_>,
@@ -94,6 +97,7 @@ pub fn fit_staggered_did(
     n_folds: usize,
     n_rep: usize,
     seed: u64,
+    panel: bool,
 ) -> PyResult<PyStaggeredResult> {
     let control_group = match control_group {
         "never_treated" => ControlGroup::NeverTreated,
@@ -116,15 +120,7 @@ pub fn fit_staggered_did(
     };
     let (y, id, t, g) = (y.as_array(), id.as_array(), t.as_array(), g.as_array());
     let to_vec = |a: ndarray::ArrayView1<'_, f64>| a.iter().copied().collect::<Vec<f64>>();
-    let ids: Vec<i64> = id.iter().copied().collect();
-    let data = PanelData::from_long(
-        &ids,
-        &to_vec(t),
-        &to_vec(y),
-        &to_vec(g),
-        &x.as_array().to_owned(),
-    )
-    .map_err(to_py_err)?;
+    let x = x.as_array().to_owned();
     let model = StaggeredDid::from_boxed(to_regressor(ml_g)?, ml_m.map(to_classifier).transpose()?)
         .score(did_score(score)?)
         .control_group(control_group)
@@ -135,6 +131,16 @@ pub fn fit_staggered_did(
         .n_folds(n_folds)
         .n_rep(n_rep)
         .seed(seed);
-    let fit = py.detach(|| model.fit(&data)).map_err(to_py_err)?;
+    let fit = if panel {
+        let ids: Vec<i64> = id.iter().copied().collect();
+        let data = PanelData::from_long(&ids, &to_vec(t), &to_vec(y), &to_vec(g), &x)
+            .map_err(to_py_err)?;
+        py.detach(|| model.fit(&data))
+    } else {
+        let data = RepeatedCrossSections::new(y.to_owned(), t.to_owned(), g.to_owned(), x)
+            .map_err(to_py_err)?;
+        py.detach(|| model.fit(&data))
+    }
+    .map_err(to_py_err)?;
     Ok(PyStaggeredResult { fit })
 }

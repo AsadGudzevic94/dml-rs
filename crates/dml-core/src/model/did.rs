@@ -141,7 +141,7 @@ impl LinearScoreModel for Did {
     fn estimate_score(&self, input: &ScoreInput<'_>, folds: &[Fold]) -> Result<ScoreEstimate> {
         let ScoreInput { y, d, x, .. } = *input;
         panel_did_score(
-            &PanelDidSettings {
+            &DidSettings {
                 ml_g: self.ml_g.as_ref(),
                 ml_m: self.ml_m.as_deref(),
                 score: self.score,
@@ -156,10 +156,10 @@ impl LinearScoreModel for Did {
     }
 }
 
-/// Learners and options of the two-period panel DID score, shared by [`Did`]
-/// and the per-(cohort, period) models of
+/// Learners and options of the two-period DID scores, shared by [`Did`],
+/// [`DidCs`] and the per-(cohort, period) models of
 /// [`StaggeredDid`](crate::StaggeredDid).
-pub(crate) struct PanelDidSettings<'a> {
+pub(crate) struct DidSettings<'a> {
     pub ml_g: &'a dyn Regressor,
     pub ml_m: Option<&'a dyn Classifier>,
     pub score: DidScore,
@@ -169,7 +169,7 @@ pub(crate) struct PanelDidSettings<'a> {
 
 /// Panel DID score elements for outcome changes `y`, group indicator `d`.
 pub(crate) fn panel_did_score(
-    settings: &PanelDidSettings<'_>,
+    settings: &DidSettings<'_>,
     x: ArrayView2<'_, f64>,
     y: ArrayView1<'_, f64>,
     d: ArrayView1<'_, f64>,
@@ -297,91 +297,116 @@ impl LinearScoreModel for DidCs {
     fn estimate_score(&self, input: &ScoreInput<'_>, folds: &[Fold]) -> Result<ScoreEstimate> {
         let ScoreInput { y, d, x, t, .. } = *input;
         let t = t.ok_or_else(|| DmlError::InvalidArgument("missing time indicator".into()))?;
-        let d = d.to_owned();
-        let (d1t1, d1t0) = (cell(&d, t, 1.0, 1.0), cell(&d, t, 1.0, 0.0));
-        let (d0t1, d0t0) = (cell(&d, t, 0.0, 1.0), cell(&d, t, 0.0, 0.0));
-        let fit_cell = |c: &Array1<f64>| -> Result<Array1<f64>> {
-            let keep: Vec<bool> = c.iter().map(|&v| v == 1.0).collect();
-            cross_fit_predict_subset(self.ml_g.as_ref(), x, y, folds, &keep)
-        };
-        let (g00, g01) = (fit_cell(&d0t0)?, fit_cell(&d0t1)?);
-        let (g10, g11) = (fit_cell(&d1t0)?, fit_cell(&d1t1)?);
-        let n = d.len();
-        let p = mean(&d);
-        let lambda = t.mean().expect("n > 0");
+        cs_did_score(
+            &DidSettings {
+                ml_g: self.ml_g.as_ref(),
+                ml_m: self.ml_m.as_deref(),
+                score: self.score,
+                in_sample_normalization: self.in_sample_normalization,
+                clipping_threshold: self.clipping_threshold,
+            },
+            x,
+            y,
+            d,
+            t,
+            folds,
+        )
+    }
+}
 
-        let m = match self.score {
-            DidScore::Observational => {
-                let ml_m = self.ml_m.as_ref().expect("checked in validate");
-                let c = self.clipping_threshold;
-                Some(
-                    cross_fit_predict_proba(ml_m.as_ref(), x, d.view(), folds)?
-                        .mapv(|q| q.clamp(c, 1.0 - c)),
-                )
-            }
-            DidScore::Experimental => None,
-        };
+/// Repeated cross-section DID score elements for outcome levels `y`, group
+/// indicator `d` and post-period indicator `t`.
+pub(crate) fn cs_did_score(
+    settings: &DidSettings<'_>,
+    x: ArrayView2<'_, f64>,
+    y: ArrayView1<'_, f64>,
+    d: ArrayView1<'_, f64>,
+    t: ArrayView1<'_, f64>,
+    folds: &[Fold],
+) -> Result<ScoreEstimate> {
+    let d = d.to_owned();
+    let (d1t1, d1t0) = (cell(&d, t, 1.0, 1.0), cell(&d, t, 1.0, 0.0));
+    let (d0t1, d0t0) = (cell(&d, t, 0.0, 1.0), cell(&d, t, 0.0, 0.0));
+    let fit_cell = |c: &Array1<f64>| -> Result<Array1<f64>> {
+        let keep: Vec<bool> = c.iter().map(|&v| v == 1.0).collect();
+        cross_fit_predict_subset(settings.ml_g, x, y, folds, &keep)
+    };
+    let (g00, g01) = (fit_cell(&d0t0)?, fit_cell(&d0t1)?);
+    let (g10, g11) = (fit_cell(&d1t0)?, fit_cell(&d1t1)?);
+    let n = d.len();
+    let p = mean(&d);
+    let lambda = t.mean().expect("n > 0");
 
-        // Weights on the four residuals (y − ĝ_cell) and on the ĝ contrast.
-        let (weight_a, w11, w10, w01, w00) = match (&m, self.in_sample_normalization) {
-            (Some(m), true) => {
-                let odds = m / &(1.0 - m);
-                let u01 = &d0t1 * &odds;
-                let u00 = &d0t0 * &odds;
-                (
-                    &d / mean(&d),
-                    &d1t1 / mean(&d1t1),
-                    -(&d1t0 / mean(&d1t0)),
-                    -(&u01 / mean(&u01)),
-                    &u00 / mean(&u00),
-                )
-            }
-            (Some(m), false) => {
-                let odds = m / &(1.0 - m);
-                (
-                    &d / p,
-                    &d1t1 / (p * lambda),
-                    -(&d1t0 / (p * (1.0 - lambda))),
-                    -(&d0t1 / (p * lambda) * &odds),
-                    &d0t0 / (p * (1.0 - lambda)) * &odds,
-                )
-            }
-            (None, true) => (
-                Array1::ones(n),
+    let m = match settings.score {
+        DidScore::Observational => {
+            let ml_m = settings.ml_m.ok_or_else(|| {
+                DmlError::InvalidArgument("the observational DID score needs ml_m".into())
+            })?;
+            let c = settings.clipping_threshold;
+            Some(cross_fit_predict_proba(ml_m, x, d.view(), folds)?.mapv(|q| q.clamp(c, 1.0 - c)))
+        }
+        DidScore::Experimental => None,
+    };
+
+    // Weights on the four residuals (y − ĝ_cell) and on the ĝ contrast.
+    let (weight_a, w11, w10, w01, w00) = match (&m, settings.in_sample_normalization) {
+        (Some(m), true) => {
+            let odds = m / &(1.0 - m);
+            let u01 = &d0t1 * &odds;
+            let u00 = &d0t0 * &odds;
+            (
+                &d / mean(&d),
                 &d1t1 / mean(&d1t1),
                 -(&d1t0 / mean(&d1t0)),
-                -(&d0t1 / mean(&d0t1)),
-                &d0t0 / mean(&d0t0),
-            ),
-            (None, false) => (
-                Array1::ones(n),
+                -(&u01 / mean(&u01)),
+                &u00 / mean(&u00),
+            )
+        }
+        (Some(m), false) => {
+            let odds = m / &(1.0 - m);
+            (
+                &d / p,
                 &d1t1 / (p * lambda),
                 -(&d1t0 / (p * (1.0 - lambda))),
-                -(&d0t1 / ((1.0 - p) * lambda)),
-                &d0t0 / ((1.0 - p) * (1.0 - lambda)),
-            ),
-        };
-        let contrast = &g11 - &g10 - &g01 + &g00;
-        let psi_b = &weight_a * &contrast
-            + &w11 * &(&y - &g11)
-            + &w10 * &(&y - &g10)
-            + &w00 * &(&y - &g00)
-            + &w01 * &(&y - &g01);
-
-        let mut predictions = vec![
-            ("ml_g_d0_t0", g00),
-            ("ml_g_d0_t1", g01),
-            ("ml_g_d1_t0", g10),
-            ("ml_g_d1_t1", g11),
-        ];
-        if let Some(m) = m {
-            predictions.push(("ml_m", m));
+                -(&d0t1 / (p * lambda) * &odds),
+                &d0t0 / (p * (1.0 - lambda)) * &odds,
+            )
         }
-        Ok(ScoreEstimate {
-            score: LinearScore::new(-weight_a, psi_b)?,
-            predictions,
-        })
+        (None, true) => (
+            Array1::ones(n),
+            &d1t1 / mean(&d1t1),
+            -(&d1t0 / mean(&d1t0)),
+            -(&d0t1 / mean(&d0t1)),
+            &d0t0 / mean(&d0t0),
+        ),
+        (None, false) => (
+            Array1::ones(n),
+            &d1t1 / (p * lambda),
+            -(&d1t0 / (p * (1.0 - lambda))),
+            -(&d0t1 / ((1.0 - p) * lambda)),
+            &d0t0 / ((1.0 - p) * (1.0 - lambda)),
+        ),
+    };
+    let contrast = &g11 - &g10 - &g01 + &g00;
+    let psi_b = &weight_a * &contrast
+        + &w11 * &(&y - &g11)
+        + &w10 * &(&y - &g10)
+        + &w00 * &(&y - &g00)
+        + &w01 * &(&y - &g01);
+
+    let mut predictions = vec![
+        ("ml_g_d0_t0", g00),
+        ("ml_g_d0_t1", g01),
+        ("ml_g_d1_t0", g10),
+        ("ml_g_d1_t1", g11),
+    ];
+    if let Some(m) = m {
+        predictions.push(("ml_m", m));
     }
+    Ok(ScoreEstimate {
+        score: LinearScore::new(-weight_a, psi_b)?,
+        predictions,
+    })
 }
 
 #[cfg(test)]
