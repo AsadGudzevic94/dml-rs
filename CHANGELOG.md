@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Documentation site at https://asadgudzevic94.github.io/dml-rs/: getting started, a user guide
+  for models, learners and inference, the Python API reference, validation details (including the
+  known, deliberate differences from DoubleML and scikit-learn), and five worked notebooks
+  (partially linear model, binary treatments and heterogeneity, difference-in-differences,
+  sensitivity analysis, clustered data and learner diagnostics), each checked against the true
+  effects or DoubleML.
 - Python type information: stubs for the native extension (`_dml_rs.pyi`), annotations on the
   estimator classes and a `py.typed` marker, so editors autocomplete `dml_rs` and type checkers
   (mypy, pyright) check calls, e.g. invalid `score` or `scoring` values. CI checks the stubs

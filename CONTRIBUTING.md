@@ -47,6 +47,22 @@ python -m mypy -p dml_rs
 Every pull request runs the same checks in CI on Linux, macOS and Windows, plus a build on the
 minimum supported Rust version.
 
+## Documentation
+
+The site (https://asadgudzevic94.github.io/dml-rs/) is built with MkDocs from `docs/` and deployed
+from `main` by `.github/workflows/docs.yml`. The example notebooks in `docs/examples/` are
+committed with their outputs and are not executed during the build; re-run a notebook after
+changing it or the API it uses:
+
+```sh
+pip install -r docs/requirements.txt
+mkdocs serve                     # preview at http://127.0.0.1:8000
+mkdocs build --strict            # what CI runs
+
+# in the development environment (needs dml_rs, DoubleML, matplotlib, nbconvert)
+jupyter nbconvert --to notebook --execute --inplace docs/examples/01_getting_started.ipynb
+```
+
 ## Numerical parity with DoubleML
 
 Correctness is checked against the reference [DoubleML](https://docs.doubleml.org) package.

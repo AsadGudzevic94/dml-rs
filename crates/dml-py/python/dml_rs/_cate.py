@@ -115,7 +115,7 @@ class RLearner(_CrossFitted):
 class DRLearner(_CrossFitted):
     """DR-learner (Kennedy, 2023): regress cross-fitted AIPW pseudo-outcomes on ``X``.
 
-    Supports inference on effect heterogeneity via :meth:`blp` and :meth:`gate`.
+    Supports inference on effect heterogeneity via `blp` and `gate`.
     """
 
     _method = "DR"

@@ -1,0 +1,95 @@
+site_name: dml-rs
+site_description: Double / debiased machine learning for causal inference, in Rust with Python bindings
+site_url: https://asadgudzevic94.github.io/dml-rs/
+repo_url: https://github.com/AsadGudzevic94/dml-rs
+repo_name: AsadGudzevic94/dml-rs
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2026 Asad Gudzevic, licensed under MIT OR Apache-2.0
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - content.tabs.link
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - User guide:
+      - Models: user-guide/models.md
+      - Learners: user-guide/learners.md
+      - Inference: user-guide/inference.md
+  - Examples:
+      - Partially linear model: examples/01_getting_started.ipynb
+      - Binary treatments and heterogeneity: examples/02_binary_treatment.ipynb
+      - Difference-in-differences: examples/03_difference_in_differences.ipynb
+      - Sensitivity analysis: examples/04_sensitivity_analysis.ipynb
+      - Clustered data and diagnostics: examples/05_clusters_and_diagnostics.ipynb
+  - API reference:
+      - Python: api/python.md
+      - Rust: api/rust.md
+  - Validation: validation.md
+  - Changelog: changelog.md
+  - Citing: citing.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js
+
+plugins:
+  - search
+  - mkdocs-jupyter:
+      execute: false
+      include_source: true
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [crates/dml-py/python]
+          options:
+            docstring_style: numpy
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            show_signature_annotations: true
+            separate_signature: true
+            members_order: source
+            filters: ["!^_[^_]"]
+            heading_level: 3
+            show_if_no_docstring: true
+            merge_init_into_class: true
+            show_symbol_type_heading: true

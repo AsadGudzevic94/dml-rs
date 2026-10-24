@@ -14,9 +14,10 @@
 </p>
 
 <p align="center">
+  <a href="https://asadgudzevic94.github.io/dml-rs/">Documentation</a> ·
   <a href="https://pypi.org/project/dml-rs/">Python package</a> ·
   <a href="https://crates.io/crates/dml-core">Rust crate</a> ·
-  <a href="https://docs.rs/dml-core">API documentation</a> ·
+  <a href="https://docs.rs/dml-core">Rust API</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="https://github.com/AsadGudzevic94/dml-rs/releases">Releases</a>
 </p>
@@ -67,7 +68,7 @@ benchmarking against observed covariates (Chernozhukov et al., 2022), for PLR, I
 classifiers) and evaluation of the cross-fitted predictions with any metric.
 
 **Learners:** gradient boosting and random forests (both implemented in Rust; the boosting
-reproduces scikit-learn's predictions), OLS / ridge, Lasso and logistic regression, cross-validated
+grows the same trees as scikit-learn's), OLS / ridge, Lasso and logistic regression, cross-validated
 Lasso and logistic regression (`LassoCV`, `LogisticRegressionCV`, which choose their penalty as
 scikit-learn does and reproduce its results), or any scikit-learn estimator from Python. New learners and new orthogonal scores plug in through the
 `Regressor`, `Classifier` and `LinearScoreModel` traits.
@@ -138,6 +139,10 @@ let ci = fit.confint(0.95)?;
 ```
 
 ### More examples
+
+Worked notebooks (partially linear model, binary treatments and heterogeneity,
+difference-in-differences, sensitivity analysis, clustered data) are in the
+[documentation](https://asadgudzevic94.github.io/dml-rs/examples/01_getting_started/).
 
 <details>
 <summary><b>Average treatment effect of a binary treatment (IRM)</b></summary>

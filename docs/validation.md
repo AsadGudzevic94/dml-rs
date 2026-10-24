@@ -1,0 +1,57 @@
+# Validation
+
+dml-rs is tested against the reference implementation, [DoubleML](https://docs.doubleml.org)
+0.11.4, on identical data and identical sample splits.
+
+## Parity tests
+
+[`parity/generate_fixtures.py`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/generate_fixtures.py)
+runs DoubleML on fixed data and fixed folds and stores data, folds and results as JSON. The Rust
+test suite refits every case on the same folds and requires agreement to `1e-9` for closed-form
+learners (OLS, ridge) and `1e-7` for iterative ones (Lasso, logistic regression, cross-validated
+learners). Compared are the nuisance predictions, coefficients, standard errors, t-statistics,
+p-values (raw and multiplicity-adjusted), confidence intervals, bootstrap bands, BLP and GATE
+inference, staggered-DiD aggregations, sensitivity bounds and robustness values, and learner
+losses.
+
+| Fixtures | Coverage |
+|---|---|
+| `plr_ols`, `plr_ridge`, `plr_lasso`, `plr_ivtype_rep3` | PLR with partialling-out and IV-type scores, several learners, repeated splits |
+| `plr_lasso_cv`, `irm_ate_lasso_cv_logit_cv` | scikit-learn's `LassoCV` and `LogisticRegressionCV` as nuisance learners |
+| `plr_boot_bayes`, `plr_boot_wild`, `plr_multi_rep3_boot` | Bootstrap methods, multiple treatments, joint intervals, Romano–Wolf |
+| `irm_ate`, `irm_atte`, `irm_ate_normalized`, `irm_cate_gate` | IRM (ATE / ATTE, normalised IPW), BLP and GATE |
+| `pliv_ols`, `iivm_late_rep2`, `iivm_no_always_takers` | PLIV and IIVM, including one-sided non-compliance |
+| `did_panel_*`, `did_cs_*` | Two-period DiD for panels and cross-sections, all score and normalisation variants |
+| `staggered_*`, `staggered_cs_*` | Staggered DiD: every ATT(g, t) and all aggregations |
+| `plr_cluster_*`, `irm_cluster_one_way`, `pliv_cluster_two_way` | One-way and two-way clustering |
+| all PLR, IRM and DiD fixtures | Sensitivity analysis in two scenarios, and benchmarks |
+
+The Python test suite checks the bindings against DoubleML and scikit-learn (including the
+learners themselves), and the type stubs are checked against the compiled extension with
+`mypy.stubtest`.
+
+## Statistical tests
+
+Monte-Carlo tests simulate data with a known effect and check that confidence intervals reach
+their nominal coverage: PLR, IRM (ATE and ATTE), PLIV, IIVM, DiD, joint bootstrap bands, and
+clustered data (where iid intervals cover about 75% of the time and cluster-robust ones about 95%).
+
+## Known differences
+
+These are deliberate, documented, and covered by tests:
+
+- **IIVM with `normalize_ipw=True`.** dml-rs normalises the inverse-probability weights with the
+  instrument; DoubleML 0.11 used the treatment. The DoubleML maintainers confirmed the instrument
+  is correct ([issue #411](https://github.com/DoubleML/doubleml-for-py/issues/411)).
+- **Robustness values** are solved exactly; DoubleML uses a bounded numerical minimiser, so the two
+  agree to about `1e-5`.
+- **Gradient boosting** breaks ties between equally good splits deterministically, scikit-learn by
+  a random feature order. Training-set predictions are identical; held-out predictions and
+  estimates agree up to scikit-learn's own seed-to-seed variation.
+- **Lasso with more covariates than observations.** At scikit-learn's default tolerance
+  (`tol=1e-4`) the coordinate descent may stop at slightly different points, depending on
+  floating-point rounding (as scikit-learn does across platforms); both are within the tolerance.
+  With a tighter tolerance the two agree to numerical precision.
+- **`LogisticRegressionCV`** solves each fit to the exact optimum with Newton's method;
+  scikit-learn's default L-BFGS solver stops earlier, so its probabilities can differ by about
+  `1e-3` at default settings.

@@ -6,16 +6,16 @@
 >>> model = dml_rs.PLR(ml_l=RandomForestRegressor(), ml_m=RandomForestRegressor())  # doctest: +SKIP
 >>> model.fit(X, y, d).summary  # doctest: +SKIP
 
-CATE meta-learners (:class:`SLearner`, :class:`TLearner`, :class:`XLearner`,
-:class:`RLearner`, :class:`DRLearner`) estimate heterogeneous effects; the
-DR-learner and :meth:`IRM.cate` / :meth:`IRM.gate` provide inference via
-:class:`BLP`.
+CATE meta-learners (`SLearner`, `TLearner`, `XLearner`,
+`RLearner`, `DRLearner`) estimate heterogeneous effects; the
+DR-learner and `IRM.cate` / `IRM.gate` provide inference via
+`BLP`.
 
-Nuisance learners can be the built-in Rust learners (:class:`Ols`,
-:class:`Lasso`, :class:`LassoCV`, :class:`LogisticRegression`,
-:class:`LogisticRegressionCV`, :class:`RandomForestRegressor`,
-:class:`RandomForestClassifier`, :class:`GradientBoostingRegressor`,
-:class:`GradientBoostingClassifier`), which run fully in parallel without the GIL,
+Nuisance learners can be the built-in Rust learners (`Ols`,
+`Lasso`, `LassoCV`, `LogisticRegression`,
+`LogisticRegressionCV`, `RandomForestRegressor`,
+`RandomForestClassifier`, `GradientBoostingRegressor`,
+`GradientBoostingClassifier`), which run fully in parallel without the GIL,
 or any scikit-learn compatible estimator.
 """
 

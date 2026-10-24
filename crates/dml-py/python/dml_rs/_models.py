@@ -130,7 +130,7 @@ class _DMLEstimator(_Params):
         return out
 
     def confint(self, level: float = 0.95, joint: bool = False) -> NDArray[np.float64]:
-        """Confidence intervals, shape ``(n_treat, 2)``. ``joint=True`` needs :meth:`bootstrap`."""
+        """Confidence intervals, shape ``(n_treat, 2)``. ``joint=True`` needs `bootstrap`."""
         result = self._check_fitted()
         if joint:
             if self._boot is None:
@@ -145,7 +145,7 @@ class _DMLEstimator(_Params):
         return self
 
     def p_adjust(self, method: str = "romano-wolf") -> NDArray[np.float64]:
-        """Adjusted p-values: ``'romano-wolf'`` (needs :meth:`bootstrap`), ``'holm'`` or ``'bonferroni'``."""
+        """Adjusted p-values: ``'romano-wolf'`` (needs `bootstrap`), ``'holm'`` or ``'bonferroni'``."""
         result = self._check_fitted()
         if method.lower() in ("romano-wolf", "rw"):
             if self._boot is None:
@@ -167,7 +167,7 @@ class _DMLEstimator(_Params):
         ``cf_y`` is the share of the outcome's residual variation explained by the confounder,
         ``cf_d`` the relative gain in the Riesz representer's variation, ``rho`` their correlation
         (adversarial at 1). Results are stored in ``sensitivity_params_`` (DoubleML's layout)
-        and summarised by :attr:`sensitivity_summary`. Available for PLR, IRM and DID models.
+        and summarised by `sensitivity_summary`. Available for PLR, IRM and DID models.
         """
         null = np.atleast_1d(np.asarray(null_hypothesis, dtype=np.float64)).tolist()
         res = self._check_fitted().sensitivity_analysis(cf_y, cf_d, rho, level, null)
@@ -185,7 +185,7 @@ class _DMLEstimator(_Params):
 
     @property
     def sensitivity_summary(self) -> str:
-        """Text summary of the last :meth:`sensitivity_analysis`."""
+        """Text summary of the last `sensitivity_analysis`."""
         if not hasattr(self, "sensitivity_result_"):
             raise ValueError("call sensitivity_analysis() first")
         return str(self.sensitivity_result_)
@@ -458,7 +458,7 @@ class _DIDBase(_DMLEstimator):
 class DID(_DIDBase):
     """Doubly robust difference-in-differences (ATT) with **panel data** over two periods.
 
-    ``y`` passed to :meth:`fit` is each unit's outcome change ``Y_post - Y_pre``.
+    ``y`` passed to `fit` is each unit's outcome change ``Y_post - Y_pre``.
 
     Parameters
     ----------
@@ -482,8 +482,8 @@ class DID(_DIDBase):
 class DIDCS(_DIDBase):
     """Doubly robust difference-in-differences (ATT) with **repeated cross-sections**.
 
-    Each row is observed once; ``t`` passed to :meth:`fit` is 1 in the post-period, 0 before.
-    Parameters as :class:`DID`, with ``ml_g`` fitted in each treatment-group x period cell.
+    Each row is observed once; ``t`` passed to `fit` is 1 in the post-period, 0 before.
+    Parameters as `DID`, with ``ml_g`` fitted in each treatment-group x period cell.
     """
 
     def fit(
@@ -550,7 +550,7 @@ class StaggeredDID(_DMLEstimator):
     as DoubleML's ``DoubleMLDIDMulti`` for panel data.
 
     Estimates every group-time effect ATT(g, t) by a doubly robust two-period DID and
-    aggregates them with :meth:`aggregate`.
+    aggregates them with `aggregate`.
 
     Parameters
     ----------
@@ -559,7 +559,7 @@ class StaggeredDID(_DMLEstimator):
     control_group : ``"never_treated"`` or ``"not_yet_treated"``.
     anticipation_periods : periods before treatment in which units may already react.
     gt_combinations : ``"standard"`` (varying base), ``"all"`` or ``"universal"`` (fixed base).
-    score, in_sample_normalization, clipping_threshold : as :class:`DID`.
+    score, in_sample_normalization, clipping_threshold : as `DID`.
     panel : ``True`` for panel data (rows linked by ``id``); ``False`` for repeated
         cross-sections, where every row is a separate observation.
     """

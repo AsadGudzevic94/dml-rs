@@ -9,7 +9,7 @@ repository.workspace = true
 rust-version.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/dml-core"
-homepage = "https://github.com/AsadGudzevic94/dml-rs"
+homepage = "https://asadgudzevic94.github.io/dml-rs/"
 # DoubleML parity fixtures (~3 MB) and benches are for development only.
 exclude = ["tests/fixtures/", "tests/parity.rs", "tests/common/", "benches/"]
 keywords = ["causal-inference", "double-ml", "statistics", "econometrics", "machine-learning"]

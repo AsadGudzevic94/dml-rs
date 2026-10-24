@@ -10,3 +10,5 @@ __pycache__/
 dist/
 .pytest_cache/
 *.pdb
+site/
+.cache/

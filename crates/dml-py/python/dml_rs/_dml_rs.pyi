@@ -38,9 +38,6 @@ __all__ = [
     "__version__",
 ]
 
-_F1 = NDArray[np.float64]  # 1-D
-_F2 = NDArray[np.float64]  # 2-D
-_F3 = NDArray[np.float64]  # 3-D
 _Splits = Sequence[Sequence[tuple[Sequence[int], Sequence[int]]]]
 _MaxFeatures = Union[None, Literal["sqrt", "log2"], float, int]
 
@@ -50,7 +47,7 @@ _MaxFeatures = Union[None, Literal["sqrt", "log2"], float, int]
 
 @final
 class DmlResult:
-    """A fitted DML model."""
+    """A fitted DML model (returned by the `fit_*` functions)."""
 
     @property
     def model_name(self) -> str: ...
@@ -65,35 +62,35 @@ class DmlResult:
     @property
     def n_clusters(self) -> Optional[int]: ...
     @property
-    def coef(self) -> _F1: ...
+    def coef(self) -> NDArray[np.float64]: ...
     @property
-    def se(self) -> _F1: ...
+    def se(self) -> NDArray[np.float64]: ...
     @property
-    def t_stat(self) -> _F1: ...
+    def t_stat(self) -> NDArray[np.float64]: ...
     @property
-    def pval(self) -> _F1: ...
+    def pval(self) -> NDArray[np.float64]: ...
     @property
-    def all_coef(self) -> _F2:
+    def all_coef(self) -> NDArray[np.float64]:
         """Shape ``(n_treat, n_rep)``."""
     @property
-    def all_se(self) -> _F2:
+    def all_se(self) -> NDArray[np.float64]:
         """Shape ``(n_treat, n_rep)``."""
     @property
-    def psi(self) -> _F3:
+    def psi(self) -> NDArray[np.float64]:
         """Score values at the estimate, shape ``(n_obs, n_treat, n_rep)``."""
     @property
     def nuisance_names(self) -> list[str]: ...
     @property
-    def sensitivity_elements(self) -> Optional[tuple[_F2, _F2]]:
+    def sensitivity_elements(self) -> Optional[tuple[NDArray[np.float64], NDArray[np.float64]]]:
         """``(sigma2, nu2)``, each of shape ``(n_treat, n_rep)``."""
-    def predictions(self, name: str) -> _F3:
+    def predictions(self, name: str) -> NDArray[np.float64]:
         """Cross-fitted predictions, shape ``(n_obs, n_rep, n_treat)``."""
-    def nuisance_losses(self) -> dict[str, _F2]:
+    def nuisance_losses(self) -> dict[str, NDArray[np.float64]]:
         """Out-of-sample loss per learner, each of shape ``(n_treat, n_rep)``."""
-    def nuisance_targets(self, name: str) -> _F3:
+    def nuisance_targets(self, name: str) -> NDArray[np.float64]:
         """Targets of a learner, shape ``(n_obs, n_rep, n_treat)``, NaN where it does not apply."""
-    def confint(self, level: float = 0.95) -> _F2: ...
-    def p_adjust(self, method: str) -> _F1: ...
+    def confint(self, level: float = 0.95) -> NDArray[np.float64]: ...
+    def p_adjust(self, method: str) -> NDArray[np.float64]: ...
     def bootstrap(
         self, method: Literal["normal", "Bayes", "bayes", "wild"] = "normal", n_boot: int = 500, seed: int = 0
     ) -> Bootstrap: ...
@@ -106,89 +103,99 @@ class DmlResult:
         null_hypothesis: Optional[Sequence[float]] = None,
     ) -> SensitivityResult: ...
     def sensitivity_benchmark(self, short: DmlResult) -> SensitivityBenchmark: ...
-    def cate(self, basis: _F2) -> Blp: ...
-    def gate(self, groups: _F2) -> Blp: ...
+    def cate(self, basis: NDArray[np.float64]) -> Blp: ...
+    def gate(self, groups: NDArray[np.float64]) -> Blp: ...
 
 @final
 class Bootstrap:
+    """Multiplier bootstrap draws of the t-statistics."""
+
     @property
-    def t_stats(self) -> _F3:
+    def t_stats(self) -> NDArray[np.float64]:
         """Shape ``(n_boot, n_treat, n_rep)``."""
-    def joint_confint(self, level: float = 0.95) -> _F2: ...
-    def romano_wolf(self) -> _F1: ...
+    def joint_confint(self, level: float = 0.95) -> NDArray[np.float64]: ...
+    def romano_wolf(self) -> NDArray[np.float64]: ...
 
 @final
 class SensitivityResult:
+    """Bounds, confidence bounds and robustness values of a sensitivity analysis."""
+
     @property
-    def theta_lower(self) -> _F1: ...
+    def theta_lower(self) -> NDArray[np.float64]: ...
     @property
-    def theta_upper(self) -> _F1: ...
+    def theta_upper(self) -> NDArray[np.float64]: ...
     @property
-    def se_lower(self) -> _F1: ...
+    def se_lower(self) -> NDArray[np.float64]: ...
     @property
-    def se_upper(self) -> _F1: ...
+    def se_upper(self) -> NDArray[np.float64]: ...
     @property
-    def ci_lower(self) -> _F1: ...
+    def ci_lower(self) -> NDArray[np.float64]: ...
     @property
-    def ci_upper(self) -> _F1: ...
+    def ci_upper(self) -> NDArray[np.float64]: ...
     @property
-    def rv(self) -> _F1: ...
+    def rv(self) -> NDArray[np.float64]: ...
     @property
-    def rva(self) -> _F1: ...
+    def rva(self) -> NDArray[np.float64]: ...
     @property
     def params(self) -> tuple[float, float, float, float, list[float]]:
         """``(cf_y, cf_d, rho, level, null_hypothesis)``."""
 
 @final
 class SensitivityBenchmark:
+    """Confounding strength represented by observed covariates."""
+
     @property
-    def cf_y(self) -> _F1: ...
+    def cf_y(self) -> NDArray[np.float64]: ...
     @property
-    def cf_d(self) -> _F1: ...
+    def cf_d(self) -> NDArray[np.float64]: ...
     @property
-    def rho(self) -> _F1: ...
+    def rho(self) -> NDArray[np.float64]: ...
     @property
-    def delta_theta(self) -> _F1: ...
+    def delta_theta(self) -> NDArray[np.float64]: ...
 
 @final
 class Blp:
     """Best linear predictor of the CATE (or group effects) with HC0 inference."""
 
     @property
-    def coef(self) -> _F1: ...
+    def coef(self) -> NDArray[np.float64]: ...
     @property
-    def se(self) -> _F1: ...
+    def se(self) -> NDArray[np.float64]: ...
     @property
-    def t_stat(self) -> _F1: ...
+    def t_stat(self) -> NDArray[np.float64]: ...
     @property
-    def pval(self) -> _F1: ...
+    def pval(self) -> NDArray[np.float64]: ...
     @property
     def is_gate(self) -> bool: ...
-    def confint(self, level: float = 0.95) -> _F2: ...
-    def predict(self, basis: _F2) -> tuple[_F1, _F1]:
+    def confint(self, level: float = 0.95) -> NDArray[np.float64]: ...
+    def predict(self, basis: NDArray[np.float64]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         """``(effect, se)`` at each row of ``basis``."""
-    def confint_at(self, basis: _F2, level: float = 0.95) -> _F2: ...
-    def joint_confint_at(self, basis: _F2, level: float = 0.95, n_boot: int = 500, seed: int = 0) -> _F2: ...
+    def confint_at(self, basis: NDArray[np.float64], level: float = 0.95) -> NDArray[np.float64]: ...
+    def joint_confint_at(self, basis: NDArray[np.float64], level: float = 0.95, n_boot: int = 500, seed: int = 0) -> NDArray[np.float64]: ...
 
 @final
 class CateResult:
+    """A fitted CATE meta-learner."""
+
     @property
     def method(self) -> str: ...
     @property
-    def pseudo_outcomes(self) -> Optional[_F1]: ...
-    def effect(self, x: _F2) -> _F1: ...
-    def blp(self, basis: _F2) -> Blp: ...
-    def gate(self, groups: _F2) -> Blp: ...
+    def pseudo_outcomes(self) -> Optional[NDArray[np.float64]]: ...
+    def effect(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
+    def blp(self, basis: NDArray[np.float64]) -> Blp: ...
+    def gate(self, groups: NDArray[np.float64]) -> Blp: ...
 
 @final
 class StaggeredResult:
+    """Group-time effects of a staggered difference-in-differences fit."""
+
     @property
     def att(self) -> DmlResult:
         """All group-time effects ATT(g, t) as one fit."""
     @property
     def group_times(self) -> list[tuple[float, float, float]]:
         """``(g, t_pre, t_eval)`` of each effect."""
-    def aggregate(self, how: Literal["group", "time", "eventstudy"]) -> tuple[DmlResult, DmlResult, _F2, _F1]:
+    def aggregate(self, how: Literal["group", "time", "eventstudy"]) -> tuple[DmlResult, DmlResult, NDArray[np.float64], NDArray[np.float64]]:
         """``(effects, overall, weights, overall_weights)``."""
 
 # ---------------------------------------------------------------------------
@@ -197,18 +204,27 @@ class StaggeredResult:
 
 @final
 class Ols:
+    """Ordinary least squares with intercept; `ridge=α` adds an L2 penalty as scikit-learn's `Ridge(alpha=α)`."""
+
     def __new__(cls, ridge: float = 0.0) -> Self: ...
-    def fit(self, x: _F2, y: _F1) -> Self: ...
-    def predict(self, x: _F2) -> _F1: ...
+    def fit(self, x: NDArray[np.float64], y: NDArray[np.float64]) -> Self: ...
+    def predict(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
 
 @final
 class Lasso:
+    """Lasso by coordinate descent: the objective, stopping rule (`tol`) and defaults of scikit-learn's `Lasso`."""
+
     def __new__(cls, alpha: float = 1.0, tol: float = 1e-4, max_iter: int = 100000) -> Self: ...
-    def fit(self, x: _F2, y: _F1) -> Self: ...
-    def predict(self, x: _F2) -> _F1: ...
+    def fit(self, x: NDArray[np.float64], y: NDArray[np.float64]) -> Self: ...
+    def predict(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
 
 @final
 class LassoCV:
+    """Lasso with the penalty chosen by cross-validation, as scikit-learn's `LassoCV`.
+
+    `alphas` is the number of penalties on the automatic grid (from `alpha_max` down to
+    `eps * alpha_max`) or a list of penalties; `cv` is the number of contiguous folds."""
+
     def __new__(
         cls,
         alphas: Union[None, int, Sequence[float]] = None,
@@ -217,29 +233,37 @@ class LassoCV:
         tol: float = 1e-4,
         max_iter: int = 100000,
     ) -> Self: ...
-    def fit(self, x: _F2, y: _F1) -> Self: ...
-    def predict(self, x: _F2) -> _F1: ...
+    def fit(self, x: NDArray[np.float64], y: NDArray[np.float64]) -> Self: ...
+    def predict(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
     @property
     def alpha_(self) -> float: ...
     @property
-    def alphas_(self) -> _F1: ...
+    def alphas_(self) -> NDArray[np.float64]: ...
     @property
-    def mse_path_(self) -> _F2:
+    def mse_path_(self) -> NDArray[np.float64]:
         """Shape ``(n_alphas, cv)``."""
     @property
-    def coef_(self) -> _F1: ...
+    def coef_(self) -> NDArray[np.float64]: ...
     @property
     def intercept_(self) -> float: ...
 
 @final
 class LogisticRegression:
+    """L2-penalised logistic regression (Newton's method); scikit-learn's `LogisticRegression(C=C)`."""
+
     def __new__(cls, C: float = 1.0, tol: float = 1e-10, max_iter: int = 100) -> Self: ...
-    def fit(self, x: _F2, y: _F1) -> Self: ...
-    def predict_proba(self, x: _F2) -> _F1:
+    def fit(self, x: NDArray[np.float64], y: NDArray[np.float64]) -> Self: ...
+    def predict_proba(self, x: NDArray[np.float64]) -> NDArray[np.float64]:
         """Probability of class 1 (1-D, unlike scikit-learn's two columns)."""
 
 @final
 class LogisticRegressionCV:
+    """Logistic regression with `C` chosen by stratified cross-validation, as scikit-learn's
+    `LogisticRegressionCV`.
+
+    `Cs` is the number of values between 1e-4 and 1e4 or a list of values; `scoring` is
+    `"neg_log_loss"` (default) or `"accuracy"`."""
+
     def __new__(
         cls,
         Cs: Union[None, int, Sequence[float]] = None,
@@ -248,22 +272,24 @@ class LogisticRegressionCV:
         tol: float = 1e-10,
         max_iter: int = 100,
     ) -> Self: ...
-    def fit(self, x: _F2, y: _F1) -> Self: ...
-    def predict_proba(self, x: _F2) -> _F1: ...
+    def fit(self, x: NDArray[np.float64], y: NDArray[np.float64]) -> Self: ...
+    def predict_proba(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
     @property
     def C_(self) -> float: ...
     @property
-    def Cs_(self) -> _F1: ...
+    def Cs_(self) -> NDArray[np.float64]: ...
     @property
-    def scores_(self) -> _F2:
+    def scores_(self) -> NDArray[np.float64]:
         """Shape ``(cv, n_Cs)``; higher is better."""
     @property
-    def coef_(self) -> _F1: ...
+    def coef_(self) -> NDArray[np.float64]: ...
     @property
     def intercept_(self) -> float: ...
 
 @final
 class RandomForestRegressor:
+    """Random forest regressor with scikit-learn's parameters, fitted in parallel."""
+
     def __new__(
         cls,
         n_estimators: int = 100,
@@ -275,13 +301,15 @@ class RandomForestRegressor:
         max_samples: Optional[Union[int, float]] = None,
         random_state: int = 0,
     ) -> Self: ...
-    def fit(self, x: _F2, y: _F1) -> Self: ...
-    def predict(self, x: _F2) -> _F1: ...
+    def fit(self, x: NDArray[np.float64], y: NDArray[np.float64]) -> Self: ...
+    def predict(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
     @property
-    def feature_importances_(self) -> Optional[_F1]: ...
+    def feature_importances_(self) -> Optional[NDArray[np.float64]]: ...
 
 @final
 class RandomForestClassifier:
+    """Random forest classifier with scikit-learn's parameters, fitted in parallel."""
+
     def __new__(
         cls,
         n_estimators: int = 100,
@@ -293,13 +321,16 @@ class RandomForestClassifier:
         max_samples: Optional[Union[int, float]] = None,
         random_state: int = 0,
     ) -> Self: ...
-    def fit(self, x: _F2, y: _F1) -> Self: ...
-    def predict_proba(self, x: _F2) -> _F1: ...
+    def fit(self, x: NDArray[np.float64], y: NDArray[np.float64]) -> Self: ...
+    def predict_proba(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
     @property
-    def feature_importances_(self) -> Optional[_F1]: ...
+    def feature_importances_(self) -> Optional[NDArray[np.float64]]: ...
 
 @final
 class GradientBoostingRegressor:
+    """Gradient boosting (squared error) that grows the same trees as scikit-learn's
+    `GradientBoostingRegressor`. `max_depth` defaults to 3."""
+
     def __new__(
         cls,
         n_estimators: int = 100,
@@ -311,13 +342,16 @@ class GradientBoostingRegressor:
         subsample: float = 1.0,
         random_state: int = 0,
     ) -> Self: ...
-    def fit(self, x: _F2, y: _F1) -> Self: ...
-    def predict(self, x: _F2) -> _F1: ...
+    def fit(self, x: NDArray[np.float64], y: NDArray[np.float64]) -> Self: ...
+    def predict(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
     @property
-    def feature_importances_(self) -> Optional[_F1]: ...
+    def feature_importances_(self) -> Optional[NDArray[np.float64]]: ...
 
 @final
 class GradientBoostingClassifier:
+    """Gradient boosting (log loss) that grows the same trees as scikit-learn's
+    `GradientBoostingClassifier`. `max_depth` defaults to 3."""
+
     def __new__(
         cls,
         n_estimators: int = 100,
@@ -329,19 +363,19 @@ class GradientBoostingClassifier:
         subsample: float = 1.0,
         random_state: int = 0,
     ) -> Self: ...
-    def fit(self, x: _F2, y: _F1) -> Self: ...
-    def predict_proba(self, x: _F2) -> _F1: ...
+    def fit(self, x: NDArray[np.float64], y: NDArray[np.float64]) -> Self: ...
+    def predict_proba(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
     @property
-    def feature_importances_(self) -> Optional[_F1]: ...
+    def feature_importances_(self) -> Optional[NDArray[np.float64]]: ...
 
 # ---------------------------------------------------------------------------
 # Fitting functions (called by the estimator classes)
 # ---------------------------------------------------------------------------
 
 def fit_plr(
-    y: _F1,
-    d: _F2,
-    x: _F2,
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
     ml_l: Any,
     ml_m: Any,
     ml_g: Any = None,
@@ -354,9 +388,9 @@ def fit_plr(
     cluster: Optional[NDArray[np.int64]] = None,
 ) -> DmlResult: ...
 def fit_irm(
-    y: _F1,
-    d: _F2,
-    x: _F2,
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
     ml_g: Any,
     ml_m: Any,
     score: Literal["ATE", "ATTE"] = "ATE",
@@ -370,10 +404,10 @@ def fit_irm(
     cluster: Optional[NDArray[np.int64]] = None,
 ) -> DmlResult: ...
 def fit_pliv(
-    y: _F1,
-    d: _F2,
-    x: _F2,
-    z: _F1,
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    z: NDArray[np.float64],
     ml_l: Any,
     ml_m: Any,
     ml_r: Any,
@@ -385,10 +419,10 @@ def fit_pliv(
     cluster: Optional[NDArray[np.int64]] = None,
 ) -> DmlResult: ...
 def fit_iivm(
-    y: _F1,
-    d: _F2,
-    x: _F2,
-    z: _F1,
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    z: NDArray[np.float64],
     ml_g: Any,
     ml_m: Any,
     ml_r: Any,
@@ -404,12 +438,12 @@ def fit_iivm(
     cluster: Optional[NDArray[np.int64]] = None,
 ) -> DmlResult: ...
 def fit_did(
-    y: _F1,
-    d: _F2,
-    x: _F2,
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
     ml_g: Any,
     ml_m: Any = None,
-    t: Optional[_F1] = None,
+    t: Optional[NDArray[np.float64]] = None,
     score: Literal["observational", "experimental"] = "observational",
     in_sample_normalization: bool = True,
     clipping_threshold: float = 1e-2,
@@ -421,11 +455,11 @@ def fit_did(
     cluster: Optional[NDArray[np.int64]] = None,
 ) -> DmlResult: ...
 def fit_staggered_did(
-    y: _F1,
-    id: _F1,
-    t: _F1,
-    g: _F1,
-    x: _F2,
+    y: NDArray[np.float64],
+    id: NDArray[np.float64],
+    t: NDArray[np.float64],
+    g: NDArray[np.float64],
+    x: NDArray[np.float64],
     ml_g: Any,
     ml_m: Any = None,
     control_group: Literal["never_treated", "not_yet_treated"] = "never_treated",
@@ -441,9 +475,9 @@ def fit_staggered_did(
 ) -> StaggeredResult: ...
 def fit_cate(
     method: Literal["S", "T", "X", "R", "DR"],
-    y: _F1,
-    d: _F1,
-    x: _F2,
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
     outcome: Any,
     effect: Any = None,
     propensity: Any = None,
