@@ -12,7 +12,7 @@
 
 use ndarray::{Array1, ArrayView1, ArrayView2};
 
-use super::{dml_model_api, LinearScoreModel, ScoreEstimate, ScoreInput};
+use super::{dml_model_api, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput};
 use crate::crossfit::{cross_fit_predict_proba, cross_fit_predict_subset, Fold, SampleSplitting};
 use crate::data::DmlData;
 use crate::error::{DmlError, Result};
@@ -245,15 +245,22 @@ pub(crate) fn panel_did_score(
         ),
     };
     let nu2 = 2.0 * &m_alpha - &riesz.mapv(|a| a * a);
+    let mut targets = vec![
+        NuisanceTarget::regression("ml_g0", y.to_owned()).only_where(|i| d[i] == 0.0),
+        NuisanceTarget::regression("ml_g1", y.to_owned()).only_where(|i| d[i] == 1.0),
+    ];
+    if m_hat.is_some() {
+        targets.push(NuisanceTarget::classification("ml_m", d.clone()));
+    }
     Ok(
-        ScoreEstimate::new(LinearScore::new(-weight_a, psi_b)?, predictions).with_sensitivity(
-            SensitivityParts {
+        ScoreEstimate::new(LinearScore::new(-weight_a, psi_b)?, predictions)
+            .with_sensitivity(SensitivityParts {
                 outcome_residual,
                 theta_factor: None,
                 riesz,
                 nu2: Nu2Parts::Elementwise(nu2),
-            },
-        ),
+            })
+            .with_targets(targets),
     )
 }
 
@@ -471,18 +478,28 @@ pub(crate) fn cs_did_score(
         ("ml_g_d1_t0", g10),
         ("ml_g_d1_t1", g11),
     ];
+    let in_cell = |c: &Array1<f64>, name: &'static str| {
+        NuisanceTarget::regression(name, y.to_owned()).only_where(|i| c[i] == 1.0)
+    };
+    let mut targets = vec![
+        in_cell(&d0t0, "ml_g_d0_t0"),
+        in_cell(&d0t1, "ml_g_d0_t1"),
+        in_cell(&d1t0, "ml_g_d1_t0"),
+        in_cell(&d1t1, "ml_g_d1_t1"),
+    ];
     if let Some(m) = m {
         predictions.push(("ml_m", m));
+        targets.push(NuisanceTarget::classification("ml_m", d.clone()));
     }
     Ok(
-        ScoreEstimate::new(LinearScore::new(-weight_a, psi_b)?, predictions).with_sensitivity(
-            SensitivityParts {
+        ScoreEstimate::new(LinearScore::new(-weight_a, psi_b)?, predictions)
+            .with_sensitivity(SensitivityParts {
                 outcome_residual,
                 theta_factor: None,
                 riesz,
                 nu2: Nu2Parts::Elementwise(nu2),
-            },
-        ),
+            })
+            .with_targets(targets),
     )
 }
 

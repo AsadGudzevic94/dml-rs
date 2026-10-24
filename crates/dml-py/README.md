@@ -68,7 +68,9 @@ All estimators support repeated sample splitting, multiplier bootstrap with simu
 confidence bands (`bootstrap`, `confint(joint=True)`), multiple-testing adjustment (`p_adjust`),
 pandas summaries, and the scikit-learn parameter protocol (`get_params`, `set_params`, `clone`).
 PLR, IRM and DID models also offer sensitivity analysis for omitted confounders
-(`sensitivity_analysis`, `sensitivity_summary`, `sensitivity_benchmark`).
+(`sensitivity_analysis`, `sensitivity_summary`, `sensitivity_benchmark`). Pass `cluster=` to
+`fit` for cluster-robust inference with one- or two-way clustered data, and inspect the nuisance
+learners with `nuisance_loss_` and `evaluate_learners`.
 
 ## Documentation
 

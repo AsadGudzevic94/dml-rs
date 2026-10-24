@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use dml_core::{Classifier, DmlData, Fold, Lasso, LogisticRegression, Ols, Regressor};
+use dml_core::{Classifier, ClusterFold, DmlData, Fold, Lasso, LogisticRegression, Ols, Regressor};
 use ndarray::{Array1, Array2};
 use serde_json::Value;
 
@@ -44,6 +44,43 @@ impl Fixture {
                     .collect()
             })
             .collect()
+    }
+
+    /// DoubleML's cluster splits per repetition, for clustered fixtures.
+    pub fn cluster_folds(&self) -> Option<Vec<Vec<ClusterFold>>> {
+        let reps = self
+            .0
+            .get("cluster_folds")?
+            .as_array()
+            .expect("cluster folds");
+        Some(
+            reps.iter()
+                .map(|rep| {
+                    rep.as_array()
+                        .expect("rep")
+                        .iter()
+                        .map(|f| ClusterFold {
+                            fold: Fold {
+                                train: indices(&f["train"]),
+                                test: indices(&f["test"]),
+                            },
+                            test_clusters: f["test_clusters"]
+                                .as_array()
+                                .expect("test clusters")
+                                .iter()
+                                .map(|c| {
+                                    c.as_array()
+                                        .expect("cluster ids")
+                                        .iter()
+                                        .map(|v| v.as_i64().expect("cluster id"))
+                                        .collect()
+                                })
+                                .collect(),
+                        })
+                        .collect()
+                })
+                .collect(),
+        )
     }
 
     pub fn expected(&self, key: &str) -> &Value {
@@ -99,8 +136,20 @@ impl Fixture {
             Some(z) => data.with_instrument(to_vec(z)).unwrap(),
             None => data,
         };
-        match self.0.get("t") {
+        let data = match self.0.get("t") {
             Some(t) => data.with_time_indicator(to_vec(t)).unwrap(),
+            None => data,
+        };
+        let ids = |v: &Value| -> Array1<i64> {
+            v.as_array()
+                .expect("cluster ids")
+                .iter()
+                .map(|c| c.as_i64().expect("cluster id"))
+                .collect()
+        };
+        match self.0.get("clusters").and_then(Value::as_array) {
+            Some(c) if c.len() == 1 => data.with_clusters(ids(&c[0])).unwrap(),
+            Some(c) => data.with_two_way_clusters(ids(&c[0]), ids(&c[1])).unwrap(),
             None => data,
         }
     }

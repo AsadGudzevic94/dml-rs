@@ -51,6 +51,81 @@ pub struct ScoreEstimate {
     /// Ingredients for [sensitivity analysis](crate::sensitivity), if the
     /// model supports it.
     pub sensitivity: Option<SensitivityParts>,
+    /// What each nuisance learner predicts, for out-of-sample diagnostics.
+    pub targets: Vec<NuisanceTarget>,
+}
+
+/// Loss used to evaluate a nuisance learner out of sample.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LossKind {
+    /// Root mean squared error (regression learners).
+    Rmse,
+    /// Log loss with predictions clipped to `[1e-15, 1 − 1e-15]` (classifiers).
+    LogLoss,
+}
+
+/// The target a nuisance learner predicts; `NaN` marks rows where the
+/// nuisance does not apply (e.g. `g₀` on treated rows).
+#[derive(Debug, Clone)]
+pub struct NuisanceTarget {
+    pub name: &'static str,
+    pub target: Array1<f64>,
+    pub kind: LossKind,
+}
+
+impl NuisanceTarget {
+    pub fn regression(name: &'static str, target: Array1<f64>) -> Self {
+        Self {
+            name,
+            target,
+            kind: LossKind::Rmse,
+        }
+    }
+
+    pub fn classification(name: &'static str, target: Array1<f64>) -> Self {
+        Self {
+            name,
+            target,
+            kind: LossKind::LogLoss,
+        }
+    }
+
+    /// Keep the target only where `keep` is true (`NaN` elsewhere).
+    pub fn only_where(mut self, keep: impl Fn(usize) -> bool) -> Self {
+        for (i, v) in self.target.iter_mut().enumerate() {
+            if !keep(i) {
+                *v = f64::NAN;
+            }
+        }
+        self
+    }
+
+    /// Out-of-sample loss of `prediction` over the rows with a target.
+    pub fn loss(&self, prediction: &Array1<f64>) -> f64 {
+        let mut total = 0.0;
+        let mut count = 0usize;
+        for (&t, &p) in self.target.iter().zip(prediction) {
+            if t.is_nan() {
+                continue;
+            }
+            total += match self.kind {
+                LossKind::Rmse => (t - p).powi(2),
+                LossKind::LogLoss => {
+                    let p = p.clamp(1e-15, 1.0 - 1e-15);
+                    -(t * p.ln() + (1.0 - t) * (1.0 - p).ln())
+                }
+            };
+            count += 1;
+        }
+        if count == 0 {
+            return f64::NAN;
+        }
+        let mean = total / count as f64;
+        match self.kind {
+            LossKind::Rmse => mean.sqrt(),
+            LossKind::LogLoss => mean,
+        }
+    }
 }
 
 impl ScoreEstimate {
@@ -59,7 +134,14 @@ impl ScoreEstimate {
             score,
             predictions,
             sensitivity: None,
+            targets: Vec::new(),
         }
+    }
+
+    /// Attach the nuisance targets used for learner diagnostics.
+    pub fn with_targets(mut self, targets: Vec<NuisanceTarget>) -> Self {
+        self.targets = targets;
+        self
     }
 
     /// Attach the model's sensitivity ingredients.
@@ -111,10 +193,30 @@ macro_rules! dml_model_api {
             self
         }
 
-        /// Draw seeded sample splits and fit.
+        /// Draw seeded sample splits and fit. With clustered data
+        /// ([`DmlData::with_clusters`](crate::DmlData::with_clusters)) whole clusters are assigned to folds
+        /// and standard errors are cluster-robust.
         pub fn fit(&self, data: &$crate::DmlData) -> $crate::Result<$crate::DmlFit> {
-            let splits = self.splitting.draw(data.n_obs())?;
-            $crate::fit_model(self, data, &splits)
+            match data.clusters() {
+                Some(clusters) => {
+                    let splits = self.splitting.draw_clustered(clusters)?;
+                    $crate::fit_model_clustered(self, data, &splits)
+                }
+                None => {
+                    let splits = self.splitting.draw(data.n_obs())?;
+                    $crate::fit_model(self, data, &splits)
+                }
+            }
+        }
+
+        /// Fit clustered data with explicit cluster folds, one
+        /// `Vec<ClusterFold>` per repetition.
+        pub fn fit_with_cluster_folds(
+            &self,
+            data: &$crate::DmlData,
+            splits: &[Vec<$crate::ClusterFold>],
+        ) -> $crate::Result<$crate::DmlFit> {
+            $crate::fit_model_clustered(self, data, splits)
         }
 
         /// Sensitivity benchmark for the covariate columns `benchmarking_set`:

@@ -56,11 +56,15 @@ tested for numerical agreement with the reference [DoubleML](https://docs.double
 | Heterogeneous effects | CATE meta-learners (S, T, X, R, DR); best linear predictor and group effects (GATE) | `DrLearner`, `Blp`, … | `DRLearner`, `IRM.cate`, … |
 
 **Inference:** standard errors and confidence intervals, multiple treatments, repeated sample
-splitting, multiplier bootstrap (normal, Bayes, wild) with simultaneous confidence bands, and
-Romano–Wolf, Holm and Bonferroni multiple-testing adjustment.
+splitting, multiplier bootstrap (normal, Bayes, wild) with simultaneous confidence bands,
+Romano–Wolf, Holm and Bonferroni multiple-testing adjustment, and cluster-robust standard errors
+for one-way and two-way clustered data (Chiang et al., 2022).
 
 **Sensitivity analysis:** bounds on the effect of omitted confounders, robustness values and
 benchmarking against observed covariates (Chernozhukov et al., 2022), for PLR, IRM and DiD.
+
+**Learner diagnostics:** out-of-sample losses of every nuisance learner (RMSE, or log loss for
+classifiers) and evaluation of the cross-fitted predictions with any metric.
 
 **Learners:** gradient boosting and random forests (both implemented in Rust; the boosting
 reproduces scikit-learn's predictions), OLS / ridge, Lasso and logistic regression, or any
@@ -211,6 +215,23 @@ model.sensitivity_benchmark(benchmarking_set=["age"])
 </details>
 
 <details>
+<summary><b>Clustered data and learner diagnostics</b></summary>
+
+```python
+# Students within schools: whole schools are assigned to folds and the standard errors are
+# cluster-robust. Two columns (e.g. firm and year) give two-way clustering.
+model = dml_rs.PLR(dml_rs.Ols(), dml_rs.Ols()).fit(X, y, d, cluster=df["school"])
+model.n_clusters_
+
+# Out-of-sample loss of each nuisance learner, shape (n_rep, n_treat) as DoubleML
+model.nuisance_loss_                # {"ml_l": RMSE, "ml_m": RMSE}
+from sklearn.metrics import mean_absolute_error
+model.evaluate_learners(metric=lambda y_true, y_pred: mean_absolute_error(
+    y_true[~np.isnan(y_true)], y_pred[~np.isnan(y_true)]))
+```
+</details>
+
+<details>
 <summary><b>Several treatments and joint inference</b></summary>
 
 ```python
@@ -268,6 +289,8 @@ confidence intervals reach their nominal coverage.
 | `pliv_ols`, `iivm_late_rep2`, `iivm_no_always_takers` | PLIV and IIVM, including one-sided non-compliance |
 | `did_panel_*`, `did_cs_*` | Two-period DiD for panels and cross-sections, all score / normalisation variants |
 | `staggered_*`, `staggered_cs_*` | Staggered DiD: every ATT(g, t) and all aggregations, panels and cross-sections |
+| `plr_cluster_*`, `irm_cluster_one_way`, `pliv_cluster_two_way` | One-way and two-way clustering: DoubleML's cluster splits, coefficients, cluster-robust standard errors and sensitivity bounds |
+| all model fixtures | Out-of-sample nuisance learner losses (DoubleML's `nuisance_loss`) |
 | all PLR, IRM and DiD fixtures | Sensitivity analysis: σ² and ν², bounds, confidence bounds and robustness values in two scenarios, and benchmarks |
 
 The Python test suite additionally checks the bindings against DoubleML and scikit-learn
@@ -314,6 +337,8 @@ the release process.
   variable bias in causal machine learning. *NBER Working Paper* 30302.
 - Bach, P., Chernozhukov, V., Kurz, M. S., & Spindler, M. (2022). DoubleML – An object-oriented
   implementation of double machine learning in Python. *Journal of Machine Learning Research*, 23(53), 1–6.
+- Chiang, H. D., Kato, K., Ma, Y., & Sasaki, Y. (2022). Multiway cluster robust double/debiased machine
+  learning. *Journal of Business & Economic Statistics*, 40(3), 1046–1056.
 - Callaway, B., & Sant'Anna, P. H. C. (2021). Difference-in-differences with multiple time periods.
   *Journal of Econometrics*, 225(2), 200–230.
 - Sant'Anna, P. H. C., & Zhao, J. (2020). Doubly robust difference-in-differences estimators.

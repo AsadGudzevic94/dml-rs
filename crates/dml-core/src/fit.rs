@@ -5,10 +5,11 @@ use std::fmt;
 use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3, Axis};
 
 use crate::blp::Blp;
+use crate::cluster::{derive_test_clusters, ClusterFold, ClusterInfo};
 use crate::crossfit::Fold;
 use crate::data::DmlData;
 use crate::error::{DmlError, Result};
-use crate::model::{LinearScoreModel, ScoreInput};
+use crate::model::{LinearScoreModel, LossKind, ScoreInput};
 use crate::sensitivity::SensitivityStore;
 use crate::stats::{median, norm_ppf, norm_sf};
 
@@ -23,6 +24,53 @@ pub fn fit_model<M: LinearScoreModel + ?Sized>(
     model: &M,
     data: &DmlData,
     splits: &[Vec<Fold>],
+) -> Result<DmlFit> {
+    // With clustered data, the test clusters of each fold are read off its test rows.
+    let cluster = match data.clusters() {
+        Some(c) => Some(ClusterInfo::new(
+            c.to_vec(),
+            splits
+                .iter()
+                .map(|rep| {
+                    rep.iter()
+                        .map(|f| ClusterFold {
+                            fold: f.clone(),
+                            test_clusters: derive_test_clusters(c, f),
+                        })
+                        .collect()
+                })
+                .collect(),
+        )?),
+        None => None,
+    };
+    fit_model_impl(model, data, splits, cluster)
+}
+
+/// Fit on clustered data with explicit cluster folds (one `Vec<ClusterFold>`
+/// per repetition), e.g. to reproduce another implementation exactly.
+pub fn fit_model_clustered<M: LinearScoreModel + ?Sized>(
+    model: &M,
+    data: &DmlData,
+    splits: &[Vec<ClusterFold>],
+) -> Result<DmlFit> {
+    let clusters = data.clusters().ok_or_else(|| {
+        DmlError::InvalidArgument(
+            "cluster folds need clustered data: use DmlData::with_clusters".into(),
+        )
+    })?;
+    let folds: Vec<Vec<Fold>> = splits
+        .iter()
+        .map(|rep| rep.iter().map(|cf| cf.fold.clone()).collect())
+        .collect();
+    let cluster = ClusterInfo::new(clusters.to_vec(), splits.to_vec())?;
+    fit_model_impl(model, data, &folds, Some(cluster))
+}
+
+fn fit_model_impl<M: LinearScoreModel + ?Sized>(
+    model: &M,
+    data: &DmlData,
+    splits: &[Vec<Fold>],
+    cluster: Option<ClusterInfo>,
 ) -> Result<DmlFit> {
     model.validate(data)?;
     let n = data.n_obs();
@@ -44,6 +92,7 @@ pub fn fit_model<M: LinearScoreModel + ?Sized>(
         .mean()
         .expect("n > 0");
     let mut sensitivity = Some(SensitivityStore::new(n, k, n_rep, var_y));
+    let mut losses: Vec<NuisanceLoss> = Vec::new();
 
     for j in 0..k {
         let x_j = data.covariates_for(j);
@@ -56,7 +105,17 @@ pub fn fit_model<M: LinearScoreModel + ?Sized>(
         };
         for (r, folds) in splits.iter().enumerate() {
             let est = model.estimate_score(&input, folds)?;
-            let sol = est.score.solve()?;
+            let mut sol = est.score.solve()?;
+            if let Some(ci) = &cluster {
+                // Fold-weighted estimate and cluster-robust variance; ψ is
+                // scaled by the plain mean of ψ_a elsewhere, as in DoubleML.
+                let theta = ci.solve_theta(&est.score, r)?;
+                let psi_r = &est.score.psi_a * theta + &est.score.psi_b;
+                let sigma2 = ci.variance(psi_r.view(), est.score.psi_a.view(), r);
+                sol.theta = theta;
+                sol.se = sigma2.sqrt();
+                sol.psi = psi_r;
+            }
             if !(sol.theta.is_finite() && sol.se.is_finite()) {
                 return Err(DmlError::InvalidArgument(format!(
                     "non-finite estimate for treatment {j}, repetition {r}"
@@ -72,6 +131,29 @@ pub fn fit_model<M: LinearScoreModel + ?Sized>(
             psi_b
                 .slice_mut(ndarray::s![.., j, r])
                 .assign(&est.score.psi_b);
+            for target in &est.targets {
+                let Some((_, pred)) = est.predictions.iter().find(|(nm, _)| *nm == target.name)
+                else {
+                    continue;
+                };
+                let slot = match losses.iter().position(|l| l.name == target.name) {
+                    Some(i) => i,
+                    None => {
+                        losses.push(NuisanceLoss {
+                            name: target.name.to_string(),
+                            kind: target.kind,
+                            loss: Array2::from_elem((k, n_rep), f64::NAN),
+                            targets: Array3::from_elem((n, n_rep, k), f64::NAN),
+                        });
+                        losses.len() - 1
+                    }
+                };
+                losses[slot].loss[[j, r]] = target.loss(pred);
+                losses[slot]
+                    .targets
+                    .slice_mut(ndarray::s![.., r, j])
+                    .assign(&target.target);
+            }
             match (&est.sensitivity, &mut sensitivity) {
                 (Some(parts), Some(store)) => store.set(j, r, &parts.elements(sol.theta)),
                 _ => sensitivity = None,
@@ -109,7 +191,20 @@ pub fn fit_model<M: LinearScoreModel + ?Sized>(
         psi_deriv,
         predictions,
         sensitivity,
+        losses,
+        cluster,
     })
+}
+
+/// Out-of-sample loss of one nuisance learner, per treatment and repetition.
+#[derive(Debug, Clone)]
+pub(crate) struct NuisanceLoss {
+    pub name: String,
+    pub kind: LossKind,
+    /// Shape `(k, n_rep)`.
+    pub loss: Array2<f64>,
+    /// Targets, shape `(n, n_rep, k)`; `NaN` where the nuisance does not apply.
+    pub targets: Array3<f64>,
 }
 
 fn check_splits(splits: &[Vec<Fold>], n: usize) -> Result<()> {
@@ -199,6 +294,10 @@ pub struct DmlFit {
     pub(crate) predictions: Vec<(String, Array3<f64>)>,
     /// Sensitivity elements, for models that support sensitivity analysis.
     pub(crate) sensitivity: Option<SensitivityStore>,
+    /// Out-of-sample losses of the nuisance learners.
+    pub(crate) losses: Vec<NuisanceLoss>,
+    /// Cluster structure, for clustered data.
+    pub(crate) cluster: Option<ClusterInfo>,
 }
 
 impl DmlFit {
@@ -224,6 +323,12 @@ impl DmlFit {
 
     pub fn n_folds(&self) -> usize {
         self.n_folds
+    }
+
+    /// Number of clusters (two-way: the smaller dimension) for a clustered
+    /// fit, `None` otherwise.
+    pub fn n_clusters(&self) -> Option<usize> {
+        self.cluster.as_ref().map(ClusterInfo::n_clusters)
     }
 
     /// Point estimates θ̂ (median over repetitions).
@@ -330,6 +435,32 @@ impl DmlFit {
         Ok(self.psi_b.index_axis(Axis(1), 0).to_owned())
     }
 
+    /// Out-of-sample loss of a nuisance learner, shape `(n_treat, n_rep)`:
+    /// RMSE for regression learners, log loss for classifiers (DoubleML's
+    /// `nuisance_loss`). Computed on the rows where the nuisance applies.
+    pub fn nuisance_loss(&self, name: &str) -> Option<ArrayView2<'_, f64>> {
+        self.losses
+            .iter()
+            .find(|l| l.name == name)
+            .map(|l| l.loss.view())
+    }
+
+    /// `(name, loss kind, losses)` for every evaluated nuisance learner.
+    pub fn nuisance_losses(&self) -> impl Iterator<Item = (&str, LossKind, ArrayView2<'_, f64>)> {
+        self.losses
+            .iter()
+            .map(|l| (l.name.as_str(), l.kind, l.loss.view()))
+    }
+
+    /// Targets of a nuisance learner, shape `(n, n_rep, n_treat)`, with `NaN`
+    /// where the nuisance does not apply (to evaluate custom metrics).
+    pub fn nuisance_targets(&self, name: &str) -> Option<ArrayView3<'_, f64>> {
+        self.losses
+            .iter()
+            .find(|l| l.name == name)
+            .map(|l| l.targets.view())
+    }
+
     /// Names of the stored nuisance predictions (e.g. `ml_l`, `ml_m`).
     pub fn nuisance_names(&self) -> impl Iterator<Item = &str> {
         self.predictions.iter().map(|(n, _)| n.as_str())
@@ -416,6 +547,8 @@ impl DmlFit {
             psi_deriv,
             predictions,
             sensitivity: None,
+            losses: Vec::new(),
+            cluster: None,
         }
     }
 
@@ -471,6 +604,8 @@ impl DmlFit {
             psi_deriv: Array2::ones((n_comb, n_rep)),
             predictions: Vec::new(),
             sensitivity: None,
+            losses: Vec::new(),
+            cluster: None,
         }
     }
 }
@@ -501,9 +636,16 @@ fn holm(p: ArrayView1<'_, f64>) -> Array1<f64> {
 
 impl fmt::Display for DmlFit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let clustering = match &self.cluster {
+            Some(ci) if ci.n_ways() == 2 => {
+                format!(", two-way clustered ({} clusters)", ci.n_clusters())
+            }
+            Some(ci) => format!(", clustered ({} clusters)", ci.n_clusters()),
+            None => String::new(),
+        };
         writeln!(
             f,
-            "{}  |  n_obs = {}, n_folds = {}, n_rep = {}",
+            "{}  |  n_obs = {}, n_folds = {}, n_rep = {}{clustering}",
             self.model,
             self.n_obs,
             self.n_folds,
@@ -535,6 +677,37 @@ impl fmt::Display for DmlFit {
                 ci[[j, 0]],
                 ci[[j, 1]]
             )?;
+        }
+        if !self.losses.is_empty() {
+            write!(
+                f,
+                "\nNuisance learners (out-of-sample, mean over repetitions):"
+            )?;
+            for l in &self.losses {
+                let metric = match l.kind {
+                    LossKind::Rmse => "RMSE",
+                    LossKind::LogLoss => "log loss",
+                };
+                for j in 0..self.n_treat() {
+                    let row: Vec<f64> = l
+                        .loss
+                        .row(j)
+                        .iter()
+                        .copied()
+                        .filter(|v| v.is_finite())
+                        .collect();
+                    if row.is_empty() {
+                        continue;
+                    }
+                    let mean = row.iter().sum::<f64>() / row.len() as f64;
+                    let who = if self.n_treat() > 1 {
+                        format!(" ({})", self.treatment_names[j])
+                    } else {
+                        String::new()
+                    };
+                    write!(f, "\n  {:<12} {metric:<8} {mean:.4}{who}", l.name)?;
+                }
+            }
         }
         Ok(())
     }

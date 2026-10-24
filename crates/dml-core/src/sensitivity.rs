@@ -342,15 +342,18 @@ impl DmlFit {
                 theta_lo[[j, r]] = self.all_coef[[j, r]] - shift;
                 theta_hi[[j, r]] = self.all_coef[[j, r]] + shift;
                 let jac = self.psi_deriv[[j, r]];
-                let (mut ss_lo, mut ss_hi) = (0.0, 0.0);
-                for i in 0..n {
-                    let scaled = self.psi[[i, j, r]] / jac;
-                    let pmb = strength * store.psi_max_bias[[i, j, r]];
-                    ss_lo += (scaled - pmb).powi(2);
-                    ss_hi += (scaled + pmb).powi(2);
-                }
-                se_lo[[j, r]] = (ss_lo / n as f64 / n as f64).sqrt();
-                se_hi[[j, r]] = (ss_hi / n as f64 / n as f64).sqrt();
+                let scaled = self.psi.slice(ndarray::s![.., j, r]).mapv(|v| v / jac);
+                let pmb = store
+                    .psi_max_bias
+                    .slice(ndarray::s![.., j, r])
+                    .mapv(|v| strength * v);
+                let (psi_lo, psi_hi) = (&scaled - &pmb, &scaled + &pmb);
+                let variance = |psi: &Array1<f64>| match &self.cluster {
+                    Some(ci) => ci.variance(psi.view(), Array1::ones(n).view(), r),
+                    None => psi.dot(psi) / n as f64 / n as f64,
+                };
+                se_lo[[j, r]] = variance(&psi_lo).sqrt();
+                se_hi[[j, r]] = variance(&psi_hi).sqrt();
             }
         }
         let quant = norm_ppf(level);

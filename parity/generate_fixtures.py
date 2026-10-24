@@ -20,7 +20,7 @@ import pandas as pd
 import sklearn
 from doubleml.did.datasets import make_did_CS2021, make_did_cs_CS2021, make_did_SZ2020
 from doubleml.irm.datasets import make_iivm_data, make_irm_data
-from doubleml.plm.datasets import make_pliv_CHS2015, make_plr_CCDDHNR2018
+from doubleml.plm.datasets import make_pliv_CHS2015, make_pliv_multiway_cluster_CKMS2021, make_plr_CCDDHNR2018
 from doubleml.utils._estimation import _draw_weights
 from sklearn.linear_model import Lasso, LinearRegression, LogisticRegression, Ridge
 from sklearn.model_selection import KFold
@@ -83,6 +83,8 @@ def fit_case(name, model_kind, data, arrays, learners, options, n_folds=5, n_rep
         "predictions": {
             k: np.transpose(v, (2, 1, 0)).tolist() for k, v in model.predictions.items() if v is not None
         },
+        # nuisance_loss[learner] has shape (n_rep, n_coefs): RMSE or log loss
+        "nuisance_loss": {k: np.asarray(v).tolist() for k, v in model.nuisance_loss.items()},
         "p_bonferroni": model.p_adjust("bonferroni")["pval"].tolist(),
         "p_holm": model.p_adjust("holm")["pval"].tolist(),
     }
@@ -318,6 +320,82 @@ def staggered_cs(name, seed, control_group, score, normalize, n_rep=1):
     }
 
 
+def cluster_case(name, model_kind, arrays, clusters, learners, options, n_rep=1, seed=0, sensitivity=False):
+    """Clustered data: DoubleML draws its own cluster splits (external splits are not supported
+    with clusters), and the fixture records them together with each fold's test clusters."""
+    cl = np.column_stack(clusters) if len(clusters) > 1 else clusters[0]
+    data = dml.DoubleMLData.from_arrays(arrays["x"], arrays["y"], arrays["d"], z=arrays.get("z"), cluster_vars=cl)
+    cls = {"plr": dml.DoubleMLPLR, "irm": dml.DoubleMLIRM, "pliv": dml.DoubleMLPLIV}[model_kind]
+    np.random.seed(seed)
+    model = cls(data, **{k: learner(v) for k, v in learners.items()}, n_folds=3, n_rep=n_rep, **options)
+    model.fit(store_predictions=True)
+    expected = {
+        "coef": model.coef.tolist(),
+        "se": model.se.tolist(),
+        "t_stat": model.t_stat.tolist(),
+        "pval": model.pval.tolist(),
+        "ci95": model.confint(level=0.95).to_numpy().tolist(),
+        "all_coef": model.all_coef.tolist(),
+        "all_se": model.all_se.tolist(),
+        "predictions": {
+            k: np.transpose(v, (2, 1, 0)).tolist() for k, v in model.predictions.items() if v is not None
+        },
+        "nuisance_loss": {k: np.asarray(v).tolist() for k, v in model.nuisance_loss.items()},
+        "p_bonferroni": model.p_adjust("bonferroni")["pval"].tolist(),
+        "p_holm": model.p_adjust("holm")["pval"].tolist(),
+    }
+    if sensitivity:
+        expected["sensitivity"] = sensitivity_json(model, benchmark=False)
+    cluster_folds = [
+        [{"train": tr.tolist(), "test": te.tolist(),
+          "test_clusters": [np.asarray(c).tolist() for c in sc[1]]}
+         for (tr, te), sc in zip(smpls, smpls_cl)]
+        for smpls, smpls_cl in zip(model.smpls, model.smpls_cluster)
+    ]
+    return {
+        "name": name,
+        "model": model_kind,
+        "options": options,
+        "learners": learners,
+        **{k: np.asarray(v).tolist() for k, v in arrays.items()},
+        "clusters": [np.asarray(c).astype(int).tolist() for c in clusters],
+        "folds": [[{"train": f["train"], "test": f["test"]} for f in rep] for rep in cluster_folds],
+        "cluster_folds": cluster_folds,
+        "expected": expected,
+        "_model": model,
+    }
+
+
+def plr_cluster_one_way(name, seed):
+    np.random.seed(seed)
+    x, y, d = make_plr_CCDDHNR2018(n_obs=400, dim_x=5, alpha=0.5, return_type="array")
+    cluster = np.random.choice(50, size=400)  # unequal cluster sizes
+    return cluster_case(name, "plr", {"x": x, "y": y, "d": d}, [cluster], {"ml_l": OLS, "ml_m": OLS},
+                        {"score": "partialling out"}, n_rep=2, seed=seed, sensitivity=True)
+
+
+def irm_cluster_one_way(name, seed):
+    np.random.seed(seed)
+    x, y, d = make_irm_data(n_obs=500, dim_x=5, theta=0.5, return_type="array")
+    cluster = np.repeat(np.arange(100), 5)
+    return cluster_case(name, "irm", {"x": x, "y": y, "d": d}, [cluster], {"ml_g": OLS, "ml_m": LOGIT},
+                        {"score": "ATE"}, seed=seed, sensitivity=True)
+
+
+def multiway(name, seed, model_kind):
+    np.random.seed(seed)
+    df = make_pliv_multiway_cluster_CKMS2021(N=18, M=15, dim_X=6, theta=1.0, return_type="DataFrame")
+    x = df[[c for c in df.columns if c.startswith("X")]].to_numpy()
+    arrays = {"x": x, "y": df["Y"].to_numpy(), "d": df["D"].to_numpy()}
+    clusters = [df["cluster_var_i"].to_numpy(), df["cluster_var_j"].to_numpy()]
+    if model_kind == "pliv":
+        arrays["z"] = df["Z"].to_numpy()
+        return cluster_case(name, "pliv", arrays, clusters, {"ml_l": OLS, "ml_m": OLS, "ml_r": OLS},
+                            {"score": "partialling out"}, seed=seed)
+    return cluster_case(name, "plr", arrays, clusters, {"ml_l": OLS, "ml_m": OLS},
+                        {"score": "partialling out"}, seed=seed, sensitivity=True)
+
+
 def irm_cate(name, seed):
     case = irm(name, seed, "ATE", n_rep=2)
     model = case["_model"]
@@ -374,6 +452,10 @@ CASES = [
     lambda: staggered("staggered_notyet_experimental_rep2", 72, "not_yet_treated", "experimental", False, n_rep=2),
     lambda: staggered("staggered_universal_anticipation", 73, "never_treated", "observational", True,
                       gt_setting="universal", anticipation=1),
+    lambda: plr_cluster_one_way("plr_cluster_one_way_rep2", 91),
+    lambda: irm_cluster_one_way("irm_cluster_one_way", 92),
+    lambda: multiway("pliv_cluster_two_way", 93, "pliv"),
+    lambda: multiway("plr_cluster_two_way", 94, "plr"),
     lambda: staggered_cs("staggered_cs_never_observational", 81, "never_treated", "observational", True),
     lambda: staggered_cs("staggered_cs_notyet_experimental_rep2", 82, "not_yet_treated", "experimental", False,
                          n_rep=2),

@@ -14,7 +14,7 @@
 use ndarray::Array1;
 
 use super::irm::{ipw_residual, normalize_propensity};
-use super::{dml_model_api, LinearScoreModel, ScoreEstimate, ScoreInput};
+use super::{dml_model_api, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput};
 use crate::crossfit::{
     cross_fit_predict_proba, cross_fit_predict_proba_subset, cross_fit_predict_subset, Fold,
     SampleSplitting,
@@ -156,6 +156,17 @@ impl LinearScoreModel for Iivm {
         // Reduced form (effect of Z on Y) over first stage (effect of Z on D).
         let psi_b = &g1 - &g0 + &ipw_residual(y, &z, &g0, &g1, &m_adj);
         let first_stage = &r1 - &r0 + &ipw_residual(d, &z, &r0, &r1, &m_adj);
+        // Without a subgroup, r is fixed (0 or 1) and its "target" is that constant.
+        let r0_target = if self.always_takers {
+            d.to_owned()
+        } else {
+            Array1::zeros(n)
+        };
+        let r1_target = if self.never_takers {
+            d.to_owned()
+        } else {
+            Array1::ones(n)
+        };
         Ok(ScoreEstimate::new(
             LinearScore::new(-first_stage, psi_b)?,
             vec![
@@ -165,7 +176,14 @@ impl LinearScoreModel for Iivm {
                 ("ml_r0", r0),
                 ("ml_r1", r1),
             ],
-        ))
+        )
+        .with_targets(vec![
+            NuisanceTarget::regression("ml_g0", y.to_owned()).only_where(|i| z[i] == 0.0),
+            NuisanceTarget::regression("ml_g1", y.to_owned()).only_where(|i| z[i] == 1.0),
+            NuisanceTarget::classification("ml_m", z.clone()),
+            NuisanceTarget::classification("ml_r0", r0_target).only_where(|i| z[i] == 0.0),
+            NuisanceTarget::classification("ml_r1", r1_target).only_where(|i| z[i] == 1.0),
+        ]))
     }
 }
 

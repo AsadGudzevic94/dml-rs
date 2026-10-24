@@ -8,7 +8,7 @@ import numpy as np
 
 from . import _dml_rs
 from ._blp import blp_from
-from ._validation import _as_1d, _as_2d
+from ._validation import _as_1d, _as_2d, _as_clusters
 
 
 def _treatment_names(d):
@@ -17,6 +17,11 @@ def _treatment_names(d):
         return [str(c) for c in columns]
     name = getattr(d, "name", None)  # pandas Series
     return [str(name)] if name is not None else None
+
+
+def _rmse(y_true, y_pred):
+    keep = ~np.isnan(y_true)
+    return float(np.sqrt(np.mean((y_true[keep] - y_pred[keep]) ** 2)))
 
 
 def _splits(folds):
@@ -76,8 +81,40 @@ class _DMLEstimator(_Params):
         self.psi_ = result.psi
         self.treatment_names_ = result.treatment_names
         self.predictions_ = {name: result.predictions(name) for name in result.nuisance_names}
+        # DoubleML's layout: one (n_rep, n_coefs) array per learner.
+        self.nuisance_loss_ = {name: loss.T for name, loss in result.nuisance_losses().items()}
+        self.n_clusters_ = result.n_clusters
         self._boot = None
         return self
+
+    def evaluate_learners(self, learners=None, metric=None):
+        """Evaluate the cross-fitted nuisance predictions with ``metric(y_true, y_pred)``.
+
+        As DoubleML: both arguments have shape ``(1, n)`` and ``y_true`` is ``NaN`` where a
+        learner does not apply (e.g. ``ml_g0`` on treated units). The default metric is the
+        RMSE over the non-missing targets. Returns ``{learner: array (n_rep, n_coefs)}``.
+        """
+        result = self._check_fitted()
+        metric = _rmse if metric is None else metric
+        if not callable(metric):
+            raise TypeError(f"metric should be a callable, got {metric!r}")
+        names = list(result.nuisance_losses()) if learners is None else list(learners)
+        out = {}
+        for name in names:
+            targets = result.nuisance_targets(name)
+            preds = self.predictions_[name]
+            n_rep, k = targets.shape[1], targets.shape[2]
+            res = np.full((n_rep, k), np.nan)
+            for r in range(n_rep):
+                for j in range(k):
+                    y_true = targets[:, r, j].reshape(1, -1)
+                    if np.all(np.isnan(y_true)):
+                        continue
+                    res[r, j] = metric(y_true=y_true, y_pred=preds[:, r, j].reshape(1, -1))
+                    if not np.isfinite(res[r, j]):
+                        raise ValueError(f"evaluation of learner {name!r} is not finite")
+            out[name] = res
+        return out
 
     def confint(self, level=0.95, joint=False):
         """Confidence intervals, shape ``(n_treat, 2)``. ``joint=True`` needs :meth:`bootstrap`."""
@@ -211,17 +248,22 @@ class PLR(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
-    def fit(self, X, y, d, folds=None):
+    def fit(self, X, y, d, folds=None, cluster=None):
         """Fit on covariates ``X``, outcome ``y`` and treatment(s) ``d``.
 
         ``folds`` optionally fixes the sample splits: a list of ``(train, test)``
         index pairs, or one such list per repetition.
+
+        ``cluster`` gives cluster labels, one column (one-way) or two columns (two-way
+        clustering, as Chiang et al. 2022): whole clusters are then assigned to folds and
+        the standard errors are cluster-robust. Accepted by PLR, IRM, PLIV, IIVM, DID and
+        DIDCS; the multiplier bootstrap is not available with clusters (as in DoubleML).
         """
-        self._remember(X, y, d, folds=folds)
+        self._remember(X, y, d, folds=folds, cluster=cluster)
         result = _dml_rs.fit_plr(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), self.ml_l, self.ml_m, self.ml_g,
             score=self.score, n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
-            splits=_splits(folds), treatment_names=_treatment_names(d),
+            splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
         )
         return self._store(result)
 
@@ -249,13 +291,13 @@ class IRM(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
-    def fit(self, X, y, d, folds=None):
-        self._remember(X, y, d, folds=folds)
+    def fit(self, X, y, d, folds=None, cluster=None):
+        self._remember(X, y, d, folds=folds, cluster=cluster)
         result = _dml_rs.fit_irm(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), self.ml_g, self.ml_m,
             score=self.score, clipping_threshold=self.clipping_threshold, normalize_ipw=self.normalize_ipw,
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
-            splits=_splits(folds), treatment_names=_treatment_names(d),
+            splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
         )
         return self._store(result)
 
@@ -295,14 +337,14 @@ class IIVM(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
-    def fit(self, X, y, d, z, folds=None):
+    def fit(self, X, y, d, z, folds=None, cluster=None):
         subgroups = {"always_takers": True, "never_takers": True, **(self.subgroups or {})}
         result = _dml_rs.fit_iivm(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), _as_1d(z, "z"), self.ml_g, self.ml_m, self.ml_r,
             always_takers=subgroups["always_takers"], never_takers=subgroups["never_takers"],
             clipping_threshold=self.clipping_threshold, normalize_ipw=self.normalize_ipw,
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
-            splits=_splits(folds), treatment_names=_treatment_names(d),
+            splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
         )
         return self._store(result)
 
@@ -319,17 +361,17 @@ class _DIDBase(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
-    def _fit(self, X, y, d, t, folds):
+    def _fit(self, X, y, d, t, folds, cluster):
         if t is None:
-            self._remember(X, y, d, folds=folds)
+            self._remember(X, y, d, folds=folds, cluster=cluster)
         else:
-            self._remember(X, y, d, t, folds=folds)
+            self._remember(X, y, d, t, folds=folds, cluster=cluster)
         result = _dml_rs.fit_did(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), self.ml_g, self.ml_m,
             t=None if t is None else _as_1d(t, "t"), score=self.score,
             in_sample_normalization=self.in_sample_normalization, clipping_threshold=self.clipping_threshold,
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
-            splits=_splits(folds), treatment_names=_treatment_names(d),
+            splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
         )
         return self._store(result)
 
@@ -347,8 +389,8 @@ class DID(_DIDBase):
     in_sample_normalization : normalise the weights by their sample means (DoubleML default).
     """
 
-    def fit(self, X, y, d, folds=None):
-        return self._fit(X, y, d, None, folds)
+    def fit(self, X, y, d, folds=None, cluster=None):
+        return self._fit(X, y, d, None, folds, cluster)
 
 
 class DIDCS(_DIDBase):
@@ -358,8 +400,8 @@ class DIDCS(_DIDBase):
     Parameters as :class:`DID`, with ``ml_g`` fitted in each treatment-group x period cell.
     """
 
-    def fit(self, X, y, d, t, folds=None):
-        return self._fit(X, y, d, t, folds)
+    def fit(self, X, y, d, t, folds=None, cluster=None):
+        return self._fit(X, y, d, t, folds, cluster)
 
 
 class DIDAggregation:
@@ -488,10 +530,10 @@ class PLIV(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
-    def fit(self, X, y, d, z, folds=None):
+    def fit(self, X, y, d, z, folds=None, cluster=None):
         result = _dml_rs.fit_pliv(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), _as_1d(z, "z"), self.ml_l, self.ml_m, self.ml_r,
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
-            splits=_splits(folds), treatment_names=_treatment_names(d),
+            splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
         )
         return self._store(result)

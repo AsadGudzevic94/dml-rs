@@ -18,6 +18,11 @@
 //! confidence intervals, a multiplier [`Bootstrap`] for joint inference and
 //! multiple-testing adjustment. New scores plug in via [`LinearScoreModel`].
 //!
+//! ## Clustered data
+//!
+//! [`DmlData::with_clusters`] / [`DmlData::with_two_way_clusters`] make sample splitting
+//! cluster-aware and standard errors cluster-robust (Chiang et al., 2022).
+//!
 //! ## Sensitivity analysis
 //!
 //! [`DmlFit::sensitivity_analysis`] bounds the effect of omitted confounders (PLR, IRM, DID)
@@ -58,6 +63,7 @@
 pub mod blp;
 pub mod bootstrap;
 pub mod cate;
+pub mod cluster;
 pub mod crossfit;
 pub mod data;
 pub mod error;
@@ -73,20 +79,21 @@ pub mod stats;
 pub use blp::Blp;
 pub use bootstrap::{Bootstrap, BootstrapMethod};
 pub use cate::{CateFit, DrLearner, RLearner, SLearner, TLearner, XLearner};
+pub use cluster::ClusterFold;
 pub use crossfit::{
     cross_fit_predict, cross_fit_predict_proba, cross_fit_predict_proba_subset,
     cross_fit_predict_subset, Fold, KFold, SampleSplitting,
 };
 pub use data::DmlData;
 pub use error::{DmlError, Result};
-pub use fit::{fit_model, DmlFit, PAdjust};
+pub use fit::{fit_model, fit_model_clustered, DmlFit, PAdjust};
 pub use learner::{
     Classifier, GradientBoostingClassifier, GradientBoostingRegressor, Lasso, LogisticRegression,
     MaxFeatures, Ols, RandomForestClassifier, RandomForestRegressor, Regressor,
 };
 pub use model::{
-    Did, DidCs, DidScore, Iivm, Irm, IrmScore, LinearScoreModel, Pliv, Plr, PlrScore,
-    ScoreEstimate, ScoreInput,
+    Did, DidCs, DidScore, Iivm, Irm, IrmScore, LinearScoreModel, LossKind, NuisanceTarget, Pliv,
+    Plr, PlrScore, ScoreEstimate, ScoreInput,
 };
 pub use score::LinearScore;
 pub use sensitivity::{

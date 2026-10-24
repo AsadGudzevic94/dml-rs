@@ -21,6 +21,7 @@ pub struct DmlData {
     x: Array2<f64>,
     z: Option<Array1<f64>>,
     t: Option<Array1<f64>>,
+    clusters: Option<Vec<Array1<i64>>>,
     treatment_names: Vec<String>,
 }
 
@@ -72,6 +73,7 @@ impl DmlData {
             x,
             z: None,
             t: None,
+            clusters: None,
             treatment_names,
         })
     }
@@ -111,6 +113,32 @@ impl DmlData {
         }
         self.t = Some(t);
         Ok(self)
+    }
+
+    /// Cluster the observations (e.g. by firm or school): sample splitting
+    /// then keeps clusters together and standard errors are cluster-robust.
+    pub fn with_clusters(self, cluster: Array1<i64>) -> Result<Self> {
+        self.set_clusters(vec![cluster])
+    }
+
+    /// Two-way clustering (e.g. by firm and by year).
+    pub fn with_two_way_clusters(self, first: Array1<i64>, second: Array1<i64>) -> Result<Self> {
+        self.set_clusters(vec![first, second])
+    }
+
+    fn set_clusters(mut self, clusters: Vec<Array1<i64>>) -> Result<Self> {
+        if clusters.iter().any(|c| c.len() != self.n_obs()) {
+            return Err(DmlError::DimensionMismatch(
+                "cluster variables need one entry per observation".into(),
+            ));
+        }
+        self.clusters = Some(clusters);
+        Ok(self)
+    }
+
+    /// The cluster variables (one or two), if any.
+    pub fn clusters(&self) -> Option<&[Array1<i64>]> {
+        self.clusters.as_deref()
     }
 
     /// The same data without the covariate columns `drop` (for sensitivity

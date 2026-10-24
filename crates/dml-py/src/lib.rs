@@ -9,6 +9,7 @@ use dml_core::{
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 mod cate;
 mod errors;
@@ -44,6 +45,7 @@ fn build_data(
     z: Option<PyReadonlyArray1<'_, f64>>,
     t: Option<PyReadonlyArray1<'_, f64>>,
     treatment_names: Option<Vec<String>>,
+    cluster: Option<PyReadonlyArray2<'_, i64>>,
 ) -> PyResult<DmlData> {
     let mut data = DmlData::with_treatments(
         y.as_array().to_owned(),
@@ -63,6 +65,20 @@ fn build_data(
     }
     if let Some(names) = treatment_names {
         data = data.with_treatment_names(names).map_err(to_py_err)?;
+    }
+    // Integer cluster ids, one column per cluster variable (one- or two-way).
+    if let Some(c) = cluster {
+        let c = c.as_array();
+        data = match c.ncols() {
+            1 => data.with_clusters(c.column(0).to_owned()),
+            2 => data.with_two_way_clusters(c.column(0).to_owned(), c.column(1).to_owned()),
+            k => {
+                return Err(PyValueError::new_err(format!(
+                    "cluster must have one or two columns, got {k}"
+                )))
+            }
+        }
+        .map_err(to_py_err)?;
     }
     Ok(data)
 }
@@ -146,6 +162,35 @@ impl PyDmlResult {
     #[getter]
     fn nuisance_names(&self) -> Vec<String> {
         self.fit.nuisance_names().map(str::to_string).collect()
+    }
+
+    /// Number of clusters (two-way: the smaller dimension), `None` without clustering.
+    #[getter]
+    fn n_clusters(&self) -> Option<usize> {
+        self.fit.n_clusters()
+    }
+
+    /// Out-of-sample loss of every nuisance learner (RMSE for regressions,
+    /// log loss for classifications), each of shape `(n_treat, n_rep)`.
+    fn nuisance_losses<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let out = PyDict::new(py);
+        for (name, _, loss) in self.fit.nuisance_losses() {
+            out.set_item(name, loss.to_owned().into_pyarray(py))?;
+        }
+        Ok(out)
+    }
+
+    /// Targets of one nuisance learner, shape `(n_obs, n_rep, n_treat)`, `NaN`
+    /// where the nuisance does not apply.
+    fn nuisance_targets<'py>(
+        &self,
+        py: Python<'py>,
+        name: &str,
+    ) -> PyResult<Bound<'py, PyArray3<f64>>> {
+        self.fit
+            .nuisance_targets(name)
+            .map(|t| t.to_owned().into_pyarray(py))
+            .ok_or_else(|| PyValueError::new_err(format!("no nuisance named {name:?}")))
     }
 
     /// Cross-fitted predictions of one nuisance, shape `(n_obs, n_rep, n_treat)`.
@@ -423,7 +468,7 @@ macro_rules! run_model {
 
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_l, ml_m, ml_g = None, score = "partialling out",
-                    n_folds = 5, n_rep = 1, seed = 0, splits = None, treatment_names = None))]
+                    n_folds = 5, n_rep = 1, seed = 0, splits = None, treatment_names = None, cluster = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_plr(
     py: Python<'_>,
@@ -439,6 +484,7 @@ fn fit_plr(
     seed: u64,
     splits: Option<PySplits>,
     treatment_names: Option<Vec<String>>,
+    cluster: Option<PyReadonlyArray2<'_, i64>>,
 ) -> PyResult<PyDmlResult> {
     let score = match score {
         "partialling out" => PlrScore::PartiallingOut,
@@ -449,7 +495,7 @@ fn fit_plr(
             )))
         }
     };
-    let data = build_data(y, d, x, None, None, treatment_names)?;
+    let data = build_data(y, d, x, None, None, treatment_names, cluster)?;
     let mut model = Plr::from_boxed(to_regressor(ml_l)?, to_regressor(ml_m)?)
         .score(score)
         .n_folds(n_folds)
@@ -464,7 +510,7 @@ fn fit_plr(
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g, ml_m, score = "ATE", clipping_threshold = 1e-2,
                     normalize_ipw = false, n_folds = 5, n_rep = 1, seed = 0, splits = None,
-                    treatment_names = None))]
+                    treatment_names = None, cluster = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_irm(
     py: Python<'_>,
@@ -481,6 +527,7 @@ fn fit_irm(
     seed: u64,
     splits: Option<PySplits>,
     treatment_names: Option<Vec<String>>,
+    cluster: Option<PyReadonlyArray2<'_, i64>>,
 ) -> PyResult<PyDmlResult> {
     let score = match score {
         "ATE" => IrmScore::Ate,
@@ -491,7 +538,7 @@ fn fit_irm(
             )))
         }
     };
-    let data = build_data(y, d, x, None, None, treatment_names)?;
+    let data = build_data(y, d, x, None, None, treatment_names, cluster)?;
     let model = Irm::from_boxed(to_regressor(ml_g)?, to_classifier(ml_m)?)
         .score(score)
         .clipping_threshold(clipping_threshold)
@@ -504,7 +551,7 @@ fn fit_irm(
 
 #[pyfunction]
 #[pyo3(signature = (y, d, x, z, ml_l, ml_m, ml_r, n_folds = 5, n_rep = 1, seed = 0,
-                    splits = None, treatment_names = None))]
+                    splits = None, treatment_names = None, cluster = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_pliv(
     py: Python<'_>,
@@ -520,8 +567,9 @@ fn fit_pliv(
     seed: u64,
     splits: Option<PySplits>,
     treatment_names: Option<Vec<String>>,
+    cluster: Option<PyReadonlyArray2<'_, i64>>,
 ) -> PyResult<PyDmlResult> {
-    let data = build_data(y, d, x, Some(z), None, treatment_names)?;
+    let data = build_data(y, d, x, Some(z), None, treatment_names, cluster)?;
     let model = Pliv::from_boxed(
         to_regressor(ml_l)?,
         to_regressor(ml_m)?,
@@ -536,7 +584,7 @@ fn fit_pliv(
 #[pyfunction]
 #[pyo3(signature = (y, d, x, z, ml_g, ml_m, ml_r, always_takers = true, never_takers = true,
                     clipping_threshold = 1e-2, normalize_ipw = false, n_folds = 5, n_rep = 1,
-                    seed = 0, splits = None, treatment_names = None))]
+                    seed = 0, splits = None, treatment_names = None, cluster = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_iivm(
     py: Python<'_>,
@@ -556,8 +604,9 @@ fn fit_iivm(
     seed: u64,
     splits: Option<PySplits>,
     treatment_names: Option<Vec<String>>,
+    cluster: Option<PyReadonlyArray2<'_, i64>>,
 ) -> PyResult<PyDmlResult> {
-    let data = build_data(y, d, x, Some(z), None, treatment_names)?;
+    let data = build_data(y, d, x, Some(z), None, treatment_names, cluster)?;
     let model = Iivm::from_boxed(
         to_regressor(ml_g)?,
         to_classifier(ml_m)?,
@@ -587,7 +636,7 @@ pub(crate) fn did_score(score: &str) -> PyResult<DidScore> {
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g, ml_m = None, t = None, score = "observational",
                     in_sample_normalization = true, clipping_threshold = 1e-2, n_folds = 5,
-                    n_rep = 1, seed = 0, splits = None, treatment_names = None))]
+                    n_rep = 1, seed = 0, splits = None, treatment_names = None, cluster = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_did(
     py: Python<'_>,
@@ -605,11 +654,12 @@ fn fit_did(
     seed: u64,
     splits: Option<PySplits>,
     treatment_names: Option<Vec<String>>,
+    cluster: Option<PyReadonlyArray2<'_, i64>>,
 ) -> PyResult<PyDmlResult> {
     let score = did_score(score)?;
     let ml_m = ml_m.map(to_classifier).transpose()?;
     let cross_section = t.is_some();
-    let data = build_data(y, d, x, None, t, treatment_names)?;
+    let data = build_data(y, d, x, None, t, treatment_names, cluster)?;
     if cross_section {
         let model = DidCs::from_boxed(to_regressor(ml_g)?, ml_m)
             .score(score)

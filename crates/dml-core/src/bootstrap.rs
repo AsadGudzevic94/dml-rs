@@ -79,6 +79,12 @@ impl DmlFit {
     /// Bootstrap with caller-supplied weights, one `(n_boot, n)` matrix per
     /// repetition (e.g. to reproduce DoubleML's draws exactly).
     pub fn bootstrap_with_weights(&self, weights: &[Array2<f64>]) -> Result<Bootstrap> {
+        if self.cluster.is_some() {
+            return Err(DmlError::InvalidArgument(
+                "the multiplier bootstrap is not available for clustered data (as in DoubleML)"
+                    .into(),
+            ));
+        }
         if weights.len() != self.n_rep() {
             return Err(DmlError::DimensionMismatch(format!(
                 "{} weight matrices for {} repetitions",

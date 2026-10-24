@@ -7,7 +7,7 @@
 
 use ndarray::Array1;
 
-use super::{dml_model_api, LinearScoreModel, ScoreEstimate, ScoreInput};
+use super::{dml_model_api, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput};
 use crate::crossfit::{cross_fit_predict, Fold, SampleSplitting};
 use crate::error::{DmlError, Result};
 use crate::learner::Regressor;
@@ -103,7 +103,11 @@ impl LinearScoreModel for Plr {
                     LinearScore::new(-(&v * &v), &v * &u)?,
                     vec![("ml_l", l_hat), ("ml_m", m_hat)],
                 )
-                .with_sensitivity(parts))
+                .with_sensitivity(parts)
+                .with_targets(vec![
+                    NuisanceTarget::regression("ml_l", y.to_owned()),
+                    NuisanceTarget::regression("ml_m", d.to_owned()),
+                ]))
             }
             PlrScore::IvType => {
                 let theta_init = u.dot(&v) / v.dot(&v);
@@ -129,7 +133,12 @@ impl LinearScoreModel for Plr {
                     LinearScore::new(-(&v * &d), &v * &resid_g)?,
                     vec![("ml_l", l_hat), ("ml_m", m_hat), ("ml_g", g_hat)],
                 )
-                .with_sensitivity(parts))
+                .with_sensitivity(parts)
+                .with_targets(vec![
+                    NuisanceTarget::regression("ml_l", y.to_owned()),
+                    NuisanceTarget::regression("ml_m", d.to_owned()),
+                    NuisanceTarget::regression("ml_g", target),
+                ]))
             }
         }
     }

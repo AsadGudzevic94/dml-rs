@@ -10,7 +10,7 @@
 
 use ndarray::{Array1, ArrayView1, ArrayView2};
 
-use super::{dml_model_api, LinearScoreModel, ScoreEstimate, ScoreInput};
+use super::{dml_model_api, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput};
 use crate::crossfit::{cross_fit_predict_proba, cross_fit_predict_subset, Fold, SampleSplitting};
 use crate::data::DmlData;
 use crate::error::{DmlError, Result};
@@ -161,7 +161,12 @@ impl LinearScoreModel for Irm {
             theta_factor: None,
             riesz,
             nu2: Nu2Parts::Elementwise(nu2),
-        }))
+        })
+        .with_targets(vec![
+            NuisanceTarget::regression("ml_g0", y.to_owned()).only_where(|i| d[i] == 0.0),
+            NuisanceTarget::regression("ml_g1", y.to_owned()).only_where(|i| d[i] == 1.0),
+            NuisanceTarget::classification("ml_m", d.clone()),
+        ]))
     }
 }
 

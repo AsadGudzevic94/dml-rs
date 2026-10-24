@@ -7,7 +7,7 @@
 
 use ndarray::Array1;
 
-use super::{dml_model_api, LinearScoreModel, ScoreEstimate, ScoreInput};
+use super::{dml_model_api, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput};
 use crate::crossfit::{cross_fit_predict, Fold, SampleSplitting};
 use crate::data::DmlData;
 use crate::error::{DmlError, Result};
@@ -76,7 +76,12 @@ impl LinearScoreModel for Pliv {
         Ok(ScoreEstimate::new(
             LinearScore::new(-(&w * &v), &v * &u)?,
             vec![("ml_l", l_hat), ("ml_m", m_hat), ("ml_r", r_hat)],
-        ))
+        )
+        .with_targets(vec![
+            NuisanceTarget::regression("ml_l", y.to_owned()),
+            NuisanceTarget::regression("ml_m", z.to_owned()),
+            NuisanceTarget::regression("ml_r", d.to_owned()),
+        ]))
     }
 }
 

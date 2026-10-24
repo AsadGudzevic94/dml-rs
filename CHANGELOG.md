@@ -6,6 +6,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Cluster-robust DML for one-way and two-way clustered data (Chiang, Kato, Ma & Sasaki, 2022), as
+  DoubleML's `cluster_vars`: `DmlData::with_clusters` / `with_two_way_clusters` make every model
+  assign whole clusters to folds (two-way: the product of the per-variable folds), solve the
+  fold-weighted score and report cluster-robust standard errors; sensitivity bounds use the
+  clustered variance. `fit_with_cluster_folds` replays given cluster splits, `DmlFit::n_clusters`
+  reports the number of clusters. The multiplier bootstrap returns an error for clustered fits,
+  as in DoubleML.
+- Learner diagnostics: `DmlFit::nuisance_loss` / `nuisance_losses` give the out-of-sample RMSE
+  (regressions) or log loss (classifications) of every nuisance learner on its own target, as
+  DoubleML's `nuisance_loss`; `DmlFit::nuisance_targets` returns the targets (`NaN` where a
+  learner does not apply) for custom metrics. Shown in the fit summary.
+- `LossKind` and `NuisanceTarget`, with which custom `LinearScoreModel`s declare their nuisance
+  targets (`ScoreEstimate::with_targets`).
+- Python: `cluster=` (one or two columns of any label type) in the `fit` of PLR, IRM, PLIV,
+  IIVM, DID and DIDCS, `n_clusters_`, `nuisance_loss_` (DoubleML's layout) and
+  `evaluate_learners(learners=None, metric=None)`.
+- DoubleML parity fixtures for one-way (PLR with repeated splits, IRM) and two-way (PLR, PLIV)
+  clustering, nuisance losses in every fixture, and a Monte-Carlo test in which iid standard
+  errors under-cover with clustered errors while cluster-robust ones do not.
+
+### Changed
+- `ScoreEstimate` has a new `targets` field (empty by default, so existing custom models keep
+  working; without targets no losses are reported for them).
+
 ## [0.7.0] - 2026-10-24
 
 ### Added

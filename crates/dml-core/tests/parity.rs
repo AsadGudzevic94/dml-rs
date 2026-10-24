@@ -19,6 +19,16 @@ fn fit_fixture(fx: &Fixture) -> DmlFit {
 fn fit_fixture_on(fx: &Fixture, data: &dml_core::DmlData) -> DmlFit {
     let data = data.clone();
     let folds = fx.folds();
+    let cluster_folds = fx.cluster_folds();
+    // Clustered fixtures replay DoubleML's cluster splits (with their test clusters).
+    macro_rules! fit {
+        ($model:expr) => {
+            match &cluster_folds {
+                Some(cf) => $model.fit_with_cluster_folds(&data, cf),
+                None => $model.fit_with_folds(&data, &folds),
+            }
+        };
+    }
     match fx.0["model"].as_str().unwrap() {
         "plr" => {
             let score = match fx.option_str("score") {
@@ -30,7 +40,7 @@ fn fit_fixture_on(fx: &Fixture, data: &dml_core::DmlData) -> DmlFit {
             if score == PlrScore::IvType {
                 plr = plr.ml_g_boxed(fx.regressor("ml_g"));
             }
-            plr.fit_with_folds(&data, &folds)
+            fit!(plr)
         }
         "irm" => {
             let score = match fx.option_str("score") {
@@ -38,17 +48,19 @@ fn fit_fixture_on(fx: &Fixture, data: &dml_core::DmlData) -> DmlFit {
                 "ATTE" => IrmScore::Atte,
                 s => panic!("unknown IRM score {s}"),
             };
-            Irm::from_boxed(fx.regressor("ml_g"), fx.classifier("ml_m"))
+            let irm = Irm::from_boxed(fx.regressor("ml_g"), fx.classifier("ml_m"))
                 .score(score)
-                .normalize_ipw(fx.option_bool("normalize_ipw"))
-                .fit_with_folds(&data, &folds)
+                .normalize_ipw(fx.option_bool("normalize_ipw"));
+            fit!(irm)
         }
-        "pliv" => Pliv::from_boxed(
-            fx.regressor("ml_l"),
-            fx.regressor("ml_m"),
-            fx.regressor("ml_r"),
-        )
-        .fit_with_folds(&data, &folds),
+        "pliv" => {
+            let pliv = Pliv::from_boxed(
+                fx.regressor("ml_l"),
+                fx.regressor("ml_m"),
+                fx.regressor("ml_r"),
+            );
+            fit!(pliv)
+        }
         "iivm" => {
             let sub = &fx.0["options"]["subgroups"];
             let flag = |k: &str| sub[k].as_bool().unwrap_or(true);
@@ -101,6 +113,29 @@ fn check(name: &str, tol: f64) {
                     &format!("{name} {nuisance} d{j} rep{r}"),
                     &ours,
                     &fx.prediction(nuisance, j, r),
+                    tol,
+                );
+            }
+        }
+    }
+
+    // Out-of-sample learner losses (DoubleML's nuisance_loss, shape (n_rep, n_coefs)).
+    let losses = fx.expected("nuisance_loss").as_object().unwrap();
+    assert!(
+        !losses.is_empty(),
+        "{name}: fixture without nuisance losses"
+    );
+    for (learner, expected) in losses {
+        let expected = to_matrix(expected);
+        let ours = fit
+            .nuisance_loss(learner)
+            .unwrap_or_else(|| panic!("{name}: missing nuisance loss {learner}"));
+        for j in 0..k {
+            for r in 0..n_rep {
+                assert_close(
+                    &format!("{name} loss {learner}[{j},{r}]"),
+                    ours[[j, r]],
+                    expected[[r, j]],
                     tol,
                 );
             }
@@ -324,6 +359,70 @@ fn iivm_late_repeated_splits() {
 #[test]
 fn iivm_without_always_takers() {
     check("iivm_no_always_takers", TOL_ITERATIVE);
+}
+
+#[test]
+fn plr_one_way_clusters_repeated_splits() {
+    check("plr_cluster_one_way_rep2", TOL);
+}
+
+#[test]
+fn irm_one_way_clusters() {
+    check("irm_cluster_one_way", TOL_ITERATIVE);
+}
+
+#[test]
+fn pliv_two_way_clusters() {
+    check("pliv_cluster_two_way", TOL);
+}
+
+#[test]
+fn plr_two_way_clusters() {
+    check("plr_cluster_two_way", TOL);
+}
+
+#[test]
+fn derived_test_clusters_match_doubleml_splits() {
+    // Passing only the observation folds of clustered data derives each
+    // fold's test clusters from its rows: the same fit as DoubleML's splits.
+    for name in ["plr_cluster_one_way_rep2", "pliv_cluster_two_way"] {
+        let fx = Fixture::load(name);
+        let data = fx.data();
+        let folds = fx.folds();
+        let derived = if name.starts_with("plr") {
+            Plr::from_boxed(fx.regressor("ml_l"), fx.regressor("ml_m"))
+                .fit_with_folds(&data, &folds)
+        } else {
+            Pliv::from_boxed(
+                fx.regressor("ml_l"),
+                fx.regressor("ml_m"),
+                fx.regressor("ml_r"),
+            )
+            .fit_with_folds(&data, &folds)
+        }
+        .unwrap();
+        assert_all_close(
+            &format!("{name} coef"),
+            &derived.coef().to_owned(),
+            &to_vec(fx.expected("coef")),
+            TOL,
+        );
+        assert_all_close(
+            &format!("{name} se"),
+            &derived.se().to_owned(),
+            &to_vec(fx.expected("se")),
+            TOL,
+        );
+    }
+}
+
+#[test]
+fn bootstrap_is_rejected_for_clustered_fits() {
+    let fx = Fixture::load("plr_cluster_one_way_rep2");
+    let fit = fit_fixture(&fx);
+    assert!(fit
+        .bootstrap(dml_core::BootstrapMethod::Normal, 10, 1)
+        .is_err());
 }
 
 #[test]

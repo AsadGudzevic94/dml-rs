@@ -150,6 +150,21 @@ impl SampleSplitting {
             })
             .collect()
     }
+
+    /// Cluster-level splits for every repetition (see [`crate::cluster`]).
+    pub fn draw_clustered(&self, clusters: &[Array1<i64>]) -> Result<Vec<Vec<crate::ClusterFold>>> {
+        if self.n_rep == 0 {
+            return Err(DmlError::InvalidArgument("n_rep must be at least 1".into()));
+        }
+        (0..self.n_rep as u64)
+            .map(|r| {
+                let seed = self
+                    .seed
+                    .wrapping_add(r.wrapping_mul(0x9E37_79B9_7F4A_7C15));
+                crate::cluster::split_clusters(clusters, self.n_folds, seed)
+            })
+            .collect()
+    }
 }
 
 /// Out-of-fold predictions: for each fold, fit a fresh copy of `learner` on the

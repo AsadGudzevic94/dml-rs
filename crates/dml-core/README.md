@@ -44,7 +44,11 @@ let ci = fit.confint(0.95)?;
 - **Heterogeneous effects:** S-, T-, X-, R- and DR-learners; best linear predictor of the CATE and
   group average treatment effects (`Blp`)
 - **Inference:** multiple treatments, repeated sample splitting, multiplier bootstrap with
-  simultaneous confidence bands, Romano–Wolf / Holm / Bonferroni adjustment
+  simultaneous confidence bands, Romano–Wolf / Holm / Bonferroni adjustment, cluster-robust
+  standard errors for one- and two-way clustered data (`DmlData::with_clusters`,
+  `with_two_way_clusters`)
+- **Learner diagnostics:** out-of-sample RMSE / log loss of every nuisance learner
+  (`DmlFit::nuisance_loss`) and its targets for custom metrics (`DmlFit::nuisance_targets`)
 - **Sensitivity analysis:** bounds for omitted confounders, robustness values and benchmarks
   (`DmlFit::sensitivity_analysis`, `sensitivity_benchmark`)
 - **Learners:** `GradientBoostingRegressor` / `GradientBoostingClassifier`,

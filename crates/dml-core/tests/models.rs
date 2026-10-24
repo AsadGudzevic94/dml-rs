@@ -441,3 +441,47 @@ fn sensitivity_bounds_cover_the_estimate_with_the_confounder_included() {
         .sensitivity_analysis(&SensitivityParams::new())
         .is_err());
 }
+
+/// 60 clusters of 10 with cluster-level shocks in both D and Y: the score is
+/// correlated within clusters (intra-cluster correlation 0.25), so the iid
+/// standard error is too small by about √(1 + 9 · 0.25) ≈ 1.8; θ = 0.5.
+fn clustered_plr_data(seed: u64) -> (DmlData, DmlData) {
+    let (n_clusters, size) = (60, 10);
+    let n = n_clusters * size;
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let x = normal_matrix(&mut rng, n, 3);
+    let mut d = Array1::zeros(n);
+    let mut y = Array1::zeros(n);
+    let mut cluster = Array1::zeros(n);
+    for g in 0..n_clusters {
+        let (u_g, w_g) = (std_normal(&mut rng), std_normal(&mut rng));
+        for i in g * size..(g + 1) * size {
+            cluster[i] = g as i64;
+            d[i] = x[[i, 0]] - 0.5 * x[[i, 1]] + u_g + std_normal(&mut rng);
+            y[i] = 0.5 * d[i] + x[[i, 1]] + 0.5 * x[[i, 2]] + w_g + std_normal(&mut rng);
+        }
+    }
+    let iid = DmlData::new(y, d, x).unwrap();
+    (iid.clone(), iid.with_clusters(cluster).unwrap())
+}
+
+#[test]
+fn cluster_robust_standard_errors_restore_coverage() {
+    let reps = 150;
+    let (mut iid_cov, mut cl_cov) = (0, 0);
+    for r in 0..reps {
+        let (iid, clustered) = clustered_plr_data(4000 + r);
+        let plr = Plr::new(Ols::new(), Ols::new()).seed(r);
+        let fit_iid = plr.fit(&iid).unwrap();
+        let fit_cl = plr.fit(&clustered).unwrap();
+        assert_eq!(fit_cl.n_clusters(), Some(60));
+        iid_cov += usize::from(covers(&fit_iid.confint(0.95).unwrap(), 0, 0.5));
+        cl_cov += usize::from(covers(&fit_cl.confint(0.95).unwrap(), 0, 0.5));
+    }
+    let (iid_cov, cl_cov) = (iid_cov as f64 / reps as f64, cl_cov as f64 / reps as f64);
+    assert!(cl_cov >= 0.88, "clustered coverage = {cl_cov}");
+    assert!(
+        iid_cov <= 0.85,
+        "iid coverage = {iid_cov} should be too low"
+    );
+}
