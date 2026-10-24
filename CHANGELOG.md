@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Python type information: stubs for the native extension (`_dml_rs.pyi`), annotations on the
+  estimator classes and a `py.typed` marker, so editors autocomplete `dml_rs` and type checkers
+  (mypy, pyright) check calls, e.g. invalid `score` or `scoring` values. CI checks the stubs
+  against the compiled extension with `mypy.stubtest` and type-checks the package.
+
 ## [0.9.0] - 2026-10-24
 
 ### Added

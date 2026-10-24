@@ -65,4 +65,10 @@ jobs:
       - run: pip install -r parity/requirements.txt pytest
       - run: pip install ./crates/dml-py
       - run: pytest crates/dml-py/tests -q
+      - name: type stubs match the extension, package type-checks
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          pip install mypy pandas-stubs
+          python -m mypy.stubtest dml_rs._dml_rs
+          python -m mypy -p dml_rs
       - run: cargo clippy -p dml-py --all-targets -- -D warnings

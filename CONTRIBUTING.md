@@ -36,6 +36,12 @@ python -m venv .venv
 cd crates/dml-py
 maturin develop --release
 pytest tests
+
+# Type stubs (python/dml_rs/_dml_rs.pyi) must match the extension: update them with any change
+# to a Python-facing signature in src/
+pip install mypy pandas-stubs
+python -m mypy.stubtest dml_rs._dml_rs
+python -m mypy -p dml_rs
 ```
 
 Every pull request runs the same checks in CI on Linux, macOS and Windows, plus a build on the

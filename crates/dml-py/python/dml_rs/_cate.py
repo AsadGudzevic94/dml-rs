@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Sequence, Union
+
 import numpy as np
 
+if TYPE_CHECKING:
+    import pandas as pd
+    from numpy.typing import ArrayLike, NDArray
+    from typing_extensions import Self
+
+    # Folds: one repetition ``[(train, test), ...]`` or a list of repetitions.
+    Folds = Sequence[Any]
+
 from . import _dml_rs
-from ._blp import blp_from
+from ._blp import BLP, blp_from
 from ._models import _Params, _splits
 from ._validation import _as_1d, _as_2d
 
 
 class _MetaLearner(_Params):
-    _method = None
+    _method: Literal["S", "T", "X", "R", "DR"]
 
     def _learners(self):
         raise NotImplementedError
@@ -19,17 +29,17 @@ class _MetaLearner(_Params):
     def _options(self):
         return {}
 
-    def fit(self, X, y, d, folds=None):
+    def fit(self, X: ArrayLike, y: ArrayLike, d: ArrayLike, folds: Optional[Folds] = None) -> Self:
         """Fit on covariates ``X``, outcome ``y`` and binary treatment ``d``."""
-        X = _as_2d(X, "X")
+        x = _as_2d(X, "X")
         self.result_ = _dml_rs.fit_cate(
-            self._method, _as_1d(y, "y"), _as_1d(d, "d"), X, **self._learners(), **self._options(),
+            self._method, _as_1d(y, "y"), _as_1d(d, "d"), x, **self._learners(), **self._options(),
             splits=_splits(folds),
         )
-        self.ate_ = float(np.mean(self.result_.effect(X)))
+        self.ate_ = float(self.result_.effect(x).mean())
         return self
 
-    def effect(self, X):
+    def effect(self, X: ArrayLike) -> NDArray[np.float64]:
         """Estimated CATE ``τ̂(x)`` for each row of ``X``."""
         return self._check_fitted().effect(_as_2d(X, "X"))
 
@@ -39,7 +49,7 @@ class SLearner(_MetaLearner):
 
     _method = "S"
 
-    def __init__(self, model):
+    def __init__(self, model: Any) -> None:
         self.model = model
 
     def _learners(self):
@@ -51,7 +61,7 @@ class TLearner(_MetaLearner):
 
     _method = "T"
 
-    def __init__(self, model):
+    def __init__(self, model: Any) -> None:
         self.model = model
 
     def _learners(self):
@@ -63,7 +73,7 @@ class XLearner(_MetaLearner):
 
     _method = "X"
 
-    def __init__(self, outcome_model, effect_model, propensity_model):
+    def __init__(self, outcome_model: Any, effect_model: Any, propensity_model: Any) -> None:
         self.outcome_model = outcome_model
         self.effect_model = effect_model
         self.propensity_model = propensity_model
@@ -73,8 +83,15 @@ class XLearner(_MetaLearner):
 
 
 class _CrossFitted(_MetaLearner):
-    def __init__(self, outcome_model, propensity_model, effect_model, n_folds=5, clipping_threshold=1e-2,
-                 random_state=0):
+    def __init__(
+        self,
+        outcome_model: Any,
+        propensity_model: Any,
+        effect_model: Any,
+        n_folds: int = 5,
+        clipping_threshold: float = 1e-2,
+        random_state: int = 0,
+    ) -> None:
         self.outcome_model = outcome_model
         self.propensity_model = propensity_model
         self.effect_model = effect_model
@@ -104,13 +121,13 @@ class DRLearner(_CrossFitted):
     _method = "DR"
 
     @property
-    def pseudo_outcomes_(self):
+    def pseudo_outcomes_(self) -> Optional[NDArray[np.float64]]:
         return self._check_fitted().pseudo_outcomes
 
-    def blp(self, basis):
+    def blp(self, basis: ArrayLike) -> BLP:
         """Best linear predictor of the CATE on ``basis`` with HC0 inference."""
         return blp_from(self._check_fitted().blp(_as_2d(basis, "basis")), basis, "b")
 
-    def gate(self, groups):
+    def gate(self, groups: ArrayLike) -> BLP:
         """Group average treatment effects for mutually exclusive 0/1 group dummies."""
         return blp_from(self._check_fitted().gate(_as_2d(groups, "groups")), groups, "group_")

@@ -2,7 +2,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Sequence, Union
+
 import numpy as np
+
+if TYPE_CHECKING:
+    import pandas as pd
+    from numpy.typing import ArrayLike, NDArray
+    from typing_extensions import Self
+
+    # Folds: one repetition ``[(train, test), ...]`` or a list of repetitions.
+    Folds = Sequence[Any]
 
 from ._validation import _as_2d
 
@@ -20,7 +30,7 @@ class BLP:
     the rows of a new basis, optionally simultaneous with ``joint=True``.
     """
 
-    def __init__(self, native, names):
+    def __init__(self, native: Any, names: list[str]) -> None:
         self._native = native
         self.names = names
 
@@ -29,11 +39,18 @@ class BLP:
     t_stat = property(lambda self: self._native.t_stat)
     pval = property(lambda self: self._native.pval)
 
-    def predict(self, basis):
+    def predict(self, basis: ArrayLike) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         """``(effect, se)`` at the rows of ``basis``."""
         return self._native.predict(_as_2d(basis, "basis"))
 
-    def confint(self, basis=None, joint=False, level=0.95, n_boot=500, random_state=0):
+    def confint(
+        self,
+        basis: Optional[ArrayLike] = None,
+        joint: bool = False,
+        level: float = 0.95,
+        n_boot: int = 500,
+        random_state: int = 0,
+    ) -> pd.DataFrame:
         """Intervals with columns ``[lower, effect, upper]``."""
         if basis is None:
             if self._native.is_gate:
@@ -42,7 +59,7 @@ class BLP:
                 ci = self._native.confint(level)
                 table = np.column_stack([ci[:, 0], self.coef, ci[:, 1]])
                 return self._frame(table, self.names, level)
-            index = self.names
+            index: Optional[Sequence[Any]] = self.names
         else:
             index = getattr(basis, "index", None)
         b = _as_2d(basis, "basis")
@@ -63,14 +80,14 @@ class BLP:
         return pd.DataFrame(table, columns=columns, index=None if index is None else list(index))
 
     @property
-    def summary(self):
+    def summary(self) -> pd.DataFrame:
         ci = self._native.confint(0.95)
         table = {"coef": self.coef, "std err": self.se, "t": self.t_stat, "P>|t|": self.pval,
                  "[0.025": ci[:, 0], "0.975]": ci[:, 1]}
         try:
             import pandas as pd
         except ImportError:
-            return {"index": self.names, **table}
+            return {"index": self.names, **table}  # type: ignore[return-value]  # no pandas
         return pd.DataFrame(table, index=self.names)
 
 

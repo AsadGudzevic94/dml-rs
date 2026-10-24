@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 import inspect
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Sequence, Union
 
 import numpy as np
 
+if TYPE_CHECKING:
+    import pandas as pd
+    from numpy.typing import ArrayLike, NDArray
+    from typing_extensions import Self
+
+    # Folds: one repetition ``[(train, test), ...]`` or a list of repetitions.
+    Folds = Sequence[Any]
+
 from . import _dml_rs
-from ._blp import blp_from
+from ._blp import BLP, blp_from
 from ._validation import _as_1d, _as_2d, _as_clusters
 
 
@@ -44,10 +53,10 @@ class _Params:
         sig = inspect.signature(cls.__init__)
         return [p for p in sig.parameters if p != "self"]
 
-    def get_params(self, deep=True):
+    def get_params(self, deep: bool = True) -> dict[str, Any]:
         return {name: getattr(self, name) for name in self._get_param_names()}
 
-    def set_params(self, **params):
+    def set_params(self, **params: Any) -> Self:
         for key, value in params.items():
             if key not in self._get_param_names():
                 raise ValueError(f"invalid parameter {key!r} for {type(self).__name__}")
@@ -87,7 +96,11 @@ class _DMLEstimator(_Params):
         self._boot = None
         return self
 
-    def evaluate_learners(self, learners=None, metric=None):
+    def evaluate_learners(
+        self,
+        learners: Optional[Sequence[str]] = None,
+        metric: Optional[Callable[..., float]] = None,
+    ) -> dict[str, NDArray[np.float64]]:
         """Evaluate the cross-fitted nuisance predictions with ``metric(y_true, y_pred)``.
 
         As DoubleML: both arguments have shape ``(1, n)`` and ``y_true`` is ``NaN`` where a
@@ -116,7 +129,7 @@ class _DMLEstimator(_Params):
             out[name] = res
         return out
 
-    def confint(self, level=0.95, joint=False):
+    def confint(self, level: float = 0.95, joint: bool = False) -> NDArray[np.float64]:
         """Confidence intervals, shape ``(n_treat, 2)``. ``joint=True`` needs :meth:`bootstrap`."""
         result = self._check_fitted()
         if joint:
@@ -125,13 +138,13 @@ class _DMLEstimator(_Params):
             return self._boot.joint_confint(level)
         return result.confint(level)
 
-    def bootstrap(self, method="normal", n_boot=500, random_state=0):
+    def bootstrap(self, method: str = "normal", n_boot: int = 500, random_state: int = 0) -> Self:
         """Multiplier bootstrap (``'normal'``, ``'Bayes'`` or ``'wild'``) for joint inference."""
         self._boot = self._check_fitted().bootstrap(method, n_boot, random_state)
         self.boot_t_stat_ = self._boot.t_stats
         return self
 
-    def p_adjust(self, method="romano-wolf"):
+    def p_adjust(self, method: str = "romano-wolf") -> NDArray[np.float64]:
         """Adjusted p-values: ``'romano-wolf'`` (needs :meth:`bootstrap`), ``'holm'`` or ``'bonferroni'``."""
         result = self._check_fitted()
         if method.lower() in ("romano-wolf", "rw"):
@@ -141,7 +154,14 @@ class _DMLEstimator(_Params):
         return result.p_adjust(method)
 
     # -- sensitivity analysis -------------------------------------------------
-    def sensitivity_analysis(self, cf_y=0.03, cf_d=0.03, rho=1.0, level=0.95, null_hypothesis=0.0):
+    def sensitivity_analysis(
+        self,
+        cf_y: float = 0.03,
+        cf_d: float = 0.03,
+        rho: float = 1.0,
+        level: float = 0.95,
+        null_hypothesis: Union[float, Sequence[float]] = 0.0,
+    ) -> Self:
         """Bounds on the effect under omitted confounding of strength ``(cf_y, cf_d, rho)``.
 
         ``cf_y`` is the share of the outcome's residual variation explained by the confounder,
@@ -164,13 +184,13 @@ class _DMLEstimator(_Params):
         return self
 
     @property
-    def sensitivity_summary(self):
+    def sensitivity_summary(self) -> str:
         """Text summary of the last :meth:`sensitivity_analysis`."""
         if not hasattr(self, "sensitivity_result_"):
             raise ValueError("call sensitivity_analysis() first")
         return str(self.sensitivity_result_)
 
-    def sensitivity_benchmark(self, benchmarking_set):
+    def sensitivity_benchmark(self, benchmarking_set: Sequence[Union[str, int]]) -> pd.DataFrame:
         """Calibrate ``cf_y``, ``cf_d`` and ``rho`` against observed covariates.
 
         Refits the model without the covariates in ``benchmarking_set`` (column names if ``X``
@@ -188,14 +208,14 @@ class _DMLEstimator(_Params):
             raise ValueError("benchmarking_set must not be empty")
         X_arr = np.asarray(X, dtype=np.float64)
         keep = [i for i in range(X_arr.shape[1]) if i not in drop]
-        short = type(self)(**self.get_params())
+        short: Any = type(self)(**self.get_params())
         short.fit(X_arr[:, keep], *rest, **kwargs)
         bm = result.sensitivity_benchmark(short.result_)
         table = {"cf_y": bm.cf_y, "cf_d": bm.cf_d, "rho": bm.rho, "delta_theta": bm.delta_theta}
         try:
             import pandas as pd
         except ImportError:
-            return {"index": result.treatment_names, **table}
+            return {"index": result.treatment_names, **table}  # type: ignore[return-value]  # no pandas
         return pd.DataFrame(table, index=result.treatment_names)
 
     def _remember(self, X, *rest, **kwargs):
@@ -203,7 +223,7 @@ class _DMLEstimator(_Params):
         self._fit_inputs = (X, rest, kwargs)
 
     @property
-    def summary(self):
+    def summary(self) -> pd.DataFrame:
         """Coefficient table as a pandas DataFrame (or a dict without pandas)."""
         result = self._check_fitted()
         ci = result.confint(0.95)
@@ -218,7 +238,7 @@ class _DMLEstimator(_Params):
         try:
             import pandas as pd
         except ImportError:
-            return {"index": result.treatment_names, **table}
+            return {"index": result.treatment_names, **table}  # type: ignore[return-value]  # no pandas
         return pd.DataFrame(table, index=result.treatment_names)
 
     def __str__(self):
@@ -239,7 +259,16 @@ class PLR(_DMLEstimator):
     random_state : seed for the sample splits.
     """
 
-    def __init__(self, ml_l, ml_m, ml_g=None, score="partialling out", n_folds=5, n_rep=1, random_state=0):
+    def __init__(
+        self,
+        ml_l: Any,
+        ml_m: Any,
+        ml_g: Any = None,
+        score: Literal["partialling out", "IV-type"] = "partialling out",
+        n_folds: int = 5,
+        n_rep: int = 1,
+        random_state: int = 0,
+    ) -> None:
         self.ml_l = ml_l
         self.ml_m = ml_m
         self.ml_g = ml_g
@@ -248,7 +277,14 @@ class PLR(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
-    def fit(self, X, y, d, folds=None, cluster=None):
+    def fit(
+        self,
+        X: ArrayLike,
+        y: ArrayLike,
+        d: ArrayLike,
+        folds: Optional[Folds] = None,
+        cluster: Optional[ArrayLike] = None,
+    ) -> Self:
         """Fit on covariates ``X``, outcome ``y`` and treatment(s) ``d``.
 
         ``folds`` optionally fixes the sample splits: a list of ``(train, test)``
@@ -280,8 +316,17 @@ class IRM(_DMLEstimator):
     normalize_ipw : normalise the inverse-probability weights.
     """
 
-    def __init__(self, ml_g, ml_m, score="ATE", clipping_threshold=1e-2, normalize_ipw=False, n_folds=5,
-                 n_rep=1, random_state=0):
+    def __init__(
+        self,
+        ml_g: Any,
+        ml_m: Any,
+        score: Literal["ATE", "ATTE"] = "ATE",
+        clipping_threshold: float = 1e-2,
+        normalize_ipw: bool = False,
+        n_folds: int = 5,
+        n_rep: int = 1,
+        random_state: int = 0,
+    ) -> None:
         self.ml_g = ml_g
         self.ml_m = ml_m
         self.score = score
@@ -291,7 +336,14 @@ class IRM(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
-    def fit(self, X, y, d, folds=None, cluster=None):
+    def fit(
+        self,
+        X: ArrayLike,
+        y: ArrayLike,
+        d: ArrayLike,
+        folds: Optional[Folds] = None,
+        cluster: Optional[ArrayLike] = None,
+    ) -> Self:
         self._remember(X, y, d, folds=folds, cluster=cluster)
         result = _dml_rs.fit_irm(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), self.ml_g, self.ml_m,
@@ -301,11 +353,11 @@ class IRM(_DMLEstimator):
         )
         return self._store(result)
 
-    def cate(self, basis):
+    def cate(self, basis: ArrayLike) -> BLP:
         """Best linear predictor of the CATE on ``basis`` (ATE score), as DoubleML's ``cate``."""
         return blp_from(self._check_fitted().cate(_as_2d(basis, "basis")), basis, "b")
 
-    def gate(self, groups):
+    def gate(self, groups: ArrayLike) -> BLP:
         """Group average treatment effects for 0/1 group dummies (ATE score), as DoubleML's ``gate``."""
         return blp_from(self._check_fitted().gate(_as_2d(groups, "groups")), groups, "group_")
 
@@ -325,8 +377,18 @@ class IIVM(_DMLEstimator):
     normalize_ipw : normalise the inverse-probability weights within instrument arms.
     """
 
-    def __init__(self, ml_g, ml_m, ml_r, subgroups=None, clipping_threshold=1e-2, normalize_ipw=False,
-                 n_folds=5, n_rep=1, random_state=0):
+    def __init__(
+        self,
+        ml_g: Any,
+        ml_m: Any,
+        ml_r: Any,
+        subgroups: Optional[dict[str, bool]] = None,
+        clipping_threshold: float = 1e-2,
+        normalize_ipw: bool = False,
+        n_folds: int = 5,
+        n_rep: int = 1,
+        random_state: int = 0,
+    ) -> None:
         self.ml_g = ml_g
         self.ml_m = ml_m
         self.ml_r = ml_r
@@ -337,7 +399,15 @@ class IIVM(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
-    def fit(self, X, y, d, z, folds=None, cluster=None):
+    def fit(
+        self,
+        X: ArrayLike,
+        y: ArrayLike,
+        d: ArrayLike,
+        z: ArrayLike,
+        folds: Optional[Folds] = None,
+        cluster: Optional[ArrayLike] = None,
+    ) -> Self:
         subgroups = {"always_takers": True, "never_takers": True, **(self.subgroups or {})}
         result = _dml_rs.fit_iivm(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), _as_1d(z, "z"), self.ml_g, self.ml_m, self.ml_r,
@@ -350,8 +420,17 @@ class IIVM(_DMLEstimator):
 
 
 class _DIDBase(_DMLEstimator):
-    def __init__(self, ml_g, ml_m=None, score="observational", in_sample_normalization=True,
-                 clipping_threshold=1e-2, n_folds=5, n_rep=1, random_state=0):
+    def __init__(
+        self,
+        ml_g: Any,
+        ml_m: Any = None,
+        score: Literal["observational", "experimental"] = "observational",
+        in_sample_normalization: bool = True,
+        clipping_threshold: float = 1e-2,
+        n_folds: int = 5,
+        n_rep: int = 1,
+        random_state: int = 0,
+    ) -> None:
         self.ml_g = ml_g
         self.ml_m = ml_m
         self.score = score
@@ -389,7 +468,14 @@ class DID(_DIDBase):
     in_sample_normalization : normalise the weights by their sample means (DoubleML default).
     """
 
-    def fit(self, X, y, d, folds=None, cluster=None):
+    def fit(
+        self,
+        X: ArrayLike,
+        y: ArrayLike,
+        d: ArrayLike,
+        folds: Optional[Folds] = None,
+        cluster: Optional[ArrayLike] = None,
+    ) -> Self:
         return self._fit(X, y, d, None, folds, cluster)
 
 
@@ -400,14 +486,22 @@ class DIDCS(_DIDBase):
     Parameters as :class:`DID`, with ``ml_g`` fitted in each treatment-group x period cell.
     """
 
-    def fit(self, X, y, d, t, folds=None, cluster=None):
+    def fit(
+        self,
+        X: ArrayLike,
+        y: ArrayLike,
+        d: ArrayLike,
+        t: ArrayLike,
+        folds: Optional[Folds] = None,
+        cluster: Optional[ArrayLike] = None,
+    ) -> Self:
         return self._fit(X, y, d, t, folds, cluster)
 
 
 class DIDAggregation:
     """Aggregated staggered-DID effects (by cohort, calendar time or event time)."""
 
-    def __init__(self, how, effects, overall, weights, overall_weights):
+    def __init__(self, how: str, effects: Any, overall: Any, weights: Any, overall_weights: Any) -> None:
         self.aggregation = how
         self._effects = effects
         self._overall = overall
@@ -420,18 +514,20 @@ class DIDAggregation:
     overall_coef = property(lambda self: float(self._overall.coef[0]))
     overall_se = property(lambda self: float(self._overall.se[0]))
 
-    def confint(self, level=0.95, joint=False, n_boot=500, random_state=0):
+    def confint(
+        self, level: float = 0.95, joint: bool = False, n_boot: int = 500, random_state: int = 0
+    ) -> NDArray[np.float64]:
         """Intervals for the aggregated effects; ``joint=True`` gives simultaneous bands."""
         if joint:
             return self._effects.bootstrap("normal", n_boot, random_state).joint_confint(level)
         return self._effects.confint(level)
 
     @property
-    def summary(self):
+    def summary(self) -> pd.DataFrame:
         return _summary_table(self._effects)
 
     @property
-    def overall_summary(self):
+    def overall_summary(self) -> pd.DataFrame:
         return _summary_table(self._overall)
 
     def __str__(self):
@@ -468,9 +564,21 @@ class StaggeredDID(_DMLEstimator):
         cross-sections, where every row is a separate observation.
     """
 
-    def __init__(self, ml_g, ml_m=None, control_group="never_treated", anticipation_periods=0,
-                 gt_combinations="standard", score="observational", in_sample_normalization=True,
-                 clipping_threshold=1e-2, n_folds=5, n_rep=1, random_state=0, panel=True):
+    def __init__(
+        self,
+        ml_g: Any,
+        ml_m: Any = None,
+        control_group: Literal["never_treated", "not_yet_treated"] = "never_treated",
+        anticipation_periods: int = 0,
+        gt_combinations: Literal["standard", "all"] = "standard",
+        score: Literal["observational", "experimental"] = "observational",
+        in_sample_normalization: bool = True,
+        clipping_threshold: float = 1e-2,
+        n_folds: int = 5,
+        n_rep: int = 1,
+        random_state: int = 0,
+        panel: bool = True,
+    ) -> None:
         self.ml_g = ml_g
         self.ml_m = ml_m
         self.control_group = control_group
@@ -484,7 +592,7 @@ class StaggeredDID(_DMLEstimator):
         self.random_state = random_state
         self.panel = panel
 
-    def fit(self, X, y, id, t, g):
+    def fit(self, X: ArrayLike, y: ArrayLike, id: ArrayLike, t: ArrayLike, g: ArrayLike) -> Self:
         """Fit on long-format data: one row per observation with period ``t`` and cohort
         ``g`` (first treated period; ``np.inf`` or NaN for never treated). For panels, rows
         are linked by ``id`` and ``X`` must be time-invariant; for repeated cross-sections
@@ -500,12 +608,14 @@ class StaggeredDID(_DMLEstimator):
         self.group_times_ = self.staggered_result_.group_times
         return self._store(self.staggered_result_.att)
 
-    def fit_frame(self, df, y_col, id_col, t_col, g_col, x_cols):
+    def fit_frame(
+        self, df: pd.DataFrame, y_col: str, id_col: str, t_col: str, g_col: str, x_cols: Sequence[str]
+    ) -> Self:
         """Convenience wrapper for a pandas DataFrame in long format."""
         return self.fit(df[list(x_cols)].to_numpy(), df[y_col].to_numpy(), df[id_col].to_numpy(),
                         df[t_col].to_numpy(), df[g_col].to_numpy())
 
-    def aggregate(self, aggregation="group"):
+    def aggregate(self, aggregation: Literal["group", "time", "eventstudy"] = "group") -> DIDAggregation:
         """Aggregate the ATT(g, t): ``"group"``, ``"time"`` or ``"eventstudy"``."""
         if not hasattr(self, "staggered_result_"):
             raise AttributeError("StaggeredDID is not fitted yet; call fit() first")
@@ -522,7 +632,15 @@ class PLIV(_DMLEstimator):
     ml_r : regressor for ``E[D | X]``.
     """
 
-    def __init__(self, ml_l, ml_m, ml_r, n_folds=5, n_rep=1, random_state=0):
+    def __init__(
+        self,
+        ml_l: Any,
+        ml_m: Any,
+        ml_r: Any,
+        n_folds: int = 5,
+        n_rep: int = 1,
+        random_state: int = 0,
+    ) -> None:
         self.ml_l = ml_l
         self.ml_m = ml_m
         self.ml_r = ml_r
@@ -530,7 +648,15 @@ class PLIV(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
-    def fit(self, X, y, d, z, folds=None, cluster=None):
+    def fit(
+        self,
+        X: ArrayLike,
+        y: ArrayLike,
+        d: ArrayLike,
+        z: ArrayLike,
+        folds: Optional[Folds] = None,
+        cluster: Optional[ArrayLike] = None,
+    ) -> Self:
         result = _dml_rs.fit_pliv(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), _as_1d(z, "z"), self.ml_l, self.ml_m, self.ml_r,
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
