@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-24
+
 ### Added
 - Cluster-robust DML for one-way and two-way clustered data (Chiang, Kato, Ma & Sasaki, 2022), as
   DoubleML's `cluster_vars`: `DmlData::with_clusters` / `with_two_way_clusters` make every model
@@ -146,7 +148,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.4.0...v0.5.0
