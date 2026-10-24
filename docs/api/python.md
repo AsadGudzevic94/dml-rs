@@ -6,6 +6,9 @@ All classes are available from the top-level package, e.g. `dml_rs.PLR`.
 
 ::: dml_rs.PLR
 ::: dml_rs.IRM
+::: dml_rs.APO
+::: dml_rs.APOS
+::: dml_rs.CausalContrast
 ::: dml_rs.PLIV
 ::: dml_rs.IIVM
 ::: dml_rs.DID

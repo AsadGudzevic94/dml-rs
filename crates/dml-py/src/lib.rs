@@ -3,8 +3,8 @@
 //! `fit_*` functions below.
 
 use dml_core::{
-    BootstrapMethod, Did, DidCs, DidScore, DmlData, DmlFit, Fold, Iivm, Irm, IrmScore, PAdjust,
-    Pliv, Plr, PlrScore,
+    Apo, Apos, AposFit, BootstrapMethod, Did, DidCs, DidScore, DmlData, DmlFit, Fold, Iivm, Irm,
+    IrmScore, PAdjust, Pliv, Plr, PlrScore,
 };
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -622,6 +622,108 @@ fn fit_iivm(
     run_model!(py, model, data, splits)
 }
 
+/// Average potential outcome of one treatment level (discrete treatment).
+#[pyfunction]
+#[pyo3(signature = (y, d, x, ml_g, ml_m, treatment_level, clipping_threshold = 1e-2,
+                    normalize_ipw = false, n_folds = 5, n_rep = 1, seed = 0, splits = None,
+                    treatment_names = None, cluster = None))]
+#[allow(clippy::too_many_arguments)]
+fn fit_apo(
+    py: Python<'_>,
+    y: PyReadonlyArray1<'_, f64>,
+    d: PyReadonlyArray2<'_, f64>,
+    x: PyReadonlyArray2<'_, f64>,
+    ml_g: &Bound<'_, PyAny>,
+    ml_m: &Bound<'_, PyAny>,
+    treatment_level: f64,
+    clipping_threshold: f64,
+    normalize_ipw: bool,
+    n_folds: usize,
+    n_rep: usize,
+    seed: u64,
+    splits: Option<PySplits>,
+    treatment_names: Option<Vec<String>>,
+    cluster: Option<PyReadonlyArray2<'_, i64>>,
+) -> PyResult<PyDmlResult> {
+    let data = build_data(y, d, x, None, None, treatment_names, cluster)?;
+    let model = Apo::from_boxed(to_regressor(ml_g)?, to_classifier(ml_m)?, treatment_level)
+        .clipping_threshold(clipping_threshold)
+        .normalize_ipw(normalize_ipw)
+        .n_folds(n_folds)
+        .n_rep(n_rep)
+        .seed(seed);
+    run_model!(py, model, data, splits)
+}
+
+/// Average potential outcomes of several treatment levels, fitted on shared
+/// sample splits (returned by `fit_apos`).
+#[pyclass(name = "AposResult", module = "dml_rs", frozen)]
+pub struct PyAposResult {
+    inner: AposFit,
+}
+
+#[pymethods]
+impl PyAposResult {
+    #[getter]
+    fn treatment_levels(&self) -> Vec<f64> {
+        self.inner.levels().to_vec()
+    }
+
+    /// One estimate per treatment level.
+    #[getter]
+    fn levels(&self) -> PyDmlResult {
+        PyDmlResult::from_fit(self.inner.apos().clone())
+    }
+
+    /// Effects of each level against each reference level (`"d vs d_ref"`).
+    fn causal_contrast(&self, reference_levels: Vec<f64>) -> PyResult<PyDmlResult> {
+        self.inner
+            .causal_contrast(&reference_levels)
+            .map(PyDmlResult::from_fit)
+            .map_err(to_py_err)
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (y, d, x, ml_g, ml_m, treatment_levels, clipping_threshold = 1e-2,
+                    normalize_ipw = false, n_folds = 5, n_rep = 1, seed = 0, splits = None,
+                    cluster = None))]
+#[allow(clippy::too_many_arguments)]
+fn fit_apos(
+    py: Python<'_>,
+    y: PyReadonlyArray1<'_, f64>,
+    d: PyReadonlyArray2<'_, f64>,
+    x: PyReadonlyArray2<'_, f64>,
+    ml_g: &Bound<'_, PyAny>,
+    ml_m: &Bound<'_, PyAny>,
+    treatment_levels: Vec<f64>,
+    clipping_threshold: f64,
+    normalize_ipw: bool,
+    n_folds: usize,
+    n_rep: usize,
+    seed: u64,
+    splits: Option<PySplits>,
+    cluster: Option<PyReadonlyArray2<'_, i64>>,
+) -> PyResult<PyAposResult> {
+    let data = build_data(y, d, x, None, None, None, cluster)?;
+    let model = Apos::from_boxed(to_regressor(ml_g)?, to_classifier(ml_m)?, treatment_levels)
+        .clipping_threshold(clipping_threshold)
+        .normalize_ipw(normalize_ipw)
+        .n_folds(n_folds)
+        .n_rep(n_rep)
+        .seed(seed);
+    let result = match splits {
+        Some(s) => {
+            let s = to_splits(s);
+            py.detach(|| model.fit_with_folds(&data, &s))
+        }
+        None => py.detach(|| model.fit(&data)),
+    };
+    result
+        .map(|inner| PyAposResult { inner })
+        .map_err(to_py_err)
+}
+
 pub(crate) fn did_score(score: &str) -> PyResult<DidScore> {
     match score {
         "observational" => Ok(DidScore::Observational),
@@ -686,11 +788,11 @@ fn fit_did(
 mod dml_rs_native {
     #[pymodule_export]
     use super::{
-        fit_cate, fit_did, fit_iivm, fit_irm, fit_pliv, fit_plr, fit_staggered_did, PyBlp,
-        PyBootstrap, PyCateResult, PyDmlResult, PyGradientBoostingClassifier,
-        PyGradientBoostingRegressor, PyLasso, PyLassoCV, PyLogisticRegression,
-        PyLogisticRegressionCV, PyOls, PyRandomForestClassifier, PyRandomForestRegressor,
-        PySensitivityBenchmark, PySensitivityResult, PyStaggeredResult,
+        fit_apo, fit_apos, fit_cate, fit_did, fit_iivm, fit_irm, fit_pliv, fit_plr,
+        fit_staggered_did, PyAposResult, PyBlp, PyBootstrap, PyCateResult, PyDmlResult,
+        PyGradientBoostingClassifier, PyGradientBoostingRegressor, PyLasso, PyLassoCV,
+        PyLogisticRegression, PyLogisticRegressionCV, PyOls, PyRandomForestClassifier,
+        PyRandomForestRegressor, PySensitivityBenchmark, PySensitivityResult, PyStaggeredResult,
     };
 
     #[pymodule_init]

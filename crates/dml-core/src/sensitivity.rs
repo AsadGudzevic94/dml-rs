@@ -103,6 +103,10 @@ pub(crate) struct SensitivityStore {
     pub max_bias: Array2<f64>,
     /// Shape `(n, k, n_rep)`.
     pub psi_max_bias: Array3<f64>,
+    /// Influence functions of `σ²` and `ν²`, shape `(n, k, n_rep)` (to combine
+    /// the elements of several estimates, e.g. APO contrasts).
+    pub psi_sigma2: Array3<f64>,
+    pub psi_nu2: Array3<f64>,
     /// Population variance of the outcome (for benchmarking).
     pub var_y: f64,
 }
@@ -114,7 +118,40 @@ impl SensitivityStore {
             nu2: Array2::zeros((k, n_rep)),
             max_bias: Array2::zeros((k, n_rep)),
             psi_max_bias: Array3::zeros((n, k, n_rep)),
+            psi_sigma2: Array3::zeros((n, k, n_rep)),
+            psi_nu2: Array3::zeros((n, k, n_rep)),
             var_y,
+        }
+    }
+
+    /// The stored elements of estimate `j` in repetition `r`.
+    pub(crate) fn elements(&self, j: usize, r: usize) -> Elements {
+        Elements {
+            sigma2: self.sigma2[[j, r]],
+            nu2: self.nu2[[j, r]],
+            psi_sigma2: self.psi_sigma2.slice(ndarray::s![.., j, r]).to_owned(),
+            psi_nu2: self.psi_nu2.slice(ndarray::s![.., j, r]).to_owned(),
+        }
+    }
+
+    /// Stack stores of fits on the same observations along the estimates.
+    pub(crate) fn concat(stores: &[&SensitivityStore]) -> Self {
+        let cat2 = |f: fn(&SensitivityStore) -> &Array2<f64>| {
+            let views: Vec<_> = stores.iter().map(|s| f(s).view()).collect();
+            ndarray::concatenate(ndarray::Axis(0), &views).expect("same n_rep")
+        };
+        let cat3 = |f: fn(&SensitivityStore) -> &Array3<f64>| {
+            let views: Vec<_> = stores.iter().map(|s| f(s).view()).collect();
+            ndarray::concatenate(ndarray::Axis(1), &views).expect("same n and n_rep")
+        };
+        Self {
+            sigma2: cat2(|s| &s.sigma2),
+            nu2: cat2(|s| &s.nu2),
+            max_bias: cat2(|s| &s.max_bias),
+            psi_max_bias: cat3(|s| &s.psi_max_bias),
+            psi_sigma2: cat3(|s| &s.psi_sigma2),
+            psi_nu2: cat3(|s| &s.psi_nu2),
+            var_y: stores[0].var_y,
         }
     }
 
@@ -129,6 +166,12 @@ impl SensitivityStore {
         self.psi_max_bias
             .slice_mut(ndarray::s![.., j, r])
             .assign(&psi);
+        self.psi_sigma2
+            .slice_mut(ndarray::s![.., j, r])
+            .assign(&e.psi_sigma2);
+        self.psi_nu2
+            .slice_mut(ndarray::s![.., j, r])
+            .assign(&e.psi_nu2);
     }
 }
 

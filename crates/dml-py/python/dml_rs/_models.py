@@ -663,3 +663,127 @@ class PLIV(_DMLEstimator):
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
         )
         return self._store(result)
+
+
+class APO(_DMLEstimator):
+    """Average potential outcome ``E[Y(d)]`` of one level ``d`` of a discrete treatment.
+
+    Default sample splits are stratified by the treatment, as in DoubleML.
+
+    Parameters
+    ----------
+    ml_g : regressor for ``E[Y | D = d, X]``.
+    ml_m : classifier for the generalised propensity ``P(D = d | X)``.
+    treatment_level : the level ``d``.
+    clipping_threshold : propensities are clipped to ``[t, 1 - t]``.
+    normalize_ipw : normalise the inverse-probability weights.
+    """
+
+    def __init__(
+        self,
+        ml_g: Any,
+        ml_m: Any,
+        treatment_level: float,
+        clipping_threshold: float = 1e-2,
+        normalize_ipw: bool = False,
+        n_folds: int = 5,
+        n_rep: int = 1,
+        random_state: int = 0,
+    ) -> None:
+        self.ml_g = ml_g
+        self.ml_m = ml_m
+        self.treatment_level = treatment_level
+        self.clipping_threshold = clipping_threshold
+        self.normalize_ipw = normalize_ipw
+        self.n_folds = n_folds
+        self.n_rep = n_rep
+        self.random_state = random_state
+
+    def fit(
+        self,
+        X: ArrayLike,
+        y: ArrayLike,
+        d: ArrayLike,
+        folds: Optional[Folds] = None,
+        cluster: Optional[ArrayLike] = None,
+    ) -> Self:
+        self._remember(X, y, d, folds=folds, cluster=cluster)
+        result = _dml_rs.fit_apo(
+            _as_1d(y, "y"), _as_2d(_as_1d(d, "d"), "d"), _as_2d(X, "X"), self.ml_g, self.ml_m,
+            float(self.treatment_level), clipping_threshold=self.clipping_threshold,
+            normalize_ipw=self.normalize_ipw, n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
+            splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
+        )
+        return self._store(result)
+
+
+class CausalContrast(_DMLEstimator):
+    """Contrasts between average potential outcomes, from `APOS.causal_contrast`.
+
+    Offers the fitted-model API (``summary``, ``confint``, ``bootstrap``, ``p_adjust``,
+    ``sensitivity_analysis``); there is nothing to refit.
+    """
+
+    def __init__(self, result: Any) -> None:
+        self._store(result)
+
+    @classmethod
+    def _get_param_names(cls) -> list[str]:
+        return []
+
+
+class APOS(_DMLEstimator):
+    """Average potential outcomes of several levels of a discrete treatment, and contrasts.
+
+    All levels are fitted on the same sample splits, so their estimates and contrasts have joint
+    inference (`bootstrap`, ``confint(joint=True)``). Parameters as `APO`, with
+    ``treatment_levels`` the levels to estimate.
+    """
+
+    def __init__(
+        self,
+        ml_g: Any,
+        ml_m: Any,
+        treatment_levels: Sequence[float],
+        clipping_threshold: float = 1e-2,
+        normalize_ipw: bool = False,
+        n_folds: int = 5,
+        n_rep: int = 1,
+        random_state: int = 0,
+    ) -> None:
+        self.ml_g = ml_g
+        self.ml_m = ml_m
+        self.treatment_levels = treatment_levels
+        self.clipping_threshold = clipping_threshold
+        self.normalize_ipw = normalize_ipw
+        self.n_folds = n_folds
+        self.n_rep = n_rep
+        self.random_state = random_state
+
+    def fit(
+        self,
+        X: ArrayLike,
+        y: ArrayLike,
+        d: ArrayLike,
+        folds: Optional[Folds] = None,
+        cluster: Optional[ArrayLike] = None,
+    ) -> Self:
+        self._remember(X, y, d, folds=folds, cluster=cluster)
+        levels = [float(v) for v in np.atleast_1d(np.asarray(self.treatment_levels, dtype=np.float64))]
+        self._apos = _dml_rs.fit_apos(
+            _as_1d(y, "y"), _as_2d(_as_1d(d, "d"), "d"), _as_2d(X, "X"), self.ml_g, self.ml_m, levels,
+            clipping_threshold=self.clipping_threshold, normalize_ipw=self.normalize_ipw, n_folds=self.n_folds,
+            n_rep=self.n_rep, seed=self.random_state, splits=_splits(folds), cluster=_as_clusters(cluster),
+        )
+        return self._store(self._apos.levels)
+
+    def causal_contrast(self, reference_levels: Union[float, Sequence[float]]) -> CausalContrast:
+        """Average effects of each level against each reference level, as DoubleML's ``causal_contrast``.
+
+        For every reference level in turn, all levels not yet used as a reference are compared with
+        it (``"d vs d_ref"``). Inference accounts for the correlation between the estimates; with
+        clustered data the standard errors are cluster-robust.
+        """
+        self._check_fitted()
+        refs = [float(v) for v in np.atleast_1d(np.asarray(reference_levels, dtype=np.float64))]
+        return CausalContrast(self._apos.causal_contrast(refs))

@@ -151,6 +151,22 @@ impl SampleSplitting {
             .collect()
     }
 
+    /// Like [`draw`](Self::draw), but each fold holds about the same share of
+    /// every stratum (e.g. treatment level), with the same per-repetition seeds.
+    pub fn draw_stratified(&self, strata: &[usize]) -> Result<Vec<Vec<Fold>>> {
+        if self.n_rep == 0 {
+            return Err(DmlError::InvalidArgument("n_rep must be at least 1".into()));
+        }
+        (0..self.n_rep as u64)
+            .map(|r| {
+                let seed = self
+                    .seed
+                    .wrapping_add(r.wrapping_mul(0x9E37_79B9_7F4A_7C15));
+                KFold::new(self.n_folds, seed)?.split_stratified(strata)
+            })
+            .collect()
+    }
+
     /// Cluster-level splits for every repetition (see [`crate::cluster`]).
     pub fn draw_clustered(&self, clusters: &[Array1<i64>]) -> Result<Vec<Vec<crate::ClusterFold>>> {
         if self.n_rep == 0 {

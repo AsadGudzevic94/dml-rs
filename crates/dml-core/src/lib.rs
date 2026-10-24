@@ -94,8 +94,8 @@ pub use learner::{
     RandomForestRegressor, Regressor,
 };
 pub use model::{
-    Did, DidCs, DidScore, Iivm, Irm, IrmScore, LinearScoreModel, LossKind, NuisanceTarget, Pliv,
-    Plr, PlrScore, ScoreEstimate, ScoreInput,
+    Apo, Apos, AposFit, Did, DidCs, DidScore, Iivm, Irm, IrmScore, LinearScoreModel, LossKind,
+    NuisanceTarget, Pliv, Plr, PlrScore, ScoreEstimate, ScoreInput,
 };
 pub use score::LinearScore;
 pub use sensitivity::{

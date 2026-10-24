@@ -65,6 +65,41 @@ inverse-probability weights.
     let gate = fit.gate(groups.view())?;
     ```
 
+## Multi-valued treatments (APO, APOS)
+
+For a discrete treatment with several levels $d$ (e.g. no programme, short programme, long
+programme), the average potential outcome
+
+$$
+\theta(d) = E[Y(d)] = E[g_0(d, X)], \qquad g_0(d, X) = E[Y \mid D = d, X], \qquad
+m_d(X) = P(D = d \mid X),
+$$
+
+is estimated with the doubly robust score
+$g(d, X) + 1\{D = d\}\,(Y - g(d, X))/m_d(X) - \theta$. `APO` estimates one level; `APOS`
+estimates several levels on the same sample splits and gives the contrasts
+$\theta(d) - \theta(d_{\text{ref}})$, the average effect of level $d$ against a reference level,
+with joint inference. Sensitivity analysis is available for both, and for contrasts it combines
+the elements of the two levels (as DoubleML). Default sample splits are stratified by the treatment.
+
+=== "Python"
+
+    ```python
+    model = dml_rs.APOS(ml_g, ml_m, treatment_levels=[0, 1, 2]).fit(X, y, d)
+    model.summary                       # E[Y(0)], E[Y(1)], E[Y(2)]
+    effects = model.causal_contrast(0)  # "1 vs 0", "2 vs 0"
+    effects.summary
+    effects.bootstrap().confint(joint=True)
+    ```
+
+=== "Rust"
+
+    ```rust
+    let fit = Apos::new(ml_g, ml_m, vec![0.0, 1.0, 2.0]).fit(&data)?;
+    let levels = fit.apos();
+    let effects = fit.causal_contrast(&[0.0])?;
+    ```
+
 ## Partially linear IV regression (PLIV)
 
 $$

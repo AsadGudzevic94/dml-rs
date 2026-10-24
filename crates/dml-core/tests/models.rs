@@ -1,7 +1,7 @@
 //! Monte-Carlo checks for IRM, PLIV and the bootstrap on DGPs with a known
 //! effect, where the nuisance learners are correctly specified.
 
-use dml_core::{BootstrapMethod, DmlData, Irm, IrmScore, LogisticRegression, Ols, Pliv, Plr};
+use dml_core::{Apos, BootstrapMethod, DmlData, Irm, IrmScore, LogisticRegression, Ols, Pliv, Plr};
 use ndarray::{Array1, Array2};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -477,6 +477,102 @@ fn cluster_robust_standard_errors_restore_coverage() {
         assert_eq!(fit_cl.n_clusters(), Some(60));
         iid_cov += usize::from(covers(&fit_iid.confint(0.95).unwrap(), 0, 0.5));
         cl_cov += usize::from(covers(&fit_cl.confint(0.95).unwrap(), 0, 0.5));
+    }
+    let (iid_cov, cl_cov) = (iid_cov as f64 / reps as f64, cl_cov as f64 / reps as f64);
+    assert!(cl_cov >= 0.88, "clustered coverage = {cl_cov}");
+    assert!(
+        iid_cov <= 0.85,
+        "iid coverage = {iid_cov} should be too low"
+    );
+}
+
+/// Three treatment levels, each more likely with higher `X1` (confounding);
+/// `E[Y(d)] = 2·d` for `d = 0, 1, 2`. With `cluster_size > 1`, the level is
+/// assigned per cluster and the outcome has a cluster shock.
+fn discrete_treatment_data(
+    n_clusters: usize,
+    cluster_size: usize,
+    seed: u64,
+) -> (DmlData, Array1<i64>) {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let n = n_clusters * cluster_size;
+    let x = normal_matrix(&mut rng, n, 3);
+    let (mut d, mut y) = (Array1::zeros(n), Array1::zeros(n));
+    let mut cluster = Array1::zeros(n);
+    for g in 0..n_clusters {
+        let rows = g * cluster_size..(g + 1) * cluster_size;
+        let first = g * cluster_size;
+        // Cluster-level assignment driven by the first member's X1.
+        let score = x[[first, 0]] + std_normal(&mut rng);
+        let level = if score < -0.5 {
+            0.0
+        } else if score < 0.5 {
+            1.0
+        } else {
+            2.0
+        };
+        let shock = if cluster_size > 1 {
+            std_normal(&mut rng)
+        } else {
+            0.0
+        };
+        for i in rows {
+            cluster[i] = g as i64;
+            d[i] = level;
+            y[i] = 2.0 * level + x[[first, 0]] + 0.5 * x[[i, 1]] + shock + std_normal(&mut rng);
+        }
+    }
+    // The first member's X1 confounds every member: give it to all of them.
+    let mut x_all = x.clone();
+    for g in 0..n_clusters {
+        for i in g * cluster_size..(g + 1) * cluster_size {
+            x_all[[i, 0]] = x[[g * cluster_size, 0]];
+        }
+    }
+    (DmlData::new(y, d, x_all).unwrap(), cluster)
+}
+
+#[test]
+fn apos_contrasts_have_nominal_coverage() {
+    let reps = 150;
+    let mut covered = [0usize; 2];
+    for r in 0..reps {
+        let (data, _) = discrete_treatment_data(1500, 1, 7000 + r);
+        let fit = Apos::new(
+            Ols::new(),
+            LogisticRegression::default(),
+            vec![0.0, 1.0, 2.0],
+        )
+        .seed(r)
+        .fit(&data)
+        .unwrap();
+        let contrast = fit.causal_contrast(&[0.0]).unwrap(); // 1 vs 0, 2 vs 0
+        let ci = contrast.confint(0.95).unwrap();
+        for (j, truth) in [2.0, 4.0].into_iter().enumerate() {
+            covered[j] += usize::from(covers(&ci, j, truth));
+        }
+    }
+    for c in covered {
+        let coverage = c as f64 / reps as f64;
+        assert!((0.89..=0.99).contains(&coverage), "coverage = {coverage}");
+    }
+}
+
+#[test]
+fn clustered_apos_contrasts_are_cluster_robust() {
+    let reps = 150;
+    let (mut iid_cov, mut cl_cov) = (0, 0);
+    for r in 0..reps {
+        let (data, cluster) = discrete_treatment_data(150, 8, 8000 + r);
+        let apos = Apos::new(Ols::new(), LogisticRegression::default(), vec![0.0, 1.0]).seed(r);
+        let iid = apos.fit(&data).unwrap().causal_contrast(&[0.0]).unwrap();
+        let clustered = apos
+            .fit(&data.with_clusters(cluster).unwrap())
+            .unwrap()
+            .causal_contrast(&[0.0])
+            .unwrap();
+        iid_cov += usize::from(covers(&iid.confint(0.95).unwrap(), 0, 2.0));
+        cl_cov += usize::from(covers(&clustered.confint(0.95).unwrap(), 0, 2.0));
     }
     let (iid_cov, cl_cov) = (iid_cov as f64 / reps as f64, cl_cov as f64 / reps as f64);
     assert!(cl_cov >= 0.88, "clustered coverage = {cl_cov}");

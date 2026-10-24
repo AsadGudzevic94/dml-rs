@@ -4,7 +4,9 @@
 mod common;
 
 use common::{assert_all_close, assert_close, to_matrix, to_vec, Fixture};
-use dml_core::{Did, DidCs, DidScore, DmlFit, Iivm, Irm, IrmScore, PAdjust, Pliv, Plr, PlrScore};
+use dml_core::{
+    Apo, Apos, Did, DidCs, DidScore, DmlFit, Iivm, Irm, IrmScore, PAdjust, Pliv, Plr, PlrScore,
+};
 use ndarray::Array2;
 
 /// Closed-form learners (OLS, ridge) and the DML algebra agree to ~1e-12;
@@ -71,6 +73,15 @@ fn fit_fixture_on(fx: &Fixture, data: &dml_core::DmlData) -> DmlFit {
             )
             .subgroups(flag("always_takers"), flag("never_takers"))
             .fit_with_folds(&data, &folds)
+        }
+        "apo" => {
+            let apo = Apo::from_boxed(
+                fx.regressor("ml_g"),
+                fx.classifier("ml_m"),
+                fx.0["options"]["treatment_level"].as_f64().unwrap(),
+            )
+            .normalize_ipw(fx.option_bool("normalize_ipw"));
+            fit!(apo)
         }
         kind @ ("did" | "did_cs") => {
             let score = match fx.option_str("score") {
@@ -433,6 +444,173 @@ fn bootstrap_is_rejected_for_clustered_fits() {
     assert!(fit
         .bootstrap(dml_core::BootstrapMethod::Normal, 10, 1)
         .is_err());
+}
+
+#[test]
+fn apo_repeated_splits() {
+    check("apo_level1_rep2", TOL_ITERATIVE);
+}
+
+#[test]
+fn apo_normalized_ipw() {
+    check("apo_level0_normalized", TOL_ITERATIVE);
+}
+
+/// Compare a fit with a DoubleML framework (coefficients, inference) and its
+/// sensitivity scenarios.
+fn check_framework(what: &str, fit: &DmlFit, e: &serde_json::Value, tol: f64) {
+    let (k, n_rep) = (fit.n_treat(), fit.n_rep());
+    if let Some(names) = e["names"].as_array() {
+        let names: Vec<&str> = names.iter().map(|v| v.as_str().unwrap()).collect();
+        assert_eq!(fit.treatment_names(), names.as_slice(), "{what} names");
+    }
+    let (all_coef, all_se) = (to_matrix(&e["all_coef"]), to_matrix(&e["all_se"]));
+    for j in 0..k {
+        for r in 0..n_rep {
+            assert_close(
+                &format!("{what} all_coef[{j},{r}]"),
+                fit.all_coef()[[j, r]],
+                all_coef[[j, r]],
+                tol,
+            );
+            assert_close(
+                &format!("{what} all_se[{j},{r}]"),
+                fit.all_se()[[j, r]],
+                all_se[[j, r]],
+                tol,
+            );
+        }
+    }
+    assert_all_close(
+        &format!("{what} coef"),
+        &fit.coef().to_owned(),
+        &to_vec(&e["coef"]),
+        tol,
+    );
+    assert_all_close(
+        &format!("{what} se"),
+        &fit.se().to_owned(),
+        &to_vec(&e["se"]),
+        tol,
+    );
+    assert_all_close(
+        &format!("{what} pval"),
+        &fit.p_value(),
+        &to_vec(&e["pval"]),
+        tol,
+    );
+    assert_matrix_close(
+        &format!("{what} ci95"),
+        &fit.confint(0.95).unwrap(),
+        &to_matrix(&e["ci95"]),
+        tol,
+    );
+}
+
+fn check_framework_sensitivity(what: &str, fit: &DmlFit, e: &serde_json::Value, tol: f64) {
+    let (sigma2, nu2) = fit.sensitivity_elements().expect("sensitivity elements");
+    assert_matrix_close(
+        &format!("{what} sigma2"),
+        &sigma2.to_owned(),
+        &to_matrix(&e["sigma2"]),
+        tol,
+    );
+    assert_matrix_close(
+        &format!("{what} nu2"),
+        &nu2.to_owned(),
+        &to_matrix(&e["nu2"]),
+        tol,
+    );
+    for (i, sc) in e["scenarios"].as_array().unwrap().iter().enumerate() {
+        let p = &sc["params"];
+        let params = dml_core::SensitivityParams::new()
+            .cf_y(p["cf_y"].as_f64().unwrap())
+            .cf_d(p["cf_d"].as_f64().unwrap())
+            .rho(p["rho"].as_f64().unwrap())
+            .level(p["level"].as_f64().unwrap())
+            .null_hypotheses(to_vec(&p["null_hypothesis"]).to_vec());
+        let res = fit.sensitivity_analysis(&params).unwrap();
+        for (key, ours) in [
+            ("theta_lower", &res.theta_lower),
+            ("theta_upper", &res.theta_upper),
+            ("se_lower", &res.se_lower),
+            ("se_upper", &res.se_upper),
+            ("ci_lower", &res.ci_lower),
+            ("ci_upper", &res.ci_upper),
+        ] {
+            assert_all_close(
+                &format!("{what} scenario {i} {key}"),
+                ours,
+                &to_vec(&sc[key]),
+                tol,
+            );
+        }
+        for (key, ours) in [("rv", &res.rv), ("rva", &res.rva)] {
+            for (j, (&a, &b)) in ours.iter().zip(to_vec(&sc[key]).iter()).enumerate() {
+                assert!(
+                    (a - b).abs() < TOL_RV,
+                    "{what} scenario {i} {key}[{j}]: rust {a}, doubleml {b}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn apos_levels_and_causal_contrasts() {
+    let fx = Fixture::load("apos_rep2");
+    let levels = to_vec(&fx.0["options"]["treatment_levels"]).to_vec();
+    let fit = Apos::from_boxed(fx.regressor("ml_g"), fx.classifier("ml_m"), levels.clone())
+        .normalize_ipw(fx.option_bool("normalize_ipw"))
+        .fit_with_folds(&fx.data(), &fx.folds())
+        .unwrap();
+    let tol = TOL_ITERATIVE;
+    let apos = fit.apos();
+    let e = fx.expected("levels");
+    check_framework("apos levels", apos, e, tol);
+    check_framework_sensitivity("apos levels", apos, fx.expected("levels_sensitivity"), tol);
+
+    // Each level's nuisance predictions and learner losses.
+    for (j, (preds, losses)) in fx
+        .expected("predictions")
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(fx.expected("nuisance_loss").as_array().unwrap())
+        .enumerate()
+    {
+        for (name, by_rep) in preds.as_object().unwrap() {
+            for (r, theirs) in by_rep.as_array().unwrap().iter().enumerate() {
+                let ours = apos.prediction(name, r, j).unwrap();
+                assert_all_close(
+                    &format!("apos level {j} {name} rep{r}"),
+                    &ours,
+                    &to_vec(theirs),
+                    tol,
+                );
+            }
+        }
+        for (name, theirs) in losses.as_object().unwrap() {
+            let theirs = to_matrix(theirs);
+            for r in 0..apos.n_rep() {
+                assert_close(
+                    &format!("apos level {j} loss {name}"),
+                    apos.nuisance_loss(name).unwrap()[[j, r]],
+                    theirs[[r, 0]],
+                    tol,
+                );
+            }
+        }
+    }
+
+    for c in fx.expected("contrasts").as_array().unwrap() {
+        let refs = to_vec(&c["reference_levels"]).to_vec();
+        let contrast = fit.causal_contrast(&refs).unwrap();
+        let what = format!("contrast vs {refs:?}");
+        check_framework(&what, &contrast, c, tol);
+        check_framework_sensitivity(&what, &contrast, &c["sensitivity"], tol);
+    }
+    assert!(fit.causal_contrast(&[7.0]).is_err());
 }
 
 #[test]

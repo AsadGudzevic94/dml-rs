@@ -20,6 +20,7 @@ losses.
 | `plr_lasso_cv`, `irm_ate_lasso_cv_logit_cv` | scikit-learn's `LassoCV` and `LogisticRegressionCV` as nuisance learners |
 | `plr_boot_bayes`, `plr_boot_wild`, `plr_multi_rep3_boot` | Bootstrap methods, multiple treatments, joint intervals, Romano–Wolf |
 | `irm_ate`, `irm_atte`, `irm_ate_normalized`, `irm_cate_gate` | IRM (ATE / ATTE, normalised IPW), BLP and GATE |
+| `apo_*`, `apos_rep2` | Average potential outcomes, causal contrasts and their sensitivity bounds |
 | `pliv_ols`, `iivm_late_rep2`, `iivm_no_always_takers` | PLIV and IIVM, including one-sided non-compliance |
 | `did_panel_*`, `did_cs_*` | Two-period DiD for panels and cross-sections, all score and normalisation variants |
 | `staggered_*`, `staggered_cs_*` | Staggered DiD: every ATT(g, t) and all aggregations |
@@ -43,6 +44,11 @@ These are deliberate, documented, and covered by tests:
 - **IIVM with `normalize_ipw=True`.** dml-rs normalises the inverse-probability weights with the
   instrument; DoubleML 0.11 used the treatment. The DoubleML maintainers confirmed the instrument
   is correct ([issue #411](https://github.com/DoubleML/doubleml-for-py/issues/411)).
+- **Contrasts of clustered fits** (`APOS.causal_contrast` and staggered-DiD aggregations) use the
+  cluster-robust variance of the combined score. DoubleML's framework arithmetic scales the score
+  by the number of clusters but ignores the correlation within clusters. In a simulation with
+  treatment assigned per cluster, cluster-robust contrast intervals cover the true effect 95% of
+  the time and iid intervals 62%.
 - **Robustness values** are solved exactly; DoubleML uses a bounded numerical minimiser, so the two
   agree to about `1e-5`.
 - **Gradient boosting** breaks ties between equally good splits deterministically, scikit-learn by

@@ -7,6 +7,18 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Multi-valued treatments, as DoubleML's `DoubleMLAPO` and `DoubleMLAPOS`: `Apo` estimates the
+  average potential outcome `E[Y(d)]` of one treatment level with the doubly robust score;
+  `Apos` fits several levels on shared sample splits, and `AposFit::causal_contrast` gives the
+  contrasts between levels with joint inference and DoubleML's combined sensitivity elements.
+  Default splits are stratified by the treatment. Python: `dml_rs.APO`, `dml_rs.APOS` and
+  `APOS.causal_contrast`, which returns a `CausalContrast` result (summary, confidence intervals,
+  bootstrap, sensitivity analysis).
+- `DmlFit::concat` stacks fits of the same data and sample splits for joint inference (DoubleML's
+  `concat`).
+- DoubleML parity fixtures for APO (repeated splits, normalised IPW, sensitivity benchmark) and
+  APOS (levels, contrasts against one and two reference levels, sensitivity), and Monte-Carlo tests
+  of contrast coverage, including clustered data.
 - Documentation site at https://asadgudzevic94.github.io/dml-rs/: getting started, a user guide
   for models, learners and inference, the Python API reference, validation details (including the
   known, deliberate differences from DoubleML and scikit-learn), and five worked notebooks
@@ -37,6 +49,11 @@ All notable changes to this project are documented here. The format follows
   `irm_ate_lasso_cv_logit_cv`) and `parity/bench_cv.py`.
 
 ### Changed
+- Linear combinations of clustered fits (APOS contrasts) keep the cluster structure and use the
+  cluster-robust variance of the combined score; DoubleML's framework arithmetic ignores the
+  correlation within clusters there.
+- `LinearScoreModel` has an optional `strata` method: models can stratify their default sample
+  splits (used by `Apo`).
 - `Lasso` now follows scikit-learn's coordinate descent exactly: the stopping rule is
   scikit-learn's (after a sweep in which no coefficient moves by more than `tol · max|w|`, the
   duality gap must be at most `tol · ‖y − ȳ‖² / n`), the default `tol` is scikit-learn's `1e-4`

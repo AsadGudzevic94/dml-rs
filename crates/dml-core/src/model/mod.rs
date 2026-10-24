@@ -9,12 +9,14 @@ use crate::error::Result;
 use crate::score::LinearScore;
 use crate::sensitivity::SensitivityParts;
 
+mod apo;
 pub(crate) mod did;
 mod iivm;
 pub(crate) mod irm;
 mod pliv;
 mod plr;
 
+pub use apo::{Apo, Apos, AposFit};
 pub use did::{Did, DidCs, DidScore};
 pub use iivm::Iivm;
 pub use irm::{Irm, IrmScore};
@@ -166,6 +168,13 @@ pub trait LinearScoreModel {
 
     /// Cross-fit the nuisances on `folds` and return the score elements.
     fn estimate_score(&self, input: &ScoreInput<'_>, folds: &[Fold]) -> Result<ScoreEstimate>;
+
+    /// Strata for the default sample splits (e.g. treatment levels), so each
+    /// fold holds about the same share of every stratum. `None` (the default)
+    /// draws plain K-fold splits.
+    fn strata(&self, _data: &DmlData) -> Option<Vec<usize>> {
+        None
+    }
 }
 
 /// Builder methods shared by every model: sample-splitting settings and `fit`.
@@ -203,7 +212,10 @@ macro_rules! dml_model_api {
                     $crate::fit_model_clustered(self, data, &splits)
                 }
                 None => {
-                    let splits = self.splitting.draw(data.n_obs())?;
+                    let splits = match $crate::LinearScoreModel::strata(self, data) {
+                        Some(strata) => self.splitting.draw_stratified(&strata)?,
+                        None => self.splitting.draw(data.n_obs())?,
+                    };
                     $crate::fit_model(self, data, &splits)
                 }
             }

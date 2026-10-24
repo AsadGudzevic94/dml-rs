@@ -23,6 +23,7 @@ from ._dml_rs import (
     Blp,
     Bootstrap,
     CateResult,
+    AposResult,
     DmlResult,
     GradientBoostingClassifier,
     GradientBoostingRegressor,
@@ -34,6 +35,8 @@ from ._dml_rs import (
     RandomForestClassifier,
     RandomForestRegressor,
     __version__,
+    fit_apo,
+    fit_apos,
     fit_cate,
     fit_did,
     fit_iivm,
@@ -44,7 +47,7 @@ from ._dml_rs import (
 )
 from ._blp import BLP
 from ._cate import DRLearner, RLearner, SLearner, TLearner, XLearner
-from ._models import DID, DIDCS, IIVM, IRM, PLIV, PLR, DIDAggregation, StaggeredDID
+from ._models import APO, APOS, DID, DIDCS, IIVM, IRM, PLIV, PLR, CausalContrast, DIDAggregation, StaggeredDID
 
 __all__ = [
     "PLR",
@@ -55,6 +58,9 @@ __all__ = [
     "DIDCS",
     "StaggeredDID",
     "DIDAggregation",
+    "APO",
+    "APOS",
+    "CausalContrast",
     "SLearner",
     "TLearner",
     "XLearner",
@@ -71,9 +77,12 @@ __all__ = [
     "GradientBoostingRegressor",
     "GradientBoostingClassifier",
     "DmlResult",
+    "AposResult",
     "Bootstrap",
     "Blp",
     "CateResult",
+    "fit_apo",
+    "fit_apos",
     "fit_cate",
     "fit_iivm",
     "fit_did",

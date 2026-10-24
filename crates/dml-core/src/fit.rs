@@ -582,7 +582,11 @@ impl DmlFit {
                     }
                 }
                 all_coef[[c, r]] = theta;
-                all_se[[c, r]] = (col.dot(&col) / n as f64 / n as f64).sqrt();
+                all_se[[c, r]] = match &self.cluster {
+                    // The combined influence function is already scaled (J = 1).
+                    Some(ci) => ci.variance(col.view(), Array1::ones(n).view(), r).sqrt(),
+                    None => (col.dot(&col) / n as f64 / n as f64).sqrt(),
+                };
                 scaled.slice_mut(ndarray::s![.., c, r]).assign(&col);
             }
         }
@@ -605,8 +609,128 @@ impl DmlFit {
             predictions: Vec::new(),
             sensitivity: None,
             losses: Vec::new(),
-            cluster: None,
+            cluster: self.cluster.clone(),
         }
+    }
+
+    /// Stack fits of the same data and sample splits into one fit with all
+    /// their estimates (DoubleML's `concat`), for joint inference: the
+    /// bootstrap, simultaneous confidence bands and linear combinations then
+    /// account for the correlation between the estimates.
+    ///
+    /// Predictions and learner losses are stacked by nuisance name (`NaN` where
+    /// a fit has no such nuisance); sensitivity elements are kept if every fit
+    /// has them.
+    pub fn concat(fits: &[DmlFit]) -> Result<DmlFit> {
+        let first = fits
+            .first()
+            .ok_or_else(|| DmlError::InvalidArgument("concat needs at least one fit".into()))?;
+        let (n, n_rep) = (first.n_obs, first.n_rep());
+        for f in fits {
+            if f.n_obs != n || f.n_rep() != n_rep || f.n_folds != first.n_folds {
+                return Err(DmlError::DimensionMismatch(
+                    "concat needs fits with the same observations, folds and repetitions".into(),
+                ));
+            }
+            let same_clusters = match (&f.cluster, &first.cluster) {
+                (None, None) => true,
+                (Some(a), Some(b)) => a.clusters == b.clusters && a.folds == b.folds,
+                _ => false,
+            };
+            if !same_clusters {
+                return Err(DmlError::InvalidArgument(
+                    "concat needs the same clusters and cluster splits in every fit".into(),
+                ));
+            }
+        }
+        let cat1 = |f: fn(&DmlFit) -> &Array1<f64>| {
+            let v: Vec<_> = fits.iter().map(|x| f(x).view()).collect();
+            ndarray::concatenate(Axis(0), &v).expect("1-D")
+        };
+        let cat2 = |f: fn(&DmlFit) -> &Array2<f64>| {
+            let v: Vec<_> = fits.iter().map(|x| f(x).view()).collect();
+            ndarray::concatenate(Axis(0), &v).expect("same n_rep")
+        };
+        let cat3 = |f: fn(&DmlFit) -> &Array3<f64>| {
+            let v: Vec<_> = fits.iter().map(|x| f(x).view()).collect();
+            ndarray::concatenate(Axis(1), &v).expect("same n and n_rep")
+        };
+        let ks: Vec<usize> = fits.iter().map(DmlFit::n_treat).collect();
+        let k_total: usize = ks.iter().sum();
+
+        // Stack per-nuisance arrays (shape (n, n_rep, k)); NaN where absent.
+        let mut predictions: Vec<(String, Array3<f64>)> = Vec::new();
+        let mut losses: Vec<NuisanceLoss> = Vec::new();
+        let mut offset = 0;
+        for (f, &k) in fits.iter().zip(&ks) {
+            for (name, pred) in &f.predictions {
+                let slot = match predictions.iter().position(|(nm, _)| nm == name) {
+                    Some(i) => i,
+                    None => {
+                        predictions.push((
+                            name.clone(),
+                            Array3::from_elem((n, n_rep, k_total), f64::NAN),
+                        ));
+                        predictions.len() - 1
+                    }
+                };
+                predictions[slot]
+                    .1
+                    .slice_mut(ndarray::s![.., .., offset..offset + k])
+                    .assign(pred);
+            }
+            for l in &f.losses {
+                let slot = match losses.iter().position(|x| x.name == l.name) {
+                    Some(i) => i,
+                    None => {
+                        losses.push(NuisanceLoss {
+                            name: l.name.clone(),
+                            kind: l.kind,
+                            loss: Array2::from_elem((k_total, n_rep), f64::NAN),
+                            targets: Array3::from_elem((n, n_rep, k_total), f64::NAN),
+                        });
+                        losses.len() - 1
+                    }
+                };
+                losses[slot]
+                    .loss
+                    .slice_mut(ndarray::s![offset..offset + k, ..])
+                    .assign(&l.loss);
+                losses[slot]
+                    .targets
+                    .slice_mut(ndarray::s![.., .., offset..offset + k])
+                    .assign(&l.targets);
+            }
+            offset += k;
+        }
+        let stores: Option<Vec<&SensitivityStore>> =
+            fits.iter().map(|f| f.sensitivity.as_ref()).collect();
+        let names: Vec<&str> = fits.iter().map(|f| f.model.as_str()).collect();
+        Ok(DmlFit {
+            model: if names.iter().all(|m| *m == names[0]) {
+                names[0].to_string()
+            } else {
+                names.join(" + ")
+            },
+            treatment_names: fits
+                .iter()
+                .flat_map(|f| f.treatment_names.iter().cloned())
+                .collect(),
+            n_obs: n,
+            n_folds: first.n_folds,
+            coef: cat1(|f| &f.coef),
+            se: cat1(|f| &f.se),
+            all_coef: cat2(|f| &f.all_coef),
+            all_se: cat2(|f| &f.all_se),
+            psi: cat3(|f| &f.psi),
+            psi_a: cat3(|f| &f.psi_a),
+            psi_b: cat3(|f| &f.psi_b),
+            psi_deriv: cat2(|f| &f.psi_deriv),
+            predictions,
+            sensitivity: stores.map(|s| SensitivityStore::concat(&s)),
+            losses,
+            cluster: first.cluster.clone(),
+        })
     }
 }
 

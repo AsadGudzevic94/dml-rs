@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 import sklearn
 from doubleml.did.datasets import make_did_CS2021, make_did_cs_CS2021, make_did_SZ2020
-from doubleml.irm.datasets import make_iivm_data, make_irm_data
+from doubleml.irm.datasets import make_iivm_data, make_irm_data, make_irm_data_discrete_treatments
 from doubleml.plm.datasets import make_pliv_CHS2015, make_pliv_multiway_cluster_CKMS2021, make_plr_CCDDHNR2018
 from doubleml.utils._estimation import _draw_weights
 from sklearn.linear_model import Lasso, LassoCV, LinearRegression, LogisticRegression, LogisticRegressionCV, Ridge
@@ -70,6 +70,7 @@ def fit_case(name, model_kind, data, arrays, learners, options, n_folds=5, n_rep
         "iivm": dml.DoubleMLIIVM,
         "did": dml.DoubleMLDID,
         "did_cs": dml.DoubleMLDIDCS,
+        "apo": dml.DoubleMLAPO,
     }[model_kind]
     model = cls(data, **kwargs, n_folds=n_folds, n_rep=n_rep, draw_sample_splitting=False, **options)
     model.set_sample_splitting(reps)
@@ -102,8 +103,8 @@ def fit_case(name, model_kind, data, arrays, learners, options, n_folds=5, n_rep
         "folds": [[{"train": tr.tolist(), "test": te.tolist()} for tr, te in rep] for rep in reps],
         "expected": expected,
     }
-    if model_kind in ("plr", "irm", "did", "did_cs"):
-        expected["sensitivity"] = sensitivity_json(model, benchmark=model_kind in ("plr", "irm"))
+    if model_kind in ("plr", "irm", "did", "did_cs", "apo"):
+        expected["sensitivity"] = sensitivity_json(model, benchmark=model_kind in ("plr", "irm", "apo"))
     case["_model"] = model
     if boot is not None:
         method, n_boot, boot_seed = boot
@@ -401,6 +402,79 @@ def multiway(name, seed, model_kind):
                         {"score": "partialling out"}, seed=seed, sensitivity=True)
 
 
+def discrete_treatment_data(seed):
+    r = make_irm_data_discrete_treatments(n_obs=600, n_levels=3, linear=True, random_state=seed)
+    return r["x"], r["y"], r["d"]
+
+
+def apo(name, seed, level, normalize_ipw=False, n_rep=1):
+    x, y, d = discrete_treatment_data(seed)
+    data = dml.DoubleMLData.from_arrays(x, y, d)
+    return fit_case(name, "apo", data, {"x": x, "y": y, "d": d}, {"ml_g": OLS, "ml_m": LOGIT},
+                    {"treatment_level": level, "normalize_ipw": normalize_ipw}, n_rep=n_rep, seed=seed)
+
+
+def framework_json(fw):
+    return {
+        "names": list(fw.treatment_names) if fw.treatment_names is not None else None,
+        "coef": np.asarray(fw.thetas).tolist(),
+        "se": np.asarray(fw.ses).tolist(),
+        "pval": np.asarray(fw.pvals).tolist(),
+        "all_coef": np.asarray(fw.all_thetas).tolist(),
+        "all_se": np.asarray(fw.all_ses).tolist(),
+        "ci95": fw.confint(level=0.95).to_numpy().tolist(),
+    }
+
+
+def framework_sensitivity_json(fw):
+    se = fw.sensitivity_elements
+    out = {"sigma2": np.asarray(se["sigma2"])[0].tolist(), "nu2": np.asarray(se["nu2"])[0].tolist(), "scenarios": []}
+    k = len(fw.thetas)
+    for sc in [{"cf_y": 0.04, "cf_d": 0.03, "rho": 0.8, "level": 0.95, "null_hypothesis": np.zeros(k)},
+               {"cf_y": 0.03, "cf_d": 0.03, "rho": 1.0, "level": 0.95, "null_hypothesis": 0.5 * np.asarray(fw.thetas)}]:
+        fw.sensitivity_analysis(**sc)
+        sp = fw.sensitivity_params
+        out["scenarios"].append({
+            "params": {k_: (v.tolist() if isinstance(v, np.ndarray) else v) for k_, v in sc.items()},
+            **{f"{q}_{b}": np.asarray(sp[q][b]).tolist() for q in ("theta", "se", "ci") for b in ("lower", "upper")},
+            "rv": np.asarray(sp["rv"]).tolist(),
+            "rva": np.asarray(sp["rva"]).tolist(),
+        })
+    return out
+
+
+def apos(name, seed, levels, n_rep=2, normalize_ipw=False):
+    x, y, d = discrete_treatment_data(seed)
+    data = dml.DoubleMLData.from_arrays(x, y, d)
+    reps = draw_folds(len(y), 5, n_rep, seed)
+    model = dml.DoubleMLAPOS(data, learner(OLS), learner(LOGIT), treatment_levels=levels, n_folds=5, n_rep=n_rep,
+                             normalize_ipw=normalize_ipw, draw_sample_splitting=False)
+    model.set_sample_splitting(reps)
+    model.fit()
+    expected = {
+        "coef": np.asarray(model.framework.thetas).tolist(),
+        "levels": framework_json(model.framework),
+        "levels_sensitivity": framework_sensitivity_json(model.framework),
+        "predictions": [
+            {k: np.transpose(v, (2, 1, 0))[0].tolist() for k, v in m.predictions.items()} for m in model.modellist
+        ],
+        "nuisance_loss": [{k: np.asarray(v).tolist() for k, v in m.nuisance_loss.items()} for m in model.modellist],
+        "contrasts": [],
+    }
+    for refs in ([levels[0]], [levels[0], levels[1]]):
+        fw = model.causal_contrast(refs)
+        expected["contrasts"].append({"reference_levels": refs, **framework_json(fw),
+                                      "sensitivity": framework_sensitivity_json(fw)})
+    return {
+        "name": name, "model": "apos", "options": {"treatment_levels": levels, "normalize_ipw": normalize_ipw},
+        "learners": {"ml_g": OLS, "ml_m": LOGIT},
+        "x": x.tolist(), "y": y.tolist(), "d": d.tolist(),
+        "folds": [[{"train": tr.tolist(), "test": te.tolist()} for tr, te in rep] for rep in reps],
+        "expected": expected,
+        "_model": model,
+    }
+
+
 def irm_cate(name, seed):
     case = irm(name, seed, "ATE", n_rep=2)
     model = case["_model"]
@@ -460,6 +534,9 @@ CASES = [
     lambda: staggered("staggered_notyet_experimental_rep2", 72, "not_yet_treated", "experimental", False, n_rep=2),
     lambda: staggered("staggered_universal_anticipation", 73, "never_treated", "observational", True,
                       gt_setting="universal", anticipation=1),
+    lambda: apo("apo_level1_rep2", 31, 1, n_rep=2),
+    lambda: apo("apo_level0_normalized", 32, 0, normalize_ipw=True),
+    lambda: apos("apos_rep2", 33, [0, 1, 2]),
     lambda: plr_cluster_one_way("plr_cluster_one_way_rep2", 91),
     lambda: irm_cluster_one_way("irm_cluster_one_way", 92),
     lambda: multiway("pliv_cluster_two_way", 93, "pliv"),

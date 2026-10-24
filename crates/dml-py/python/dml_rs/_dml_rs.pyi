@@ -12,6 +12,8 @@ from typing_extensions import Self
 
 __version__: str
 __all__ = [
+    "fit_apo",
+    "fit_apos",
     "fit_cate",
     "fit_did",
     "fit_iivm",
@@ -19,6 +21,7 @@ __all__ = [
     "fit_pliv",
     "fit_plr",
     "fit_staggered_did",
+    "AposResult",
     "Blp",
     "Bootstrap",
     "CateResult",
@@ -184,6 +187,18 @@ class CateResult:
     def effect(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
     def blp(self, basis: NDArray[np.float64]) -> Blp: ...
     def gate(self, groups: NDArray[np.float64]) -> Blp: ...
+
+@final
+class AposResult:
+    """Average potential outcomes of several treatment levels, fitted on shared sample splits."""
+
+    @property
+    def treatment_levels(self) -> list[float]: ...
+    @property
+    def levels(self) -> DmlResult:
+        """One estimate per treatment level."""
+    def causal_contrast(self, reference_levels: Sequence[float]) -> DmlResult:
+        """Effects of each level against each reference level (``"d vs d_ref"``)."""
 
 @final
 class StaggeredResult:
@@ -437,6 +452,37 @@ def fit_iivm(
     treatment_names: Optional[list[str]] = None,
     cluster: Optional[NDArray[np.int64]] = None,
 ) -> DmlResult: ...
+def fit_apo(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    ml_g: Any,
+    ml_m: Any,
+    treatment_level: float,
+    clipping_threshold: float = 1e-2,
+    normalize_ipw: bool = False,
+    n_folds: int = 5,
+    n_rep: int = 1,
+    seed: int = 0,
+    splits: Optional[_Splits] = None,
+    treatment_names: Optional[list[str]] = None,
+    cluster: Optional[NDArray[np.int64]] = None,
+) -> DmlResult: ...
+def fit_apos(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    ml_g: Any,
+    ml_m: Any,
+    treatment_levels: Sequence[float],
+    clipping_threshold: float = 1e-2,
+    normalize_ipw: bool = False,
+    n_folds: int = 5,
+    n_rep: int = 1,
+    seed: int = 0,
+    splits: Optional[_Splits] = None,
+    cluster: Optional[NDArray[np.int64]] = None,
+) -> AposResult: ...
 def fit_did(
     y: NDArray[np.float64],
     d: NDArray[np.float64],
