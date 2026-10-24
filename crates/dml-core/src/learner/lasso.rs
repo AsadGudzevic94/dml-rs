@@ -22,14 +22,17 @@ impl Lasso {
     pub fn new(alpha: f64) -> Self {
         Self {
             alpha: alpha.max(0.0),
-            tol: 1e-12,
+            tol: 1e-4,
             max_iter: 100_000,
             coef: None,
             intercept: 0.0,
         }
     }
 
-    /// Stop when no coefficient moves by more than `tol · max|w|` in a sweep.
+    /// Stopping rule of scikit-learn's `Lasso(tol=tol)` (default `1e-4`): once
+    /// no coefficient moves by more than `tol · max|w|` in a sweep, stop if the
+    /// duality gap, which bounds the distance to the optimal objective, is at
+    /// most `tol · ‖y − ȳ‖² / n`. With `α = 0` only the first condition applies.
     pub fn tol(mut self, tol: f64) -> Self {
         self.tol = tol;
         self
@@ -59,6 +62,237 @@ fn soft_threshold(z: f64, gamma: f64) -> f64 {
     }
 }
 
+/// A duality gap with the quantities screening reuses.
+struct Gap {
+    gap: f64,
+    xt_r: Array1<f64>,
+    dual_norm: f64,
+}
+
+/// Centred design in column-major order (each coordinate update reads a
+/// contiguous column) with the column norms, shared by all fits on a path.
+struct CdDesign {
+    x_mean: Array1<f64>,
+    y_mean: f64,
+    xc: Array2<f64>,
+    yc: Array1<f64>,
+    col_sq: Vec<f64>,
+    y_norm2: f64,
+    /// `xcᵀxc` when `n > p` (as scikit-learn's `precompute="auto"`): each
+    /// coordinate update then costs `O(p)` instead of `O(n)`.
+    gram: Option<Array2<f64>>,
+    /// `xcᵀyc`, kept with the Gram matrix for the duality gap.
+    xty: Array1<f64>,
+}
+
+impl CdDesign {
+    fn new(
+        x: ArrayView2<'_, f64>,
+        y: ArrayView1<'_, f64>,
+        w: Option<ArrayView1<'_, f64>>,
+    ) -> Result<Self> {
+        let Centered {
+            x_mean,
+            y_mean,
+            xc: centered,
+            yc,
+        } = center(x, y, w, true)?;
+        let mut xc = Array2::<f64>::zeros(centered.dim().f());
+        xc.assign(&centered);
+        let col_sq = xc.columns().into_iter().map(|c| c.dot(&c)).collect();
+        let (n, p) = xc.dim();
+        let gram = (n > p).then(|| xc.t().dot(&xc));
+        let xty = xc.t().dot(&yc);
+        Ok(Self {
+            x_mean,
+            y_mean,
+            y_norm2: yc.dot(&yc),
+            xc,
+            yc,
+            col_sq,
+            gram,
+            xty,
+        })
+    }
+
+    /// Solver state at `w = 0`: the residual `yc − xc·w`, or with the Gram
+    /// matrix the correlations `xcᵀ(yc − xc·w)`.
+    fn initial_state(&self) -> Array1<f64> {
+        match self.gram {
+            Some(_) => self.xty.clone(),
+            None => self.yc.clone(),
+        }
+    }
+
+    /// Duality gap of `½‖r‖² + nα‖w‖₁` at `w`, with `xcᵀr` and its largest
+    /// absolute entry (scikit-learn's `gap_enet`): the dual point is the
+    /// residual rescaled to be feasible. Without a penalty there is no useful
+    /// gap, and `‖xcᵀr‖²` (the squared gradient) takes its place.
+    fn duality_gap(&self, n_alpha: f64, w: &Array1<f64>, state: &Array1<f64>) -> Gap {
+        let (xt_r, r_norm2, r_y) = match self.gram {
+            Some(_) => {
+                let w_xty = w.dot(&self.xty);
+                // ‖r‖² = ‖y‖² − 2wᵀxᵀy + wᵀGw, with Gw = xᵀy − xᵀr.
+                let w_gw = w_xty - w.dot(state);
+                (
+                    state.clone(),
+                    self.y_norm2 - 2.0 * w_xty + w_gw,
+                    self.y_norm2 - w_xty,
+                )
+            }
+            None => (
+                self.xc.t().dot(state),
+                state.dot(state),
+                state.dot(&self.yc),
+            ),
+        };
+        if n_alpha == 0.0 {
+            return Gap {
+                gap: xt_r.dot(&xt_r),
+                xt_r,
+                dual_norm: 0.0,
+            };
+        }
+        let dual_norm = xt_r.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+        let scale = if dual_norm > n_alpha {
+            n_alpha / dual_norm
+        } else {
+            1.0
+        };
+        let primal = 0.5 * r_norm2 + n_alpha * w.iter().map(|v| v.abs()).sum::<f64>();
+        let dual = -0.5 * scale * scale * r_norm2 + scale * r_y;
+        Gap {
+            gap: primal - dual,
+            xt_r,
+            dual_norm,
+        }
+    }
+
+    /// Gap safe screening (Fercoq, Gramfort & Salmon, 2015), as scikit-learn:
+    /// coordinate `j` is provably zero at the optimum when
+    /// `(1 − |x_jᵀθ|) / ‖x_j‖ > √(2·gap) / (nα)` for the dual point `θ`; it is
+    /// set to zero and left out of further sweeps.
+    fn screen(
+        &self,
+        n_alpha: f64,
+        g: &Gap,
+        active: &mut [bool],
+        w: &mut Array1<f64>,
+        state: &mut Array1<f64>,
+    ) {
+        let radius = (2.0 * g.gap.abs()).sqrt() / n_alpha;
+        for j in 0..active.len() {
+            if !active[j] {
+                continue;
+            }
+            let xj_theta = g.xt_r[j] / n_alpha.max(g.dual_norm);
+            let d_j = (1.0 - xj_theta.abs()) / self.col_sq[j].sqrt();
+            if self.col_sq[j] == 0.0 || d_j > radius {
+                active[j] = false;
+                if w[j] != 0.0 {
+                    self.update(j, w[j], state);
+                    w[j] = 0.0;
+                }
+            }
+        }
+    }
+
+    /// Keep `state` in step with `w[j]` decreasing by `delta`.
+    fn update(&self, j: usize, delta: f64, state: &mut Array1<f64>) {
+        match &self.gram {
+            // The Gram matrix is symmetric: row j is column j, contiguous.
+            Some(g) => state.scaled_add(delta, &g.row(j)),
+            None => state.scaled_add(delta, &self.xc.column(j)),
+        }
+    }
+
+    /// Cyclic coordinate descent for penalty `alpha`, warm-started from `w`;
+    /// `state` (see [`initial_state`](Self::initial_state)) must match `w` on
+    /// entry and is kept up to date. Follows scikit-learn's `cd_fast`: stop at
+    /// once if the warm start is already within tolerance, screen coordinates
+    /// after every gap evaluation.
+    fn solve(
+        &self,
+        alpha: f64,
+        w: &mut Array1<f64>,
+        state: &mut Array1<f64>,
+        tol: f64,
+        max_iter: usize,
+    ) -> Result<()> {
+        let p = self.xc.ncols();
+        let n_alpha = self.xc.nrows() as f64 * alpha;
+        let tol_gap = tol * self.y_norm2;
+        let screening = n_alpha > 0.0;
+        let g = self.duality_gap(n_alpha, w, state);
+        if g.gap <= tol_gap && (self.gram.is_none() || g.gap >= 0.0) {
+            return Ok(());
+        }
+        let mut active = vec![true; p];
+        if screening {
+            self.screen(n_alpha, &g, &mut active, w, state);
+        }
+        for iter in 0..max_iter {
+            let mut max_change = 0.0_f64;
+            let mut max_w = 0.0_f64;
+            for j in 0..p {
+                if !active[j] || self.col_sq[j] == 0.0 {
+                    continue;
+                }
+                let old = w[j];
+                let corr = match self.gram {
+                    Some(_) => state[j],
+                    None => self.xc.column(j).dot(&*state),
+                };
+                let new = soft_threshold(corr + old * self.col_sq[j], n_alpha) / self.col_sq[j];
+                if new != old {
+                    self.update(j, old - new, state);
+                    w[j] = new;
+                }
+                max_change = max_change.max((new - old).abs());
+                max_w = max_w.max(new.abs());
+            }
+            if max_w == 0.0 || max_change <= tol * max_w || iter + 1 == max_iter {
+                let g = self.duality_gap(n_alpha, w, state);
+                if g.gap <= tol_gap {
+                    return Ok(());
+                }
+                if screening {
+                    self.screen(n_alpha, &g, &mut active, w, state);
+                }
+            }
+        }
+        Err(DmlError::Convergence(format!(
+            "Lasso did not converge in {max_iter} sweeps"
+        )))
+    }
+
+    fn intercept(&self, w: &Array1<f64>) -> f64 {
+        self.y_mean - self.x_mean.dot(w)
+    }
+}
+
+/// Lasso solutions `(coef, intercept)` along `alphas` (best in decreasing
+/// order), each fit warm-started from the previous one.
+pub(super) fn lasso_path(
+    x: ArrayView2<'_, f64>,
+    y: ArrayView1<'_, f64>,
+    w: Option<ArrayView1<'_, f64>>,
+    alphas: &[f64],
+    tol: f64,
+    max_iter: usize,
+) -> Result<Vec<(Array1<f64>, f64)>> {
+    let design = CdDesign::new(x, y, w)?;
+    let mut coef = Array1::<f64>::zeros(x.ncols());
+    let mut state = design.initial_state();
+    alphas
+        .iter()
+        .map(|&alpha| {
+            design.solve(alpha, &mut coef, &mut state, tol, max_iter)?;
+            Ok((coef.clone(), design.intercept(&coef)))
+        })
+        .collect()
+}
+
 impl Lasso {
     fn fit_impl(
         &mut self,
@@ -66,52 +300,11 @@ impl Lasso {
         y: ArrayView1<'_, f64>,
         w: Option<ArrayView1<'_, f64>>,
     ) -> Result<()> {
-        let (n, p) = x.dim();
-        let Centered {
-            x_mean,
-            y_mean,
-            xc: centered,
-            yc: mut resid,
-        } = center(x, y, w, true)?;
-        // Column-major copy so each coordinate update reads a contiguous column.
-        let mut xc = Array2::<f64>::zeros((n, p).f());
-        xc.assign(&centered);
-        let col_sq: Vec<f64> = xc.columns().into_iter().map(|c| c.dot(&c)).collect();
-        let n_alpha = n as f64 * self.alpha;
-        let mut w = Array1::<f64>::zeros(p);
-
-        let mut converged = p == 0;
-        for _ in 0..self.max_iter {
-            if converged {
-                break;
-            }
-            let mut max_change = 0.0_f64;
-            let mut max_w = 0.0_f64;
-            for j in 0..p {
-                if col_sq[j] == 0.0 {
-                    continue;
-                }
-                let col = xc.column(j);
-                let old = w[j];
-                let rho = col.dot(&resid) + old * col_sq[j];
-                let new = soft_threshold(rho, n_alpha) / col_sq[j];
-                if new != old {
-                    resid.scaled_add(old - new, &col);
-                    w[j] = new;
-                }
-                max_change = max_change.max((new - old).abs());
-                max_w = max_w.max(new.abs());
-            }
-            converged = max_w == 0.0 || max_change <= self.tol * max_w;
-        }
-        if !converged {
-            return Err(DmlError::Convergence(format!(
-                "Lasso did not converge in {} sweeps",
-                self.max_iter
-            )));
-        }
-        self.intercept = y_mean - x_mean.dot(&w);
-        self.coef = Some(w);
+        let (coef, intercept) = lasso_path(x, y, w, &[self.alpha], self.tol, self.max_iter)?
+            .pop()
+            .expect("one alpha");
+        self.intercept = intercept;
+        self.coef = Some(coef);
         Ok(())
     }
 }
@@ -168,7 +361,7 @@ mod tests {
     #[test]
     fn zero_alpha_equals_ols() {
         let (x, y) = data();
-        let mut lasso = Lasso::new(0.0);
+        let mut lasso = Lasso::new(0.0).tol(1e-12);
         lasso.fit(x.view(), y.view()).unwrap();
         let mut ols = Ols::new();
         ols.fit(x.view(), y.view()).unwrap();
@@ -180,7 +373,7 @@ mod tests {
     fn satisfies_kkt_conditions() {
         let (x, y) = data();
         let alpha = 0.5;
-        let mut m = Lasso::new(alpha);
+        let mut m = Lasso::new(alpha).tol(1e-12);
         m.fit(x.view(), y.view()).unwrap();
         let resid = &y - &m.predict(x.view()).unwrap();
         let n = x.nrows() as f64;
@@ -205,5 +398,28 @@ mod tests {
             m.predict(array![[0.0, 0.0, 0.0]].view()).unwrap()[0],
             m.intercept()
         );
+    }
+
+    #[test]
+    fn warm_started_path_equals_separate_fits() {
+        let x = Array2::from_shape_fn((50, 4), |(i, j)| {
+            (((i * 7 + j * 3) % 11) as f64 - 5.0) / 3.0
+        });
+        let y: Array1<f64> = x
+            .rows()
+            .into_iter()
+            .map(|r| 1.0 + r[0] - 0.5 * r[3])
+            .collect();
+        let alphas = [1.0, 0.3, 0.1, 0.01];
+        let path = lasso_path(x.view(), y.view(), None, &alphas, 1e-13, 100_000).unwrap();
+        for (&alpha, (coef, intercept)) in alphas.iter().zip(&path) {
+            let mut m = Lasso::new(alpha).tol(1e-13);
+            m.fit(x.view(), y.view()).unwrap();
+            let diff = (m.coef().unwrap() - coef).mapv(f64::abs).sum();
+            assert!(
+                diff < 1e-9 && (m.intercept() - intercept).abs() < 1e-9,
+                "alpha {alpha}"
+            );
+        }
     }
 }

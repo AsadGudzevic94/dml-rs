@@ -241,6 +241,16 @@ fn plr_partialling_out_lasso() {
 }
 
 #[test]
+fn plr_with_cross_validated_lasso() {
+    check("plr_lasso_cv", TOL_ITERATIVE);
+}
+
+#[test]
+fn irm_with_cross_validated_lasso_and_logistic_regression() {
+    check("irm_ate_lasso_cv_logit_cv", TOL_ITERATIVE);
+}
+
+#[test]
 fn plr_iv_type_repeated_splits() {
     check("plr_ivtype_rep3", TOL);
 }

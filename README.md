@@ -67,8 +67,9 @@ benchmarking against observed covariates (Chernozhukov et al., 2022), for PLR, I
 classifiers) and evaluation of the cross-fitted predictions with any metric.
 
 **Learners:** gradient boosting and random forests (both implemented in Rust; the boosting
-reproduces scikit-learn's predictions), OLS / ridge, Lasso and logistic regression, or any
-scikit-learn estimator from Python. New learners and new orthogonal scores plug in through the
+reproduces scikit-learn's predictions), OLS / ridge, Lasso and logistic regression, cross-validated
+Lasso and logistic regression (`LassoCV`, `LogisticRegressionCV`, which choose their penalty as
+scikit-learn does and reproduce its results), or any scikit-learn estimator from Python. New learners and new orthogonal scores plug in through the
 `Regressor`, `Classifier` and `LinearScoreModel` traits.
 
 ## Installation
@@ -252,6 +253,7 @@ DoubleML uses scikit-learn learners with `n_jobs=-1` where available.
 | Linear regression | 10 000 × 20 | 7.5 ms | 54 ms | ~7× |
 | Random forest (100 trees) | 10 000 × 20 | 4.4 s | 12.4 s | ~3× |
 | Gradient boosting (200 stages) | 10 000 × 20 | 10.0 s | 84.9 s | ~8.5× |
+| Cross-validated Lasso (`LassoCV`) | 10 000 × 20 | 65 ms | 650 ms | ~10× |
 
 <details>
 <summary>All benchmark sizes</summary>
@@ -265,7 +267,8 @@ DoubleML uses scikit-learn learners with `n_jobs=-1` where available.
 
 Scripts: [`parity/bench_doubleml.py`](parity/bench_doubleml.py),
 [`parity/bench_forest.py`](parity/bench_forest.py),
-[`parity/bench_boosting.py`](parity/bench_boosting.py) and `cargo bench -p dml-core`.
+[`parity/bench_boosting.py`](parity/bench_boosting.py), [`parity/bench_cv.py`](parity/bench_cv.py)
+and `cargo bench -p dml-core`.
 In every comparison the estimates agree.
 </details>
 
@@ -284,6 +287,7 @@ confidence intervals reach their nominal coverage.
 | Fixtures | Coverage |
 |---|---|
 | `plr_ols`, `plr_ridge`, `plr_lasso`, `plr_ivtype_rep3` | PLR with partialling-out and IV-type scores, several learners, repeated splits |
+| `plr_lasso_cv`, `irm_ate_lasso_cv_logit_cv` | Cross-validated nuisance learners: scikit-learn's `LassoCV` and `LogisticRegressionCV` inside DoubleML |
 | `plr_boot_bayes`, `plr_boot_wild`, `plr_multi_rep3_boot` | Bootstrap methods, multiple treatments, joint intervals, Romano–Wolf |
 | `irm_ate`, `irm_atte`, `irm_ate_normalized`, `irm_cate_gate` | IRM (ATE / ATTE, normalised IPW), BLP and GATE |
 | `pliv_ols`, `iivm_late_rep2`, `iivm_no_always_takers` | PLIV and IIVM, including one-sided non-compliance |

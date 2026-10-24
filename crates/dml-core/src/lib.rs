@@ -39,7 +39,8 @@
 //!
 //! - [`DmlData`]: outcome `y`, one or more treatments `d`, covariates `x`, optional instrument `z`
 //! - [`Regressor`] / [`Classifier`]: plug-in nuisance learners
-//!   ([`Ols`], [`Lasso`], [`LogisticRegression`], [`RandomForestRegressor`],
+//!   ([`Ols`], [`Lasso`], [`LassoCV`], [`LogisticRegression`], [`LogisticRegressionCV`],
+//!   [`RandomForestRegressor`],
 //!   [`RandomForestClassifier`], [`GradientBoostingRegressor`], [`GradientBoostingClassifier`]
 //!   built in)
 //! - [`KFold`] / [`SampleSplitting`]: reproducible sample splitting
@@ -88,8 +89,9 @@ pub use data::DmlData;
 pub use error::{DmlError, Result};
 pub use fit::{fit_model, fit_model_clustered, DmlFit, PAdjust};
 pub use learner::{
-    Classifier, GradientBoostingClassifier, GradientBoostingRegressor, Lasso, LogisticRegression,
-    MaxFeatures, Ols, RandomForestClassifier, RandomForestRegressor, Regressor,
+    Classifier, CvScoring, GradientBoostingClassifier, GradientBoostingRegressor, Lasso, LassoCV,
+    LogisticRegression, LogisticRegressionCV, MaxFeatures, Ols, RandomForestClassifier,
+    RandomForestRegressor, Regressor,
 };
 pub use model::{
     Did, DidCs, DidScore, Iivm, Irm, IrmScore, LinearScoreModel, LossKind, NuisanceTarget, Pliv,

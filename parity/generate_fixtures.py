@@ -22,7 +22,7 @@ from doubleml.did.datasets import make_did_CS2021, make_did_cs_CS2021, make_did_
 from doubleml.irm.datasets import make_iivm_data, make_irm_data
 from doubleml.plm.datasets import make_pliv_CHS2015, make_pliv_multiway_cluster_CKMS2021, make_plr_CCDDHNR2018
 from doubleml.utils._estimation import _draw_weights
-from sklearn.linear_model import Lasso, LinearRegression, LogisticRegression, Ridge
+from sklearn.linear_model import Lasso, LassoCV, LinearRegression, LogisticRegression, LogisticRegressionCV, Ridge
 from sklearn.model_selection import KFold
 
 warnings.filterwarnings("ignore")
@@ -42,6 +42,11 @@ def learner(spec):
         return Lasso(alpha=spec["alpha"], tol=1e-14, max_iter=1_000_000)
     if kind == "logit":
         return LogisticRegression(C=spec["c"], solver="newton-cholesky", tol=1e-14, max_iter=1000)
+    if kind == "lasso_cv":
+        return LassoCV(tol=1e-14, max_iter=1_000_000)
+    if kind == "logit_cv":
+        return LogisticRegressionCV(solver="newton-cholesky", tol=1e-14, max_iter=1000, scoring=spec["scoring"],
+                                    l1_ratios=(0,), use_legacy_attributes=False)
     raise ValueError(kind)
 
 
@@ -167,11 +172,11 @@ def plr_multi(name, seed, n_obs, n_rep, boot):
                     {"score": "partialling out"}, n_rep=n_rep, seed=seed, boot=boot)
 
 
-def irm(name, seed, score, normalize_ipw=False, n_rep=1, boot=None):
+def irm(name, seed, score, normalize_ipw=False, n_rep=1, boot=None, ml_g=OLS, ml_m=LOGIT, dim_x=8):
     np.random.seed(seed)
-    x, y, d = make_irm_data(n_obs=500, dim_x=8, theta=0.5, return_type="array")
+    x, y, d = make_irm_data(n_obs=500, dim_x=dim_x, theta=0.5, return_type="array")
     data = dml.DoubleMLData.from_arrays(x, y, d)
-    return fit_case(name, "irm", data, {"x": x, "y": y, "d": d}, {"ml_g": OLS, "ml_m": LOGIT},
+    return fit_case(name, "irm", data, {"x": x, "y": y, "d": d}, {"ml_g": ml_g, "ml_m": ml_m},
                     {"score": score, "normalize_ipw": normalize_ipw}, n_rep=n_rep, seed=seed, boot=boot)
 
 
@@ -433,6 +438,9 @@ CASES = [
     lambda: plr("plr_ols", 11, 500, 10, OLS),
     lambda: plr("plr_ridge", 12, 400, 20, {"kind": "ridge", "alpha": 5.0}),
     lambda: plr("plr_lasso", 13, 400, 30, {"kind": "lasso", "alpha": 0.05}),
+    lambda: plr("plr_lasso_cv", 14, 300, 40, {"kind": "lasso_cv"}),
+    lambda: irm("irm_ate_lasso_cv_logit_cv", 24, "ATE", ml_g={"kind": "lasso_cv"},
+                ml_m={"kind": "logit_cv", "scoring": "neg_log_loss"}, dim_x=20),
     lambda: plr("plr_ivtype_rep3", 14, 400, 10, OLS, score="IV-type", n_rep=3),
     lambda: plr("plr_boot_bayes", 15, 200, 5, OLS, boot=("Bayes", 50, 1)),
     lambda: plr("plr_boot_wild", 16, 200, 5, OLS, boot=("wild", 50, 2)),

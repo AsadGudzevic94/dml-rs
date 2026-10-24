@@ -52,8 +52,9 @@ let ci = fit.confint(0.95)?;
 - **Sensitivity analysis:** bounds for omitted confounders, robustness values and benchmarks
   (`DmlFit::sensitivity_analysis`, `sensitivity_benchmark`)
 - **Learners:** `GradientBoostingRegressor` / `GradientBoostingClassifier`,
-  `RandomForestRegressor` / `RandomForestClassifier`, `Ols` (ridge), `Lasso`,
-  `LogisticRegression`, or your own through the `Regressor` / `Classifier` traits
+  `RandomForestRegressor` / `RandomForestClassifier`, `Ols` (ridge), `Lasso`, `LassoCV`,
+  `LogisticRegression`, `LogisticRegressionCV` (penalties chosen by cross-validation as in
+  scikit-learn), or your own through the `Regressor` / `Classifier` traits
 - **Extensible:** implement `LinearScoreModel` to add a new orthogonal score and reuse the whole
   cross-fitting and inference engine
 - **Fast and lightweight:** pure Rust without BLAS; folds and trees are fitted in parallel with

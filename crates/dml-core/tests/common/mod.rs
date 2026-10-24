@@ -3,7 +3,10 @@
 
 use std::path::PathBuf;
 
-use dml_core::{Classifier, ClusterFold, DmlData, Fold, Lasso, LogisticRegression, Ols, Regressor};
+use dml_core::{
+    Classifier, ClusterFold, CvScoring, DmlData, Fold, Lasso, LassoCV, LogisticRegression,
+    LogisticRegressionCV, Ols, Regressor,
+};
 use ndarray::{Array1, Array2};
 use serde_json::Value;
 
@@ -118,6 +121,13 @@ impl Fixture {
         let spec = &self.0["learners"][nuisance];
         match spec["kind"].as_str().expect("learner kind") {
             "logit" => Box::new(LogisticRegression::new(spec["c"].as_f64().expect("c"))),
+            "logit_cv" => Box::new(LogisticRegressionCV::new().scoring(
+                match spec["scoring"].as_str().expect("scoring") {
+                    "neg_log_loss" => CvScoring::LogLoss,
+                    "accuracy" => CvScoring::Accuracy,
+                    s => panic!("unknown scoring {s}"),
+                },
+            )),
             other => panic!("unknown classifier {other}"),
         }
     }
@@ -159,7 +169,9 @@ pub fn regressor_from_spec(spec: &Value) -> Box<dyn Regressor> {
     match spec["kind"].as_str().expect("learner kind") {
         "ols" => Box::new(Ols::new()),
         "ridge" => Box::new(Ols::with_ridge(spec["alpha"].as_f64().expect("alpha"))),
-        "lasso" => Box::new(Lasso::new(spec["alpha"].as_f64().expect("alpha"))),
+        // DoubleML's side uses scikit-learn with tol = 1e-14 (same stopping rule).
+        "lasso" => Box::new(Lasso::new(spec["alpha"].as_f64().expect("alpha")).tol(1e-14)),
+        "lasso_cv" => Box::new(LassoCV::new().tol(1e-14)),
         other => panic!("unknown regressor {other}"),
     }
 }

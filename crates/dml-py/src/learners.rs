@@ -2,11 +2,13 @@
 //! estimator act as a Rust [`Regressor`] / [`Classifier`].
 
 use dml_core::{
-    Classifier, DmlError, GradientBoostingClassifier, GradientBoostingRegressor, Lasso,
-    LogisticRegression, MaxFeatures, Ols, RandomForestClassifier, RandomForestRegressor, Regressor,
+    Classifier, CvScoring, DmlError, GradientBoostingClassifier, GradientBoostingRegressor, Lasso,
+    LassoCV, LogisticRegression, LogisticRegressionCV, MaxFeatures, Ols, RandomForestClassifier,
+    RandomForestRegressor, Regressor,
 };
 use ndarray::{Array1, ArrayView1, ArrayView2};
-use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
+use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
+use pyo3::exceptions::{PyAttributeError, PyValueError};
 use pyo3::prelude::*;
 
 use crate::errors::to_py_err;
@@ -75,7 +77,7 @@ pub struct PyLasso {
 #[pymethods]
 impl PyLasso {
     #[new]
-    #[pyo3(signature = (alpha = 1.0, tol = 1e-12, max_iter = 100_000))]
+    #[pyo3(signature = (alpha = 1.0, tol = 1e-4, max_iter = 100_000))]
     fn new(alpha: f64, tol: f64, max_iter: usize) -> Self {
         Self {
             inner: Lasso::new(alpha).tol(tol).max_iter(max_iter),
@@ -108,6 +110,242 @@ impl PyLasso {
 
     fn __repr__(&self) -> String {
         format!("Lasso(alpha={})", self.alpha)
+    }
+}
+
+fn not_fitted(name: &str) -> PyErr {
+    PyAttributeError::new_err(format!("{name} is not fitted yet; call fit() first"))
+}
+
+/// Lasso with the penalty chosen by cross-validation, as scikit-learn's
+/// `LassoCV`: `alphas` is the number of penalties on the automatic grid
+/// (from `alpha_max` down to `eps * alpha_max`) or a list of penalties.
+#[pyclass(name = "LassoCV", module = "dml_rs")]
+#[derive(Clone)]
+pub struct PyLassoCV {
+    pub(crate) inner: LassoCV,
+    repr: String,
+}
+
+#[pymethods]
+impl PyLassoCV {
+    #[new]
+    #[pyo3(signature = (alphas = None, eps = 1e-3, cv = 5, tol = 1e-4, max_iter = 100_000))]
+    fn new(
+        alphas: Option<&Bound<'_, PyAny>>,
+        eps: f64,
+        cv: usize,
+        tol: f64,
+        max_iter: usize,
+    ) -> PyResult<Self> {
+        let mut inner = LassoCV::new().eps(eps).cv(cv).tol(tol).max_iter(max_iter);
+        let mut grid = "100".to_string();
+        if let Some(a) = alphas {
+            if let Ok(n) = a.extract::<usize>() {
+                inner = inner.n_alphas(n);
+                grid = n.to_string();
+            } else {
+                let list: Vec<f64> = a.extract().map_err(|_| {
+                    PyValueError::new_err("alphas must be an int or a sequence of floats")
+                })?;
+                grid = format!("{list:?}");
+                inner = inner.alphas(list);
+            }
+        }
+        Ok(Self {
+            inner,
+            repr: format!("LassoCV(alphas={grid}, eps={eps}, cv={cv})"),
+        })
+    }
+
+    fn fit<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        x: PyReadonlyArray2<'py, f64>,
+        y: PyReadonlyArray1<'py, f64>,
+    ) -> PyResult<PyRefMut<'py, Self>> {
+        slf.inner
+            .fit(x.as_array(), y.as_array())
+            .map_err(to_py_err)?;
+        Ok(slf)
+    }
+
+    fn predict<'py>(
+        &self,
+        py: Python<'py>,
+        x: PyReadonlyArray2<'py, f64>,
+    ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        Ok(self
+            .inner
+            .predict(x.as_array())
+            .map_err(to_py_err)?
+            .into_pyarray(py))
+    }
+
+    /// The chosen penalty.
+    #[getter]
+    fn alpha_(&self) -> PyResult<f64> {
+        self.inner.alpha().ok_or_else(|| not_fitted("LassoCV"))
+    }
+
+    /// The candidate penalties, in decreasing order.
+    #[getter]
+    fn alphas_<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        let a = self
+            .inner
+            .alphas_path()
+            .ok_or_else(|| not_fitted("LassoCV"))?;
+        Ok(Array1::from(a.to_vec()).into_pyarray(py))
+    }
+
+    /// Test MSE per penalty and fold, shape `(n_alphas, cv)`.
+    #[getter]
+    fn mse_path_<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let m = self.inner.mse_path().ok_or_else(|| not_fitted("LassoCV"))?;
+        Ok(m.clone().into_pyarray(py))
+    }
+
+    #[getter]
+    fn coef_<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        let c = self.inner.coef().ok_or_else(|| not_fitted("LassoCV"))?;
+        Ok(c.clone().into_pyarray(py))
+    }
+
+    #[getter]
+    fn intercept_(&self) -> PyResult<f64> {
+        self.inner.alpha().ok_or_else(|| not_fitted("LassoCV"))?;
+        Ok(self.inner.intercept())
+    }
+
+    fn __repr__(&self) -> String {
+        self.repr.clone()
+    }
+}
+
+/// L2-penalised logistic regression with `C` chosen by stratified
+/// cross-validation, as scikit-learn's `LogisticRegressionCV`: `Cs` is the
+/// number of values between 1e-4 and 1e4 or a list of values; `scoring` is
+/// `"neg_log_loss"` (default, scikit-learn's default from 1.11) or `"accuracy"`.
+#[pyclass(name = "LogisticRegressionCV", module = "dml_rs")]
+#[derive(Clone)]
+pub struct PyLogisticRegressionCV {
+    pub(crate) inner: LogisticRegressionCV,
+    repr: String,
+}
+
+#[pymethods]
+impl PyLogisticRegressionCV {
+    #[new]
+    #[pyo3(signature = (Cs = None, cv = 5, scoring = "neg_log_loss", tol = 1e-10, max_iter = 100))]
+    #[allow(non_snake_case)] // keep scikit-learn's parameter name
+    fn new(
+        Cs: Option<&Bound<'_, PyAny>>,
+        cv: usize,
+        scoring: &str,
+        tol: f64,
+        max_iter: usize,
+    ) -> PyResult<Self> {
+        let score = match scoring {
+            "neg_log_loss" | "log_loss" => CvScoring::LogLoss,
+            "accuracy" => CvScoring::Accuracy,
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "unknown scoring {other:?} (use 'neg_log_loss' or 'accuracy')"
+                )))
+            }
+        };
+        let mut inner = LogisticRegressionCV::new()
+            .cv(cv)
+            .scoring(score)
+            .tol(tol)
+            .max_iter(max_iter);
+        let mut grid = "10".to_string();
+        if let Some(c) = Cs {
+            if let Ok(n) = c.extract::<usize>() {
+                inner = inner.n_cs(n);
+                grid = n.to_string();
+            } else {
+                let list: Vec<f64> = c.extract().map_err(|_| {
+                    PyValueError::new_err("Cs must be an int or a sequence of floats")
+                })?;
+                grid = format!("{list:?}");
+                inner = inner.cs(list);
+            }
+        }
+        Ok(Self {
+            inner,
+            repr: format!("LogisticRegressionCV(Cs={grid}, cv={cv}, scoring={scoring:?})"),
+        })
+    }
+
+    fn fit<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        x: PyReadonlyArray2<'py, f64>,
+        y: PyReadonlyArray1<'py, f64>,
+    ) -> PyResult<PyRefMut<'py, Self>> {
+        slf.inner
+            .fit(x.as_array(), y.as_array())
+            .map_err(to_py_err)?;
+        Ok(slf)
+    }
+
+    /// Probability of class 1 (a 1-D array, unlike scikit-learn's two columns).
+    fn predict_proba<'py>(
+        &self,
+        py: Python<'py>,
+        x: PyReadonlyArray2<'py, f64>,
+    ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        Ok(self
+            .inner
+            .predict_proba(x.as_array())
+            .map_err(to_py_err)?
+            .into_pyarray(py))
+    }
+
+    /// The chosen `C`.
+    #[getter]
+    #[allow(non_snake_case)]
+    fn C_(&self) -> PyResult<f64> {
+        self.inner
+            .c()
+            .ok_or_else(|| not_fitted("LogisticRegressionCV"))
+    }
+
+    /// The candidate values of `C`.
+    #[getter]
+    #[allow(non_snake_case)]
+    fn Cs_<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        Array1::from(self.inner.cs_path().to_vec()).into_pyarray(py)
+    }
+
+    /// Score per fold and `C` (higher is better), shape `(cv, n_Cs)`.
+    #[getter]
+    fn scores_<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let s = self
+            .inner
+            .scores()
+            .ok_or_else(|| not_fitted("LogisticRegressionCV"))?;
+        Ok(s.clone().into_pyarray(py))
+    }
+
+    #[getter]
+    fn coef_<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        let c = self
+            .inner
+            .coef()
+            .ok_or_else(|| not_fitted("LogisticRegressionCV"))?;
+        Ok(c.clone().into_pyarray(py))
+    }
+
+    #[getter]
+    fn intercept_(&self) -> PyResult<f64> {
+        self.inner
+            .c()
+            .ok_or_else(|| not_fitted("LogisticRegressionCV"))?;
+        Ok(self.inner.intercept())
+    }
+
+    fn __repr__(&self) -> String {
+        self.repr.clone()
     }
 }
 
@@ -615,6 +853,9 @@ pub fn to_regressor(obj: &Bound<'_, PyAny>) -> PyResult<Box<dyn Regressor>> {
     if let Ok(o) = obj.cast::<PyLasso>() {
         return Ok(Box::new(o.borrow().inner.clone()));
     }
+    if let Ok(o) = obj.cast::<PyLassoCV>() {
+        return Ok(Box::new(o.borrow().inner.clone()));
+    }
     if let Ok(o) = obj.cast::<PyRandomForestRegressor>() {
         return Ok(Box::new(o.borrow().inner.clone()));
     }
@@ -626,6 +867,9 @@ pub fn to_regressor(obj: &Bound<'_, PyAny>) -> PyResult<Box<dyn Regressor>> {
 
 pub fn to_classifier(obj: &Bound<'_, PyAny>) -> PyResult<Box<dyn Classifier>> {
     if let Ok(o) = obj.cast::<PyLogisticRegression>() {
+        return Ok(Box::new(o.borrow().inner.clone()));
+    }
+    if let Ok(o) = obj.cast::<PyLogisticRegressionCV>() {
         return Ok(Box::new(o.borrow().inner.clone()));
     }
     if let Ok(o) = obj.cast::<PyRandomForestClassifier>() {

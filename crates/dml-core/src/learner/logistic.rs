@@ -78,8 +78,24 @@ fn sigmoid(eta: f64) -> f64 {
     }
 }
 
-impl Classifier for LogisticRegression {
-    fn fit(&mut self, x: ArrayView2<'_, f64>, y: ArrayView1<'_, f64>) -> Result<()> {
+impl LogisticRegression {
+    /// `[intercept, coef…]` of the fitted model, to warm-start another fit.
+    pub(super) fn params(&self) -> Option<Array1<f64>> {
+        let coef = self.coef.as_ref()?;
+        let mut beta = Array1::zeros(coef.len() + 1);
+        beta[0] = self.intercept;
+        beta.slice_mut(ndarray::s![1..]).assign(coef);
+        Some(beta)
+    }
+
+    /// Newton's method started from `init = [intercept, coef…]` if given,
+    /// else from the intercept-only fit.
+    pub(super) fn fit_from(
+        &mut self,
+        x: ArrayView2<'_, f64>,
+        y: ArrayView1<'_, f64>,
+        init: Option<&Array1<f64>>,
+    ) -> Result<()> {
         let (n, p) = x.dim();
         if y.len() != n {
             return Err(DmlError::DimensionMismatch(
@@ -118,9 +134,15 @@ impl Classifier for LogisticRegression {
                     .dot(&beta.slice(ndarray::s![1..]))
         };
 
-        let mean = n1 / n as f64;
-        let mut beta = Array1::<f64>::zeros(p + 1);
-        beta[0] = (mean / (1.0 - mean)).ln();
+        let mut beta = match init {
+            Some(b) if b.len() == p + 1 => b.clone(),
+            _ => {
+                let mean = n1 / n as f64;
+                let mut b = Array1::<f64>::zeros(p + 1);
+                b[0] = (mean / (1.0 - mean)).ln();
+                b
+            }
+        };
         let mut obj = objective(&beta);
         let mut converged = false;
         for _ in 0..self.max_iter {
@@ -159,6 +181,12 @@ impl Classifier for LogisticRegression {
         self.intercept = beta[0];
         self.coef = Some(beta.slice(ndarray::s![1..]).to_owned());
         Ok(())
+    }
+}
+
+impl Classifier for LogisticRegression {
+    fn fit(&mut self, x: ArrayView2<'_, f64>, y: ArrayView1<'_, f64>) -> Result<()> {
+        self.fit_from(x, y, None)
     }
 
     fn predict_proba(&self, x: ArrayView2<'_, f64>) -> Result<Array1<f64>> {

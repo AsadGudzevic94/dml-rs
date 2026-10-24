@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `LassoCV` and `LogisticRegressionCV`, the cross-validated learners most DoubleML analyses use
+  for their nuisances, with scikit-learn's grids, folds and selection rules: `LassoCV` fits a
+  warm-started path of 100 penalties from `α_max` down to `1e-3 · α_max` on each of 5 contiguous
+  folds and keeps the one with the lowest mean test MSE (sample weights supported);
+  `LogisticRegressionCV` tries 10 values of `C` from `1e-4` to `1e4` on scikit-learn's stratified
+  folds. Both refit on all the data. `CvScoring::LogLoss` (default; scikit-learn's default from
+  version 1.11) or `CvScoring::Accuracy`. With scikit-learn's default settings, `LassoCV`
+  reproduces scikit-learn's chosen penalty and coefficients to ~1e-15 and is 2–40× faster; PLR
+  with `LassoCV` nuisances is ~10× faster than DoubleML. Python: `dml_rs.LassoCV` and
+  `dml_rs.LogisticRegressionCV` with scikit-learn's parameter and attribute names (`alpha_`,
+  `alphas_`, `mse_path_`, `C_`, `Cs_`, `scores_`, `coef_`, `intercept_`).
+- DoubleML parity fixtures with cross-validated nuisance learners (`plr_lasso_cv`,
+  `irm_ate_lasso_cv_logit_cv`) and `parity/bench_cv.py`.
+
+### Changed
+- `Lasso` now follows scikit-learn's coordinate descent exactly: the stopping rule is
+  scikit-learn's (after a sweep in which no coefficient moves by more than `tol · max|w|`, the
+  duality gap must be at most `tol · ‖y − ȳ‖² / n`), the default `tol` is scikit-learn's `1e-4`
+  (was a step-size rule with `1e-12`), and gap safe screening skips coefficients that are provably
+  zero. With `n > p` the solver works on the Gram matrix. Results at default settings now match
+  scikit-learn's `Lasso()` to ~1e-15; pass a smaller `tol` for a more precise optimum.
+
 ## [0.8.0] - 2026-10-24
 
 ### Added

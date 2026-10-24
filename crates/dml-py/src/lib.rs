@@ -20,7 +20,8 @@ use cate::{fit_cate, PyBlp, PyCateResult};
 use errors::to_py_err;
 use learners::{
     to_classifier, to_regressor, PyGradientBoostingClassifier, PyGradientBoostingRegressor,
-    PyLasso, PyLogisticRegression, PyOls, PyRandomForestClassifier, PyRandomForestRegressor,
+    PyLasso, PyLassoCV, PyLogisticRegression, PyLogisticRegressionCV, PyOls,
+    PyRandomForestClassifier, PyRandomForestRegressor,
 };
 use staggered::{fit_staggered_did, PyStaggeredResult};
 
@@ -687,9 +688,9 @@ mod dml_rs_native {
     use super::{
         fit_cate, fit_did, fit_iivm, fit_irm, fit_pliv, fit_plr, fit_staggered_did, PyBlp,
         PyBootstrap, PyCateResult, PyDmlResult, PyGradientBoostingClassifier,
-        PyGradientBoostingRegressor, PyLasso, PyLogisticRegression, PyOls,
-        PyRandomForestClassifier, PyRandomForestRegressor, PySensitivityBenchmark,
-        PySensitivityResult, PyStaggeredResult,
+        PyGradientBoostingRegressor, PyLasso, PyLassoCV, PyLogisticRegression,
+        PyLogisticRegressionCV, PyOls, PyRandomForestClassifier, PyRandomForestRegressor,
+        PySensitivityBenchmark, PySensitivityResult, PyStaggeredResult,
     };
 
     #[pymodule_init]
