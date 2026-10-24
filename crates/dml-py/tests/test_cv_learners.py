@@ -18,11 +18,15 @@ def logit_cv_sklearn(**kwargs):
 
 
 @pytest.mark.parametrize("n, p", [(200, 10), (400, 60), (100, 150)])
-def test_lasso_cv_matches_scikit_learn_defaults(n, p):
+def test_lasso_cv_matches_scikit_learn(n, p):
     np.random.seed(n + p)
     x, y, _ = make_plr_CCDDHNR2018(n_obs=n, dim_x=p, return_type="array")
-    ref = sk.LassoCV().fit(x, y)
-    ours = dml_rs.LassoCV().fit(x, y)
+    # With n > p, scikit-learn's defaults. With p > n a path near interpolation makes the default
+    # tol = 1e-4 stop at points that depend on BLAS rounding (both within tolerance, but not the
+    # same point on every platform), so both sides solve to a tight tolerance on a shorter path.
+    kwargs = {} if n > p else dict(alphas=30, eps=1e-2, tol=1e-8, max_iter=1_000_000)
+    ref = sk.LassoCV(**kwargs).fit(x, y)
+    ours = dml_rs.LassoCV(**kwargs).fit(x, y)
     assert ours.alpha_ == pytest.approx(ref.alpha_, rel=1e-12)
     np.testing.assert_allclose(ours.alphas_, ref.alphas_, rtol=1e-12)
     np.testing.assert_allclose(ours.mse_path_, ref.mse_path_, rtol=1e-9)
