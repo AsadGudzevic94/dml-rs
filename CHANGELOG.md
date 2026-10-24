@@ -13,8 +13,9 @@ All notable changes to this project are documented here. The format follows
   folds and keeps the one with the lowest mean test MSE (sample weights supported);
   `LogisticRegressionCV` tries 10 values of `C` from `1e-4` to `1e4` on scikit-learn's stratified
   folds. Both refit on all the data. `CvScoring::LogLoss` (default; scikit-learn's default from
-  version 1.11) or `CvScoring::Accuracy`. With scikit-learn's default settings, `LassoCV`
-  reproduces scikit-learn's chosen penalty and coefficients to ~1e-15 and is 2–40× faster; PLR
+  version 1.11) or `CvScoring::Accuracy`. With scikit-learn's default settings and `n > p`,
+  `LassoCV` reproduces scikit-learn's chosen penalty and coefficients to ~1e-15 and is 2–40×
+  faster; PLR
   with `LassoCV` nuisances is ~10× faster than DoubleML. Python: `dml_rs.LassoCV` and
   `dml_rs.LogisticRegressionCV` with scikit-learn's parameter and attribute names (`alpha_`,
   `alphas_`, `mse_path_`, `C_`, `Cs_`, `scores_`, `coef_`, `intercept_`).
@@ -26,8 +27,10 @@ All notable changes to this project are documented here. The format follows
   scikit-learn's (after a sweep in which no coefficient moves by more than `tol · max|w|`, the
   duality gap must be at most `tol · ‖y − ȳ‖² / n`), the default `tol` is scikit-learn's `1e-4`
   (was a step-size rule with `1e-12`), and gap safe screening skips coefficients that are provably
-  zero. With `n > p` the solver works on the Gram matrix. Results at default settings now match
-  scikit-learn's `Lasso()` to ~1e-15; pass a smaller `tol` for a more precise optimum.
+  zero. With `n > p` the solver works on the Gram matrix. Results at default settings match
+  scikit-learn's `Lasso()` to ~1e-15 when `n > p`; with `p > n`, where the loose default `tol`
+  can stop at slightly different points depending on floating-point rounding, both agree to
+  within the tolerance. Pass a smaller `tol` for a more precise optimum.
 
 ## [0.8.0] - 2026-10-24
 
