@@ -32,6 +32,7 @@ use crate::data::DmlData;
 use crate::error::{DmlError, Result};
 use crate::fit::DmlFit;
 use crate::learner::{Classifier, Regressor};
+use crate::propensity::{adjust_propensity, Calibration};
 use crate::score::LinearScore;
 
 /// Settings shared by the quantile models.
@@ -40,6 +41,7 @@ struct Settings {
     treatment: f64,
     quantile: f64,
     clipping_threshold: f64,
+    calibration: Calibration,
     normalize_ipw: bool,
 }
 
@@ -49,6 +51,7 @@ impl Settings {
             treatment: 1.0,
             quantile: 0.5,
             clipping_threshold: 1e-2,
+            calibration: Calibration::None,
             normalize_ipw: true,
         }
     }
@@ -72,23 +75,35 @@ impl Settings {
 
     /// Clip, optionally normalise with the indicator `ind`, and for treatment
     /// 0 flip to `P(D = 0 | X)` (DoubleML's propensity adjustment).
-    fn adjust(&self, m: &Array1<f64>, ind: &Array1<f64>, flip: bool) -> Array1<f64> {
-        let clipped = self.clip(m);
+    fn adjust(
+        &self,
+        m: &Array1<f64>,
+        ind: &Array1<f64>,
+        flip: bool,
+        folds: &[Fold],
+    ) -> Result<Array1<f64>> {
+        let clipped = self.clip(m, ind, folds)?;
         let normalized = if self.normalize_ipw {
             normalize_propensity(&clipped, ind)
         } else {
             clipped
         };
-        if flip && self.treatment == 0.0 {
+        Ok(if flip && self.treatment == 0.0 {
             1.0 - normalized
         } else {
             normalized
-        }
+        })
     }
 
-    fn clip(&self, m: &Array1<f64>) -> Array1<f64> {
-        let t = self.clipping_threshold;
-        m.mapv(|p| p.clamp(t, 1.0 - t))
+    /// Calibrate (optionally, against `ind`) and clip.
+    fn clip(&self, m: &Array1<f64>, ind: &Array1<f64>, folds: &[Fold]) -> Result<Array1<f64>> {
+        adjust_propensity(
+            m.clone(),
+            ind.view(),
+            folds,
+            self.clipping_threshold,
+            self.calibration,
+        )
     }
 }
 
@@ -242,6 +257,13 @@ macro_rules! quantile_api {
             self.settings.normalize_ipw = normalize;
             self
         }
+
+        /// Calibrate the propensity scores before clipping (default: none), as
+        /// DoubleML's `ps_processor_config`.
+        pub fn calibration(mut self, calibration: Calibration) -> Self {
+            self.settings.calibration = calibration;
+            self
+        }
     };
 }
 
@@ -348,7 +370,7 @@ impl Pq {
             let (d1, y1) = (take(d, &train1), take(y, &train1));
             let x1 = x.select(Axis(0), &train1);
             let m1 = cross_fit_predict_proba(self.ml_m.as_ref(), x1.view(), d1.view(), &prelim)?;
-            let m1 = s.adjust(&m1, &d1, true);
+            let m1 = s.adjust(&m1, &d1, true, &prelim)?;
             let mut ipw_score = |theta: f64| {
                 let terms: Vec<f64> = (0..d1.len())
                     .map(|i| {
@@ -378,8 +400,8 @@ impl Pq {
             }
         }
         let d_owned = d.to_owned();
-        let m_clipped = s.clip(&m);
-        let m_adj = s.adjust(&m, &d_owned, true);
+        let m_clipped = s.clip(&m, &d_owned, folds)?;
+        let m_adj = s.adjust(&m, &d_owned, true, folds)?;
         let ind: Array1<f64> = d.mapv(|v| f64::from(v == s.treatment));
         let terms = |theta: f64| -> Array1<f64> {
             (0..n)
@@ -500,7 +522,7 @@ impl Lpq {
             let (d1, y1, z1) = (take(d, &train1), take(y, &train1), take(z, &train1));
             let x1 = x.select(Axis(0), &train1);
             let mz1 = cross_fit_predict_proba(self.ml_m.as_ref(), x1.view(), z1.view(), &prelim)?;
-            let mz1 = s.adjust(&mz1, &z1, false);
+            let mz1 = s.adjust(&mz1, &z1, false, &prelim)?;
             // P(D = 1 | Z = z, X) fitted and predicted on the first half.
             let pos =
                 |zv: f64| -> Vec<usize> { (0..train1.len()).filter(|&p| z1[p] == zv).collect() };
@@ -599,8 +621,8 @@ impl Lpq {
             }
         }
         let z_owned = z.to_owned();
-        let m_z_clipped = s.clip(&m_z);
-        let m_z_adj = s.adjust(&m_z, &z_owned, false);
+        let m_z_clipped = s.clip(&m_z, &z_owned, folds)?;
+        let m_z_adj = s.adjust(&m_z, &z_owned, false, folds)?;
         let comp_terms: Vec<f64> = (0..n)
             .map(|i| {
                 m_d_z1[i] - m_d_z0[i] + z[i] / m_z_adj[i] * (d[i] - m_d_z1[i])
@@ -735,7 +757,7 @@ impl LinearScoreModel for Cvar {
             let (d1, y1) = (take(d, &train1), take(y, &train1));
             let x1 = x.select(Axis(0), &train1);
             let m1 = cross_fit_predict_proba(self.ml_m.as_ref(), x1.view(), d1.view(), &prelim)?;
-            let m1 = s.adjust(&m1, &d1, true);
+            let m1 = s.adjust(&m1, &d1, true, &prelim)?;
             let mut ipw_score = |theta: f64| {
                 let terms: Vec<f64> = (0..d1.len())
                     .map(|i| {
@@ -767,8 +789,8 @@ impl LinearScoreModel for Cvar {
             }
         }
         let d_owned = d.to_owned();
-        let m_clipped = s.clip(&m);
-        let m_adj = s.adjust(&m, &d_owned, true);
+        let m_clipped = s.clip(&m, &d_owned, folds)?;
+        let m_adj = s.adjust(&m, &d_owned, true, folds)?;
         // The potential quantile is approximated by the mean of the IPW estimates.
         let pq = np_mean(&ipw_vec);
         let ind: Array1<f64> = d.mapv(|v| f64::from(v == s.treatment));
@@ -808,6 +830,7 @@ pub struct Qte {
     ml_m: Box<dyn Classifier>,
     quantiles: Vec<f64>,
     clipping_threshold: f64,
+    calibration: Calibration,
     normalize_ipw: bool,
     splitting: SampleSplitting,
 }
@@ -819,6 +842,7 @@ impl Qte {
             ml_m,
             quantiles,
             clipping_threshold: 1e-2,
+            calibration: Calibration::None,
             normalize_ipw: true,
             splitting: SampleSplitting::default(),
         }
@@ -880,6 +904,12 @@ impl Qte {
         self.clipping_threshold = t;
         self
     }
+    /// Calibrate the propensity scores before clipping (default: none), as
+    /// DoubleML's `ps_processor_config`.
+    pub fn calibration(mut self, calibration: Calibration) -> Self {
+        self.calibration = calibration;
+        self
+    }
 
     /// Normalise the inverse-probability weights (default `true`).
     pub fn normalize_ipw(mut self, normalize: bool) -> Self {
@@ -912,18 +942,21 @@ impl Qte {
                         .treatment(t)
                         .quantile(q)
                         .clipping_threshold(self.clipping_threshold)
+                        .calibration(self.calibration)
                         .normalize_ipw(self.normalize_ipw)
                         .fit_with_folds(data, splits)?,
                     QteKind::Lpq(g) => Lpq::from_boxed(g.fresh(), self.ml_m.fresh())
                         .treatment(t)
                         .quantile(q)
                         .clipping_threshold(self.clipping_threshold)
+                        .calibration(self.calibration)
                         .normalize_ipw(self.normalize_ipw)
                         .fit_with_folds(data, splits)?,
                     QteKind::Cvar(g) => Cvar::from_boxed(g.fresh(), self.ml_m.fresh())
                         .treatment(t)
                         .quantile(q)
                         .clipping_threshold(self.clipping_threshold)
+                        .calibration(self.calibration)
                         .normalize_ipw(self.normalize_ipw)
                         .fit_with_folds(data, splits)?,
                 };

@@ -22,6 +22,7 @@ use crate::crossfit::{
 use crate::data::{is_binary, DmlData};
 use crate::error::{DmlError, Result};
 use crate::learner::{Classifier, Regressor};
+use crate::propensity::{adjust_propensity, Calibration};
 use crate::score::LinearScore;
 
 /// IIVM estimator of the LATE: `ml_g` learns `E[Y | Z, X]` (fitted separately
@@ -35,6 +36,7 @@ pub struct Iivm {
     always_takers: bool,
     never_takers: bool,
     clipping_threshold: f64,
+    calibration: Calibration,
     normalize_ipw: bool,
     splitting: SampleSplitting,
 }
@@ -60,6 +62,7 @@ impl Iivm {
             always_takers: true,
             never_takers: true,
             clipping_threshold: 1e-2,
+            calibration: Calibration::None,
             normalize_ipw: false,
             splitting: SampleSplitting::default(),
         }
@@ -79,6 +82,12 @@ impl Iivm {
     /// Instrument propensities are clipped to `[t, 1 − t]` (default 0.01).
     pub fn clipping_threshold(mut self, t: f64) -> Self {
         self.clipping_threshold = t;
+        self
+    }
+    /// Calibrate the propensity scores before clipping (default: none), as
+    /// DoubleML's `ps_processor_config`.
+    pub fn calibration(mut self, calibration: Calibration) -> Self {
+        self.calibration = calibration;
         self
     }
 
@@ -138,9 +147,8 @@ impl LinearScoreModel for Iivm {
 
         let g0 = cross_fit_predict_subset(self.ml_g.as_ref(), x, y, folds, &z0)?;
         let g1 = cross_fit_predict_subset(self.ml_g.as_ref(), x, y, folds, &z1)?;
-        let t = self.clipping_threshold;
-        let m =
-            cross_fit_predict_proba(self.ml_m.as_ref(), x, z, folds)?.mapv(|p| p.clamp(t, 1.0 - t));
+        let m_raw = cross_fit_predict_proba(self.ml_m.as_ref(), x, z, folds)?;
+        let m = adjust_propensity(m_raw, z, folds, self.clipping_threshold, self.calibration)?;
         let r0 = if self.always_takers {
             cross_fit_predict_proba_subset(self.ml_r.as_ref(), x, d, folds, &z0)?
         } else {

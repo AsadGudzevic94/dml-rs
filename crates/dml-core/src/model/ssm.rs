@@ -25,6 +25,7 @@ use crate::crossfit::{cross_fit_predict_proba, cross_fit_predict_subset, Fold, S
 use crate::data::{gather, is_binary, DmlData};
 use crate::error::{DmlError, Result};
 use crate::learner::{Classifier, Regressor};
+use crate::propensity::{adjust_propensity, Calibration};
 use crate::score::LinearScore;
 
 /// Selection mechanism of [`Ssm`].
@@ -56,6 +57,7 @@ pub struct Ssm {
     ml_m: Box<dyn Classifier>,
     score: SsmScore,
     clipping_threshold: f64,
+    calibration: Calibration,
     normalize_ipw: bool,
     splitting: SampleSplitting,
 }
@@ -82,6 +84,7 @@ impl Ssm {
             ml_m,
             score: SsmScore::default(),
             clipping_threshold: 1e-2,
+            calibration: Calibration::None,
             normalize_ipw: false,
             splitting: SampleSplitting::default(),
         }
@@ -96,6 +99,12 @@ impl Ssm {
     /// Selection probabilities are not clipped, as in DoubleML.
     pub fn clipping_threshold(mut self, t: f64) -> Self {
         self.clipping_threshold = t;
+        self
+    }
+    /// Calibrate the propensity scores before clipping (default: none), as
+    /// DoubleML's `ps_processor_config`.
+    pub fn calibration(mut self, calibration: Calibration) -> Self {
+        self.calibration = calibration;
         self
     }
 
@@ -262,7 +271,7 @@ impl LinearScoreModel for Ssm {
             }
         };
         let t = self.clipping_threshold;
-        let m = m.mapv(|p| p.clamp(t, 1.0 - t));
+        let m = adjust_propensity(m, d, folds, t, self.calibration)?;
 
         // ψ_b = ψ_b1 − ψ_b0, each an IPW-corrected outcome prediction; written
         // in DoubleML's operation order (and its sequential sums) so results

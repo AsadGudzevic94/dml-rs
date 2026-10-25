@@ -54,7 +54,8 @@ fn fit_fixture_on(fx: &Fixture, data: &dml_core::DmlData) -> DmlFit {
             };
             let irm = Irm::from_boxed(fx.regressor("ml_g"), fx.classifier("ml_m"))
                 .score(score)
-                .normalize_ipw(fx.option_bool("normalize_ipw"));
+                .normalize_ipw(fx.option_bool("normalize_ipw"))
+                .calibration(fx.calibration());
             fit!(irm)
         }
         kind @ ("pliv" | "pliv_partial_xz") => {
@@ -83,6 +84,7 @@ fn fit_fixture_on(fx: &Fixture, data: &dml_core::DmlData) -> DmlFit {
                 fx.classifier("ml_r"),
             )
             .subgroups(flag("always_takers"), flag("never_takers"))
+            .calibration(fx.calibration())
             .fit_with_folds(&data, &folds)
         }
         kind @ ("pq" | "lpq" | "cvar") => {
@@ -94,16 +96,19 @@ fn fit_fixture_on(fx: &Fixture, data: &dml_core::DmlData) -> DmlFit {
                     .treatment(t)
                     .quantile(q)
                     .normalize_ipw(norm)
+                    .calibration(fx.calibration())
                     .fit_with_folds(&data, &folds),
                 "lpq" => Lpq::from_boxed(fx.classifier("ml_g"), fx.classifier("ml_m"))
                     .treatment(t)
                     .quantile(q)
                     .normalize_ipw(norm)
+                    .calibration(fx.calibration())
                     .fit_with_folds(&data, &folds),
                 _ => Cvar::from_boxed(fx.regressor("ml_g"), fx.classifier("ml_m"))
                     .treatment(t)
                     .quantile(q)
                     .normalize_ipw(norm)
+                    .calibration(fx.calibration())
                     .fit_with_folds(&data, &folds),
             }
         }
@@ -182,7 +187,8 @@ fn fit_fixture_on(fx: &Fixture, data: &dml_core::DmlData) -> DmlFit {
                 fx.classifier("ml_m"),
             )
             .score(score)
-            .normalize_ipw(fx.option_bool("normalize_ipw"));
+            .normalize_ipw(fx.option_bool("normalize_ipw"))
+            .calibration(fx.calibration());
             fit!(ssm)
         }
         "apo" => {
@@ -191,7 +197,8 @@ fn fit_fixture_on(fx: &Fixture, data: &dml_core::DmlData) -> DmlFit {
                 fx.classifier("ml_m"),
                 fx.0["options"]["treatment_level"].as_f64().unwrap(),
             )
-            .normalize_ipw(fx.option_bool("normalize_ipw"));
+            .normalize_ipw(fx.option_bool("normalize_ipw"))
+            .calibration(fx.calibration());
             fit!(apo)
         }
         kind @ ("did" | "did_cs") => {
@@ -206,11 +213,13 @@ fn fit_fixture_on(fx: &Fixture, data: &dml_core::DmlData) -> DmlFit {
                 Did::from_boxed(fx.regressor("ml_g"), ml_m)
                     .score(score)
                     .in_sample_normalization(normalize)
+                    .calibration(fx.calibration())
                     .fit_with_folds(&data, &folds)
             } else {
                 DidCs::from_boxed(fx.regressor("ml_g"), ml_m)
                     .score(score)
                     .in_sample_normalization(normalize)
+                    .calibration(fx.calibration())
                     .fit_with_folds(&data, &folds)
             }
         }
@@ -675,6 +684,15 @@ fn pliv_ivtype_and_several_instruments() {
 fn pliv_partial_z_and_xz() {
     check("pliv_partial_z", TOL);
     check("pliv_partial_xz", TOL);
+}
+
+#[test]
+fn isotonic_propensity_calibration() {
+    check("irm_ate_isotonic_normalized", TOL_ITERATIVE);
+    check("irm_atte_isotonic_cv_rep2", TOL_ITERATIVE);
+    check("apo_isotonic_cv", TOL_ITERATIVE);
+    check("iivm_isotonic", TOL_ITERATIVE);
+    check("ssm_mar_isotonic_cv", TOL_ITERATIVE);
 }
 
 #[test]

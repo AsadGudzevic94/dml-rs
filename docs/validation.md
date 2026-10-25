@@ -20,6 +20,7 @@ losses.
 | `plr_lasso_cv`, `irm_ate_lasso_cv_logit_cv` | scikit-learn's `LassoCV` and `LogisticRegressionCV` as nuisance learners |
 | `plr_boot_bayes`, `plr_boot_wild`, `plr_multi_rep3_boot` | Bootstrap methods, multiple treatments, joint intervals, Romano–Wolf |
 | `rd_*`, `rdflex_*` | The RD back end against the `rdrobust` package (bandwidths and estimates, sharp, fuzzy and with mass points); RDFlex in sharp and fuzzy designs with every first-stage specification and kernel, a non-zero cutoff, one to three bandwidth rounds and repeated splits |
+| `*_isotonic*` | Isotonic propensity calibration, on all observations and cross-fitted: IRM (ATE, ATTE with sensitivity), APO, IIVM, SSM and staggered DiD |
 | `plpr_*` | Panel regression: all four approaches, unbalanced panels with gaps, IV-type score, DoubleML's unit-clustered splits |
 | `lplr_*` | Logistic partially linear regression: both scores, continuous and binary treatments, replaying DoubleML's outer and inner splits |
 | `irm_ate`, `irm_atte`, `irm_ate_normalized`, `irm_cate_gate` | IRM (ATE / ATTE, normalised IPW), BLP and GATE |

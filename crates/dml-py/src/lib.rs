@@ -541,7 +541,7 @@ fn fit_plr(
 }
 
 #[pyfunction]
-#[pyo3(signature = (y, d, x, ml_g, ml_m, score = "ATE", clipping_threshold = 1e-2,
+#[pyo3(signature = (y, d, x, ml_g, ml_m, score = "ATE", clipping_threshold = 1e-2, calibration = None,
                     normalize_ipw = false, n_folds = 5, n_rep = 1, seed = 0, splits = None,
                     treatment_names = None, cluster = None, weights = None, weights_bar = None))]
 #[allow(clippy::too_many_arguments)]
@@ -554,6 +554,7 @@ fn fit_irm(
     ml_m: &Bound<'_, PyAny>,
     score: &str,
     clipping_threshold: f64,
+    calibration: Option<&str>,
     normalize_ipw: bool,
     n_folds: usize,
     n_rep: usize,
@@ -577,6 +578,7 @@ fn fit_irm(
     let model = Irm::from_boxed(to_regressor(ml_g)?, to_classifier(ml_m)?)
         .score(score)
         .clipping_threshold(clipping_threshold)
+        .calibration(parse_calibration(calibration)?)
         .normalize_ipw(normalize_ipw)
         .n_folds(n_folds)
         .n_rep(n_rep)
@@ -664,7 +666,7 @@ fn fit_pliv(
 
 #[pyfunction]
 #[pyo3(signature = (y, d, x, z, ml_g, ml_m, ml_r, always_takers = true, never_takers = true,
-                    clipping_threshold = 1e-2, normalize_ipw = false, n_folds = 5, n_rep = 1,
+                    clipping_threshold = 1e-2, calibration = None, normalize_ipw = false, n_folds = 5, n_rep = 1,
                     seed = 0, splits = None, treatment_names = None, cluster = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_iivm(
@@ -679,6 +681,7 @@ fn fit_iivm(
     always_takers: bool,
     never_takers: bool,
     clipping_threshold: f64,
+    calibration: Option<&str>,
     normalize_ipw: bool,
     n_folds: usize,
     n_rep: usize,
@@ -695,6 +698,7 @@ fn fit_iivm(
     )
     .subgroups(always_takers, never_takers)
     .clipping_threshold(clipping_threshold)
+    .calibration(parse_calibration(calibration)?)
     .normalize_ipw(normalize_ipw)
     .n_folds(n_folds)
     .n_rep(n_rep)
@@ -704,7 +708,7 @@ fn fit_iivm(
 
 /// Average potential outcome of one treatment level (discrete treatment).
 #[pyfunction]
-#[pyo3(signature = (y, d, x, ml_g, ml_m, treatment_level, clipping_threshold = 1e-2,
+#[pyo3(signature = (y, d, x, ml_g, ml_m, treatment_level, clipping_threshold = 1e-2, calibration = None,
                     normalize_ipw = false, n_folds = 5, n_rep = 1, seed = 0, splits = None,
                     treatment_names = None, cluster = None, weights = None, weights_bar = None))]
 #[allow(clippy::too_many_arguments)]
@@ -717,6 +721,7 @@ fn fit_apo(
     ml_m: &Bound<'_, PyAny>,
     treatment_level: f64,
     clipping_threshold: f64,
+    calibration: Option<&str>,
     normalize_ipw: bool,
     n_folds: usize,
     n_rep: usize,
@@ -730,6 +735,7 @@ fn fit_apo(
     let data = build_data(y, d, x, None, None, treatment_names, cluster)?;
     let model = Apo::from_boxed(to_regressor(ml_g)?, to_classifier(ml_m)?, treatment_level)
         .clipping_threshold(clipping_threshold)
+        .calibration(parse_calibration(calibration)?)
         .normalize_ipw(normalize_ipw)
         .n_folds(n_folds)
         .n_rep(n_rep)
@@ -806,7 +812,7 @@ impl PyAposResult {
 }
 
 #[pyfunction]
-#[pyo3(signature = (y, d, x, ml_g, ml_m, treatment_levels, clipping_threshold = 1e-2,
+#[pyo3(signature = (y, d, x, ml_g, ml_m, treatment_levels, clipping_threshold = 1e-2, calibration = None,
                     normalize_ipw = false, n_folds = 5, n_rep = 1, seed = 0, splits = None,
                     cluster = None, weights = None, weights_bar = None))]
 #[allow(clippy::too_many_arguments)]
@@ -819,6 +825,7 @@ fn fit_apos(
     ml_m: &Bound<'_, PyAny>,
     treatment_levels: Vec<f64>,
     clipping_threshold: f64,
+    calibration: Option<&str>,
     normalize_ipw: bool,
     n_folds: usize,
     n_rep: usize,
@@ -831,6 +838,7 @@ fn fit_apos(
     let data = build_data(y, d, x, None, None, None, cluster)?;
     let model = Apos::from_boxed(to_regressor(ml_g)?, to_classifier(ml_m)?, treatment_levels)
         .clipping_threshold(clipping_threshold)
+        .calibration(parse_calibration(calibration)?)
         .normalize_ipw(normalize_ipw)
         .n_folds(n_folds)
         .n_rep(n_rep)
@@ -1157,7 +1165,7 @@ fn fit_lplr(
 /// where the 0/1 indicator `s` is 1. The nonignorable score needs `z`.
 #[pyfunction]
 #[pyo3(signature = (y, d, x, s, ml_g, ml_pi, ml_m, z = None, score = "missing-at-random",
-                    clipping_threshold = 1e-2, normalize_ipw = false, n_folds = 5, n_rep = 1,
+                    clipping_threshold = 1e-2, calibration = None, normalize_ipw = false, n_folds = 5, n_rep = 1,
                     seed = 0, splits = None, treatment_names = None, cluster = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_ssm(
@@ -1172,6 +1180,7 @@ fn fit_ssm(
     z: Option<PyReadonlyArray1<'_, f64>>,
     score: &str,
     clipping_threshold: f64,
+    calibration: Option<&str>,
     normalize_ipw: bool,
     n_folds: usize,
     n_rep: usize,
@@ -1199,6 +1208,7 @@ fn fit_ssm(
     )
     .score(score)
     .clipping_threshold(clipping_threshold)
+    .calibration(parse_calibration(calibration)?)
     .normalize_ipw(normalize_ipw)
     .n_folds(n_folds)
     .n_rep(n_rep)
@@ -1210,7 +1220,7 @@ fn fit_ssm(
 /// or conditional value at risk (`"CVaR"`) of one treatment level.
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g, ml_m, score = "PQ", treatment = 1, quantile = 0.5, z = None,
-                    clipping_threshold = 1e-2, normalize_ipw = true, n_folds = 5, n_rep = 1,
+                    clipping_threshold = 1e-2, calibration = None, normalize_ipw = true, n_folds = 5, n_rep = 1,
                     seed = 0, splits = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_quantile(
@@ -1225,6 +1235,7 @@ fn fit_quantile(
     quantile: f64,
     z: Option<PyReadonlyArray1<'_, f64>>,
     clipping_threshold: f64,
+    calibration: Option<&str>,
     normalize_ipw: bool,
     n_folds: usize,
     n_rep: usize,
@@ -1241,6 +1252,7 @@ fn fit_quantile(
                 .treatment(treatment)
                 .quantile(quantile)
                 .clipping_threshold(clipping_threshold)
+                .calibration(parse_calibration(calibration)?)
                 .normalize_ipw(normalize_ipw)
                 .n_folds(n_folds)
                 .n_rep(n_rep)
@@ -1302,7 +1314,7 @@ impl PyQteResult {
 /// treatment effects at several quantiles, on shared sample splits.
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g, ml_m, quantiles, score = "PQ", z = None,
-                    clipping_threshold = 1e-2, normalize_ipw = true, n_folds = 5, n_rep = 1,
+                    clipping_threshold = 1e-2, calibration = None, normalize_ipw = true, n_folds = 5, n_rep = 1,
                     seed = 0, splits = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_qte(
@@ -1316,6 +1328,7 @@ fn fit_qte(
     score: &str,
     z: Option<PyReadonlyArray1<'_, f64>>,
     clipping_threshold: f64,
+    calibration: Option<&str>,
     normalize_ipw: bool,
     n_folds: usize,
     n_rep: usize,
@@ -1337,6 +1350,7 @@ fn fit_qte(
     )
     .map_err(to_py_err)?
     .clipping_threshold(clipping_threshold)
+    .calibration(parse_calibration(calibration)?)
     .normalize_ipw(normalize_ipw)
     .n_folds(n_folds)
     .n_rep(n_rep)
@@ -1349,6 +1363,18 @@ fn fit_qte(
         None => py.detach(|| model.fit(&data)),
     };
     result.map(|inner| PyQteResult { inner }).map_err(to_py_err)
+}
+
+/// Propensity calibration: `None`, `"isotonic"` or `"isotonic_cv"` (cross-fitted).
+pub(crate) fn parse_calibration(calibration: Option<&str>) -> PyResult<dml_core::Calibration> {
+    match calibration {
+        None => Ok(dml_core::Calibration::None),
+        Some("isotonic") => Ok(dml_core::Calibration::Isotonic),
+        Some("isotonic_cv") => Ok(dml_core::Calibration::IsotonicCrossFitted),
+        Some(other) => Err(PyValueError::new_err(format!(
+            "unknown calibration {other:?} (use None, 'isotonic' or 'isotonic_cv')"
+        ))),
+    }
 }
 
 pub(crate) fn did_score(score: &str) -> PyResult<DidScore> {
@@ -1365,7 +1391,7 @@ pub(crate) fn did_score(score: &str) -> PyResult<DidScore> {
 /// change), repeated cross-sections when the time indicator `t` is given.
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g, ml_m = None, t = None, score = "observational",
-                    in_sample_normalization = true, clipping_threshold = 1e-2, n_folds = 5,
+                    in_sample_normalization = true, clipping_threshold = 1e-2, calibration = None, n_folds = 5,
                     n_rep = 1, seed = 0, splits = None, treatment_names = None, cluster = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_did(
@@ -1379,6 +1405,7 @@ fn fit_did(
     score: &str,
     in_sample_normalization: bool,
     clipping_threshold: f64,
+    calibration: Option<&str>,
     n_folds: usize,
     n_rep: usize,
     seed: u64,
@@ -1395,6 +1422,7 @@ fn fit_did(
             .score(score)
             .in_sample_normalization(in_sample_normalization)
             .clipping_threshold(clipping_threshold)
+            .calibration(parse_calibration(calibration)?)
             .n_folds(n_folds)
             .n_rep(n_rep)
             .seed(seed);
@@ -1404,6 +1432,7 @@ fn fit_did(
             .score(score)
             .in_sample_normalization(in_sample_normalization)
             .clipping_threshold(clipping_threshold)
+            .calibration(parse_calibration(calibration)?)
             .n_folds(n_folds)
             .n_rep(n_rep)
             .seed(seed);

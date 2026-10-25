@@ -18,6 +18,7 @@ import doubleml as dml
 import numpy as np
 import pandas as pd
 import sklearn
+from doubleml.utils.propensity_score_processing import PSProcessorConfig
 from doubleml.did.datasets import make_did_CS2021, make_did_cs_CS2021, make_did_SZ2020
 from doubleml.irm.datasets import make_iivm_data, make_irm_data, make_irm_data_discrete_treatments, make_ssm_data
 from doubleml.plm.datasets import make_lplr_LZZ2020, make_pliv_CHS2015, make_plpr_CP2025, make_pliv_multiway_cluster_CKMS2021, make_plr_CCDDHNR2018
@@ -83,7 +84,13 @@ def fit_case(name, model_kind, data, arrays, learners, options, n_folds=5, n_rep
         "cvar": dml.DoubleMLCVAR,
         "ssm": dml.DoubleMLSSM,
     }[model_kind]
-    model = cls(data, **kwargs, n_folds=n_folds, n_rep=n_rep, draw_sample_splitting=False, **options)
+    opts = dict(options)
+    calibration = opts.pop("calibration", None)
+    if calibration is not None:
+        from doubleml.utils.propensity_score_processing import PSProcessorConfig
+        opts["ps_processor_config"] = PSProcessorConfig(calibration_method="isotonic",
+                                                        cv_calibration=calibration == "isotonic_cv")
+    model = cls(data, **kwargs, n_folds=n_folds, n_rep=n_rep, draw_sample_splitting=False, **opts)
     model.set_sample_splitting(reps)
     model.fit(store_predictions=True)
 
@@ -186,27 +193,33 @@ def plr_multi(name, seed, n_obs, n_rep, boot):
                     {"score": "partialling out"}, n_rep=n_rep, seed=seed, boot=boot)
 
 
-def irm(name, seed, score, normalize_ipw=False, n_rep=1, boot=None, ml_g=OLS, ml_m=LOGIT, dim_x=8):
+def cal(calibration):
+    """Propensity calibration option: None, "isotonic" or "isotonic_cv"."""
+    return {} if calibration is None else {"calibration": calibration}
+
+
+def irm(name, seed, score, normalize_ipw=False, n_rep=1, boot=None, ml_g=OLS, ml_m=LOGIT, dim_x=8, calibration=None):
     np.random.seed(seed)
     x, y, d = make_irm_data(n_obs=500, dim_x=dim_x, theta=0.5, return_type="array")
     data = dml.DoubleMLData.from_arrays(x, y, d)
     return fit_case(name, "irm", data, {"x": x, "y": y, "d": d}, {"ml_g": ml_g, "ml_m": ml_m},
-                    {"score": score, "normalize_ipw": normalize_ipw}, n_rep=n_rep, seed=seed, boot=boot)
+                    {"score": score, "normalize_ipw": normalize_ipw, **cal(calibration)}, n_rep=n_rep, seed=seed,
+                    boot=boot)
 
 
-def iivm(name, seed, subgroups=None, n_rep=1):
+def iivm(name, seed, subgroups=None, n_rep=1, calibration=None):
     np.random.seed(seed)
     x, y, d, z = make_iivm_data(n_obs=600, dim_x=6, theta=0.5, alpha_x=1.0, return_type="array")
     z = np.asarray(z).reshape(-1)
     data = dml.DoubleMLData.from_arrays(x, y, d, z=z)
-    options = {"score": "LATE"}
+    options = {"score": "LATE", **cal(calibration)}
     if subgroups is not None:
         options["subgroups"] = subgroups
     return fit_case(name, "iivm", data, {"x": x, "y": y, "d": d, "z": z},
                     {"ml_g": OLS, "ml_m": LOGIT, "ml_r": LOGIT}, options, n_rep=n_rep, seed=seed)
 
 
-def did(name, seed, score, normalize, cross_section=False):
+def did(name, seed, score, normalize, cross_section=False, calibration=None):
     np.random.seed(seed)
     if cross_section:
         x, y, d, t = make_did_SZ2020(n_obs=800, dgp_type=1, cross_sectional_data=True, return_type="array")
@@ -220,10 +233,11 @@ def did(name, seed, score, normalize, cross_section=False):
     if score == "observational":
         learners["ml_m"] = LOGIT
     return fit_case(name, "did_cs" if cross_section else "did", data, arrays, learners,
-                    {"score": score, "in_sample_normalization": normalize}, seed=seed)
+                    {"score": score, "in_sample_normalization": normalize, **cal(calibration)}, seed=seed)
 
 
-def staggered(name, seed, control_group, score, normalize, gt_setting="standard", anticipation=0, n_rep=1):
+def staggered(name, seed, control_group, score, normalize, gt_setting="standard", anticipation=0, n_rep=1,
+              calibration=None):
     """DoubleMLDIDMulti on a staggered panel; records each group-time model's own folds."""
     np.random.seed(seed)
     df = make_did_CS2021(n_obs=400, dgp_type=1, include_never_treated=True, time_type="float")
@@ -236,6 +250,8 @@ def staggered(name, seed, control_group, score, normalize, gt_setting="standard"
         data, ml_g=learner(OLS), ml_m=learner(LOGIT) if score == "observational" else None,
         gt_combinations=gt_setting, control_group=control_group, anticipation_periods=anticipation,
         score=score, in_sample_normalization=normalize, n_folds=5, n_rep=n_rep,
+        **({} if calibration is None else {"ps_processor_config": PSProcessorConfig(
+            calibration_method="isotonic", cv_calibration=calibration == "isotonic_cv")}),
     )
     model.fit()
 
@@ -272,7 +288,7 @@ def staggered(name, seed, control_group, score, normalize, gt_setting="standard"
         "name": name,
         "model": "staggered",
         "options": {"control_group": control_group, "score": score, "in_sample_normalization": normalize,
-                    "gt_combinations": gt_setting, "anticipation_periods": anticipation},
+                    "gt_combinations": gt_setting, "anticipation_periods": anticipation, **cal(calibration)},
         "learners": learners,
         "y_wide": wide.tolist(),
         "periods": periods.tolist(),
@@ -420,11 +436,12 @@ def discrete_treatment_data(seed):
     return r["x"], r["y"], r["d"]
 
 
-def apo(name, seed, level, normalize_ipw=False, n_rep=1):
+def apo(name, seed, level, normalize_ipw=False, n_rep=1, calibration=None):
     x, y, d = discrete_treatment_data(seed)
     data = dml.DoubleMLData.from_arrays(x, y, d)
     return fit_case(name, "apo", data, {"x": x, "y": y, "d": d}, {"ml_g": OLS, "ml_m": LOGIT},
-                    {"treatment_level": level, "normalize_ipw": normalize_ipw}, n_rep=n_rep, seed=seed)
+                    {"treatment_level": level, "normalize_ipw": normalize_ipw, **cal(calibration)}, n_rep=n_rep,
+                    seed=seed)
 
 
 def framework_json(fw):
@@ -504,7 +521,7 @@ def quantile_case(name, seed, kind, treatment, quantile, normalize_ipw=True, n_r
     return fit_case(name, kind, data, arrays, learners, options, n_rep=n_rep, seed=seed)
 
 
-def ssm_case(name, seed, score, normalize_ipw=False, n_rep=1):
+def ssm_case(name, seed, score, normalize_ipw=False, n_rep=1, calibration=None):
     mar = score == "missing-at-random"
     np.random.seed(seed)
     x, y, d, z, s = make_ssm_data(n_obs=800, dim_x=5, theta=1.0, mar=mar, return_type="array")
@@ -515,7 +532,7 @@ def ssm_case(name, seed, score, normalize_ipw=False, n_rep=1):
         data = dml.DoubleMLSSMData.from_arrays(x, y, d, z=z, s=s)
         arrays["z"] = z
     learners = {"ml_g": OLS, "ml_pi": LOGIT, "ml_m": LOGIT}
-    options = {"score": score, "normalize_ipw": normalize_ipw}
+    options = {"score": score, "normalize_ipw": normalize_ipw, **cal(calibration)}
     return fit_case(name, "ssm", data, arrays, learners, options, n_rep=n_rep, seed=seed)
 
 
@@ -740,6 +757,12 @@ CASES = [
     lambda: plr("plr_boot_wild", 16, 200, 5, OLS, boot=("wild", 50, 2)),
     lambda: plr_multi("plr_multi_rep3_boot", 17, 200, n_rep=3, boot=("normal", 40, 3)),
     lambda: irm("irm_ate", 21, "ATE", n_rep=2),
+    lambda: irm("irm_ate_isotonic_normalized", 25, "ATE", normalize_ipw=True, calibration="isotonic"),
+    lambda: irm("irm_atte_isotonic_cv_rep2", 26, "ATTE", n_rep=2, calibration="isotonic_cv"),
+    lambda: apo("apo_isotonic_cv", 34, 2, calibration="isotonic_cv"),
+    lambda: iivm("iivm_isotonic", 53, calibration="isotonic"),
+    lambda: staggered("staggered_isotonic_cv", 74, "never_treated", "observational", True, calibration="isotonic_cv"),
+    lambda: ssm_case("ssm_mar_isotonic_cv", 77, "missing-at-random", calibration="isotonic_cv"),
     lambda: irm("irm_atte", 22, "ATTE"),
     lambda: irm("irm_ate_normalized", 23, "ATE", normalize_ipw=True),
     lambda: pliv("pliv_ols", 31, n_rep=2),

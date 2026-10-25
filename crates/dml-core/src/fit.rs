@@ -188,6 +188,9 @@ fn fit_model_impl<M: LinearScoreModel + ?Sized>(
         }
     }
 
+    if let Some(store) = &mut sensitivity {
+        store.validate();
+    }
     let (coef, se) = aggregate(&all_coef, &all_se);
     Ok(DmlFit {
         model: model.name(),

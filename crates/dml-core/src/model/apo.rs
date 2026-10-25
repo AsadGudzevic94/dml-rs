@@ -22,6 +22,7 @@ use crate::data::DmlData;
 use crate::error::{DmlError, Result};
 use crate::fit::DmlFit;
 use crate::learner::{Classifier, Regressor};
+use crate::propensity::{adjust_propensity, Calibration};
 use crate::score::LinearScore;
 use crate::sensitivity::{Elements, Nu2Parts, SensitivityParts};
 
@@ -37,6 +38,7 @@ pub struct Apo {
     ml_m: Box<dyn Classifier>,
     treatment_level: f64,
     clipping_threshold: f64,
+    calibration: Calibration,
     normalize_ipw: bool,
     weights: Option<ScoreWeights>,
     splitting: SampleSplitting,
@@ -61,6 +63,7 @@ impl Apo {
             ml_m,
             treatment_level,
             clipping_threshold: 1e-2,
+            calibration: Calibration::None,
             normalize_ipw: false,
             weights: None,
             splitting: SampleSplitting::default(),
@@ -70,6 +73,12 @@ impl Apo {
     /// Propensity scores are clipped to `[t, 1 − t]` (default `t = 0.01`).
     pub fn clipping_threshold(mut self, t: f64) -> Self {
         self.clipping_threshold = t;
+        self
+    }
+    /// Calibrate the propensity scores before clipping (default: none), as
+    /// DoubleML's `ps_processor_config`.
+    pub fn calibration(mut self, calibration: Calibration) -> Self {
+        self.calibration = calibration;
         self
     }
 
@@ -169,9 +178,14 @@ impl LinearScoreModel for Apo {
         let g1 = cross_fit_predict_subset(self.ml_g.as_ref(), x, y, folds, &at_level)?;
         let dx: Array2<f64> = concatenate![Axis(1), d.insert_axis(Axis(1)), x];
         let g0 = cross_fit_predict_subset(self.ml_g.as_ref(), dx.view(), y, folds, &others)?;
-        let t = self.clipping_threshold;
-        let m = cross_fit_predict_proba(self.ml_m.as_ref(), x, treated.view(), folds)?
-            .mapv(|p| p.clamp(t, 1.0 - t));
+        let m_raw = cross_fit_predict_proba(self.ml_m.as_ref(), x, treated.view(), folds)?;
+        let m = adjust_propensity(
+            m_raw,
+            treated.view(),
+            folds,
+            self.clipping_threshold,
+            self.calibration,
+        )?;
         let m_adj = if self.normalize_ipw {
             normalize_propensity(&m, &treated)
         } else {
@@ -219,6 +233,7 @@ pub struct Apos {
     ml_m: Box<dyn Classifier>,
     treatment_levels: Vec<f64>,
     clipping_threshold: f64,
+    calibration: Calibration,
     normalize_ipw: bool,
     weights: Option<ScoreWeights>,
     splitting: SampleSplitting,
@@ -243,6 +258,7 @@ impl Apos {
             ml_m,
             treatment_levels,
             clipping_threshold: 1e-2,
+            calibration: Calibration::None,
             normalize_ipw: false,
             weights: None,
             splitting: SampleSplitting::default(),
@@ -252,6 +268,12 @@ impl Apos {
     /// Propensity scores are clipped to `[t, 1 − t]` (default `t = 0.01`).
     pub fn clipping_threshold(mut self, t: f64) -> Self {
         self.clipping_threshold = t;
+        self
+    }
+    /// Calibrate the propensity scores before clipping (default: none), as
+    /// DoubleML's `ps_processor_config`.
+    pub fn calibration(mut self, calibration: Calibration) -> Self {
+        self.calibration = calibration;
         self
     }
 
@@ -302,6 +324,7 @@ impl Apos {
     fn level_model(&self, level: f64) -> Apo {
         let model = Apo::from_boxed(self.ml_g.fresh(), self.ml_m.fresh(), level)
             .clipping_threshold(self.clipping_threshold)
+            .calibration(self.calibration)
             .normalize_ipw(self.normalize_ipw);
         match &self.weights {
             Some(w) => Apo {
@@ -479,6 +502,8 @@ impl AposFit {
                             nu2: a.nu2 + b.nu2,
                             psi_sigma2: (&a.psi_sigma2 + &b.psi_sigma2) / 2.0,
                             psi_nu2: &a.psi_nu2 + &b.psi_nu2,
+                            riesz: None,
+                            nu2_fallback: false,
                         },
                     );
                 }

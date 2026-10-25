@@ -17,6 +17,7 @@ use crate::crossfit::{cross_fit_predict_proba, cross_fit_predict_subset, Fold, S
 use crate::data::DmlData;
 use crate::error::{DmlError, Result};
 use crate::learner::{Classifier, Regressor};
+use crate::propensity::{adjust_propensity, Calibration};
 use crate::score::LinearScore;
 use crate::sensitivity::{Nu2Parts, SensitivityParts};
 
@@ -81,6 +82,13 @@ macro_rules! did_builders {
             self.clipping_threshold = t;
             self
         }
+
+        /// Calibrate the propensity scores before clipping (default: none), as
+        /// DoubleML's `ps_processor_config`.
+        pub fn calibration(mut self, calibration: $crate::propensity::Calibration) -> Self {
+            self.calibration = calibration;
+            self
+        }
     };
 }
 
@@ -93,6 +101,7 @@ pub struct Did {
     score: DidScore,
     in_sample_normalization: bool,
     clipping_threshold: f64,
+    calibration: Calibration,
     splitting: SampleSplitting,
 }
 
@@ -114,6 +123,7 @@ impl Did {
             score: DidScore::default(),
             in_sample_normalization: true,
             clipping_threshold: 1e-2,
+            calibration: Calibration::None,
             splitting: SampleSplitting::default(),
         }
     }
@@ -148,6 +158,7 @@ impl LinearScoreModel for Did {
                 score: self.score,
                 in_sample_normalization: self.in_sample_normalization,
                 clipping_threshold: self.clipping_threshold,
+                calibration: self.calibration,
             },
             x,
             y,
@@ -166,6 +177,7 @@ pub(crate) struct DidSettings<'a> {
     pub score: DidScore,
     pub in_sample_normalization: bool,
     pub clipping_threshold: f64,
+    pub calibration: Calibration,
 }
 
 /// Panel DID score elements for outcome changes `y`, group indicator `d`.
@@ -191,9 +203,14 @@ pub(crate) fn panel_did_score(
             let ml_m = settings.ml_m.ok_or_else(|| {
                 DmlError::InvalidArgument("the observational DID score needs ml_m".into())
             })?;
-            let t = settings.clipping_threshold;
-            let m =
-                cross_fit_predict_proba(ml_m, x, d.view(), folds)?.mapv(|q| q.clamp(t, 1.0 - t));
+            let m_raw = cross_fit_predict_proba(ml_m, x, d.view(), folds)?;
+            let m = adjust_propensity(
+                m_raw,
+                d.view(),
+                folds,
+                settings.clipping_threshold,
+                settings.calibration,
+            )?;
             let (weight_a, weight_resid) = if settings.in_sample_normalization {
                 let weight_a = &d / mean(&d);
                 let propensity_weight = (1.0 - &d) * &m / &(1.0 - &m);
@@ -274,6 +291,7 @@ pub struct DidCs {
     score: DidScore,
     in_sample_normalization: bool,
     clipping_threshold: f64,
+    calibration: Calibration,
     splitting: SampleSplitting,
 }
 
@@ -295,6 +313,7 @@ impl DidCs {
             score: DidScore::default(),
             in_sample_normalization: true,
             clipping_threshold: 1e-2,
+            calibration: Calibration::None,
             splitting: SampleSplitting::default(),
         }
     }
@@ -345,6 +364,7 @@ impl LinearScoreModel for DidCs {
                 score: self.score,
                 in_sample_normalization: self.in_sample_normalization,
                 clipping_threshold: self.clipping_threshold,
+                calibration: self.calibration,
             },
             x,
             y,
@@ -383,8 +403,14 @@ pub(crate) fn cs_did_score(
             let ml_m = settings.ml_m.ok_or_else(|| {
                 DmlError::InvalidArgument("the observational DID score needs ml_m".into())
             })?;
-            let c = settings.clipping_threshold;
-            Some(cross_fit_predict_proba(ml_m, x, d.view(), folds)?.mapv(|q| q.clamp(c, 1.0 - c)))
+            let m_raw = cross_fit_predict_proba(ml_m, x, d.view(), folds)?;
+            Some(adjust_propensity(
+                m_raw,
+                d.view(),
+                folds,
+                settings.clipping_threshold,
+                settings.calibration,
+            )?)
         }
         DidScore::Experimental => None,
     };

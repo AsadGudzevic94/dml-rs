@@ -12,6 +12,17 @@ All notable changes to this project are documented here. The format follows
   DoubleML's partial Z and partial XZ variants (`PlivVariant`, `Pliv::partial_z`,
   `Pliv::partial_xz`; Python `PLIV(partial=...)`). Five parity fixtures; the Python tests match
   DoubleML to `1e-9`.
+- Propensity calibration, as DoubleML's `ps_processor_config`: `Calibration::Isotonic` /
+  `IsotonicCrossFitted` (Python `calibration="isotonic"` / `"isotonic_cv"`) calibrates the
+  cross-fitted propensity scores with an isotonic regression before clipping, for IRM, APO, APOS,
+  IIVM, SSM, PQ, LPQ, CVaR, QTE, DID, DIDCS and staggered DID. New `propensity` module with
+  `IsotonicRegression`, a port of scikit-learn's. Six parity fixtures; the Python tests match
+  DoubleML to `1e-9`.
+
+### Fixed
+- Sensitivity analysis: when `ν²` is not positive in some repetition of an estimate, every
+  repetition now falls back to the non-orthogonal `mean(α²)`, as DoubleML (previously only the
+  affected repetition did).
 
 ### Changed
 - Nuisance names in `ScoreEstimate::predictions` and `NuisanceTarget::name` are `Name`

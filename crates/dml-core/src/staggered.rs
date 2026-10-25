@@ -27,6 +27,7 @@ use crate::fit::DmlFit;
 use crate::learner::{Classifier, Regressor};
 use crate::model::did::{cs_did_score, panel_did_score, DidSettings};
 use crate::model::DidScore;
+use crate::propensity::Calibration;
 
 /// Panel data for staggered DID: one row per unit, one column per period.
 ///
@@ -391,6 +392,7 @@ pub struct StaggeredDid {
     score: DidScore,
     in_sample_normalization: bool,
     clipping_threshold: f64,
+    calibration: Calibration,
     control_group: ControlGroup,
     anticipation_periods: usize,
     gt_combinations: GtCombinations,
@@ -417,6 +419,7 @@ impl StaggeredDid {
             score: DidScore::default(),
             in_sample_normalization: true,
             clipping_threshold: 1e-2,
+            calibration: Calibration::None,
             control_group: ControlGroup::default(),
             anticipation_periods: 0,
             gt_combinations: GtCombinations::default(),
@@ -440,6 +443,12 @@ impl StaggeredDid {
     /// Propensities are clipped to `[t, 1 − t]` (default 0.01).
     pub fn clipping_threshold(mut self, t: f64) -> Self {
         self.clipping_threshold = t;
+        self
+    }
+    /// Calibrate the propensity scores before clipping (default: none), as
+    /// DoubleML's `ps_processor_config`.
+    pub fn calibration(mut self, calibration: Calibration) -> Self {
+        self.calibration = calibration;
         self
     }
 
@@ -541,6 +550,7 @@ impl StaggeredDid {
             score: self.score,
             in_sample_normalization: self.in_sample_normalization,
             clipping_threshold: self.clipping_threshold,
+            calibration: self.calibration,
         };
 
         let mut all_coef = Array2::<f64>::zeros((k, n_rep));

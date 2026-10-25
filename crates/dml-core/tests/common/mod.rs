@@ -124,6 +124,16 @@ impl Fixture {
         self.0["options"][key].as_str().expect("string option")
     }
 
+    /// Propensity calibration (`options.calibration`: absent, "isotonic" or "isotonic_cv").
+    pub fn calibration(&self) -> dml_core::Calibration {
+        match self.0["options"]["calibration"].as_str() {
+            None => dml_core::Calibration::None,
+            Some("isotonic") => dml_core::Calibration::Isotonic,
+            Some("isotonic_cv") => dml_core::Calibration::IsotonicCrossFitted,
+            Some(c) => panic!("unknown calibration {c}"),
+        }
+    }
+
     pub fn option_bool(&self, key: &str) -> bool {
         self.0["options"][key].as_bool().unwrap_or(false)
     }

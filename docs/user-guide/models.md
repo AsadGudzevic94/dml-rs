@@ -128,6 +128,14 @@ classifier for the propensity score. Propensities are clipped to
 `[clipping_threshold, 1 - clipping_threshold]` (default `0.01`); `normalize_ipw=True` normalises the
 inverse-probability weights.
 
+!!! tip "Propensity calibration"
+    Flexible classifiers often give poorly calibrated probabilities, and the inverse-probability
+    weights amplify the errors. `calibration="isotonic"` maps the cross-fitted propensities through
+    an isotonic regression of the treatment on them before clipping; `"isotonic_cv"` cross-fits
+    that regression on the same folds (DoubleML's `ps_processor_config`). Available for IRM, APO,
+    APOS, IIVM (on the instrument propensity), SSM, the quantile models, DID, DIDCS and
+    staggered DID; in Rust `.calibration(Calibration::IsotonicCrossFitted)`.
+
 `weights` target a weighted average effect, as in DoubleML: with the ATE score
 $E[w\,(g_0(1, X) - g_0(0, X))] / E[w]$, for example $w = 1\{X \in G\}$ for the effect in a
 subgroup; with the ATTE score, 0/1 weights select a subgroup of the treated. A dict with

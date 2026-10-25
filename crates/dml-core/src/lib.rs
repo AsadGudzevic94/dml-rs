@@ -74,6 +74,7 @@ pub mod learner;
 pub(crate) mod linalg;
 pub mod model;
 pub mod policy;
+pub mod propensity;
 pub mod rd;
 pub mod score;
 pub mod sensitivity;
@@ -103,6 +104,7 @@ pub use model::{
     ScoreEstimate, ScoreInput, Ssm, SsmScore, StaticPanel, TreatmentLearner,
 };
 pub use policy::PolicyTree;
+pub use propensity::{Calibration, IsotonicRegression};
 pub use score::LinearScore;
 pub use sensitivity::{
     Nu2Parts, SensitivityBenchmark, SensitivityParams, SensitivityParts, SensitivityResult,

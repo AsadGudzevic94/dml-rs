@@ -84,7 +84,8 @@ fn check_staggered(name: &str) {
         .control_group(control)
         .gt_combinations(setting)
         .anticipation_periods(opt["anticipation_periods"].as_u64().unwrap() as usize)
-        .in_sample_normalization(opt["in_sample_normalization"].as_bool().unwrap());
+        .in_sample_normalization(opt["in_sample_normalization"].as_bool().unwrap())
+        .calibration(fx.calibration());
 
     // Same group-time combinations, in the same order.
     let expected_gt = to_matrix(fx.expected("gt"));
@@ -188,6 +189,11 @@ fn check_staggered(name: &str) {
             TOL,
         );
     }
+}
+
+#[test]
+fn parity_isotonic_calibration() {
+    check_staggered("staggered_isotonic_cv");
 }
 
 #[test]

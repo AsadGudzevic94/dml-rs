@@ -18,6 +18,7 @@ use crate::crossfit::{cross_fit_predict_proba, cross_fit_predict_subset, Fold, S
 use crate::data::DmlData;
 use crate::error::{DmlError, Result};
 use crate::learner::{Classifier, Regressor};
+use crate::propensity::{adjust_propensity, Calibration};
 use crate::score::LinearScore;
 use crate::sensitivity::{Nu2Parts, SensitivityParts};
 
@@ -39,6 +40,7 @@ pub struct Irm {
     ml_m: Box<dyn Classifier>,
     score: IrmScore,
     clipping_threshold: f64,
+    calibration: Calibration,
     normalize_ipw: bool,
     weights: Option<ScoreWeights>,
     splitting: SampleSplitting,
@@ -124,6 +126,7 @@ impl Irm {
             ml_m,
             score: IrmScore::default(),
             clipping_threshold: 1e-2,
+            calibration: Calibration::None,
             normalize_ipw: false,
             weights: None,
             splitting: SampleSplitting::default(),
@@ -160,6 +163,12 @@ impl Irm {
     /// Propensity scores are clipped to `[t, 1 − t]` (default `t = 0.01`).
     pub fn clipping_threshold(mut self, t: f64) -> Self {
         self.clipping_threshold = t;
+        self
+    }
+    /// Calibrate the propensity scores before clipping (default: none), as
+    /// DoubleML's `ps_processor_config`.
+    pub fn calibration(mut self, calibration: Calibration) -> Self {
+        self.calibration = calibration;
         self
     }
 
@@ -233,6 +242,7 @@ impl LinearScoreModel for Irm {
             d,
             folds,
             self.clipping_threshold,
+            self.calibration,
         )?;
         let d = d.to_owned();
         let m_adj = if self.normalize_ipw {
@@ -295,6 +305,7 @@ impl LinearScoreModel for Irm {
 
 /// Cross-fitted IRM nuisances: `ĝ₀` (trained on controls), `ĝ₁` (trained on
 /// treated) and the clipped propensity `m̂`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn irm_nuisances(
     ml_g: &dyn Regressor,
     ml_m: &dyn Classifier,
@@ -303,13 +314,14 @@ pub(crate) fn irm_nuisances(
     d: ArrayView1<'_, f64>,
     folds: &[Fold],
     clipping_threshold: f64,
+    calibration: Calibration,
 ) -> Result<(Array1<f64>, Array1<f64>, Array1<f64>)> {
     let treated: Vec<bool> = d.iter().map(|&v| v == 1.0).collect();
     let control: Vec<bool> = treated.iter().map(|t| !t).collect();
     let g0 = cross_fit_predict_subset(ml_g, x, y, folds, &control)?;
     let g1 = cross_fit_predict_subset(ml_g, x, y, folds, &treated)?;
-    let t = clipping_threshold;
-    let m = cross_fit_predict_proba(ml_m, x, d, folds)?.mapv(|p| p.clamp(t, 1.0 - t));
+    let m_raw = cross_fit_predict_proba(ml_m, x, d, folds)?;
+    let m = adjust_propensity(m_raw, d, folds, clipping_threshold, calibration)?;
     Ok((g0, g1, m))
 }
 

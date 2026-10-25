@@ -56,6 +56,10 @@ pub(crate) struct Elements {
     pub nu2: f64,
     pub psi_sigma2: Array1<f64>,
     pub psi_nu2: Array1<f64>,
+    /// Riesz representer, for the fallback when `ν²` is not positive.
+    pub riesz: Option<Array1<f64>>,
+    /// The orthogonal `ν²` was not positive (and fell back to `mean(α²)`).
+    pub nu2_fallback: bool,
 }
 
 impl SensitivityParts {
@@ -79,17 +83,20 @@ impl SensitivityParts {
                 (nu2, v2.mapv(|s| nu2 - s * nu2 * nu2), v * nu2)
             }
         };
-        let (nu2, psi_nu2) = if nu2 > 0.0 {
-            (nu2, psi_nu2)
-        } else {
+        let nu2_fallback = nu2 <= 0.0;
+        let (nu2, psi_nu2) = if nu2_fallback {
             let alpha2 = riesz.mapv(|a| a * a);
             (alpha2.mean().expect("n > 0"), alpha2)
+        } else {
+            (nu2, psi_nu2)
         };
         Elements {
             sigma2,
             nu2,
             psi_sigma2: sigma_el - sigma2,
             psi_nu2,
+            riesz: Some(riesz),
+            nu2_fallback,
         }
     }
 }
@@ -107,6 +114,10 @@ pub(crate) struct SensitivityStore {
     /// the elements of several estimates, e.g. APO contrasts).
     pub psi_sigma2: Array3<f64>,
     pub psi_nu2: Array3<f64>,
+    /// Riesz representers, shape `(n, k, n_rep)`.
+    pub riesz: Array3<f64>,
+    /// Estimates whose orthogonal `ν²` was not positive in some repetition.
+    pub nu2_fallback: Vec<bool>,
     /// Population variance of the outcome (for benchmarking).
     pub var_y: f64,
 }
@@ -120,6 +131,8 @@ impl SensitivityStore {
             psi_max_bias: Array3::zeros((n, k, n_rep)),
             psi_sigma2: Array3::zeros((n, k, n_rep)),
             psi_nu2: Array3::zeros((n, k, n_rep)),
+            riesz: Array3::zeros((n, k, n_rep)),
+            nu2_fallback: vec![false; k],
             var_y,
         }
     }
@@ -131,6 +144,8 @@ impl SensitivityStore {
             nu2: self.nu2[[j, r]],
             psi_sigma2: self.psi_sigma2.slice(ndarray::s![.., j, r]).to_owned(),
             psi_nu2: self.psi_nu2.slice(ndarray::s![.., j, r]).to_owned(),
+            riesz: Some(self.riesz.slice(ndarray::s![.., j, r]).to_owned()),
+            nu2_fallback: self.nu2_fallback[j],
         }
     }
 
@@ -151,6 +166,11 @@ impl SensitivityStore {
             psi_max_bias: cat3(|s| &s.psi_max_bias),
             psi_sigma2: cat3(|s| &s.psi_sigma2),
             psi_nu2: cat3(|s| &s.psi_nu2),
+            riesz: cat3(|s| &s.riesz),
+            nu2_fallback: stores
+                .iter()
+                .flat_map(|s| s.nu2_fallback.iter().copied())
+                .collect(),
             var_y: stores[0].var_y,
         }
     }
@@ -158,6 +178,10 @@ impl SensitivityStore {
     /// Record one treatment / repetition: `max_bias = √(σ²ν²)` and its
     /// influence function `(σ²·ψ_ν² + ν²·ψ_σ²) / (2·max_bias)`.
     pub(crate) fn set(&mut self, j: usize, r: usize, e: &Elements) {
+        if let Some(riesz) = &e.riesz {
+            self.riesz.slice_mut(ndarray::s![.., j, r]).assign(riesz);
+        }
+        self.nu2_fallback[j] |= e.nu2_fallback;
         let max_bias = (e.sigma2 * e.nu2).sqrt();
         self.sigma2[[j, r]] = e.sigma2;
         self.nu2[[j, r]] = e.nu2;
@@ -172,6 +196,30 @@ impl SensitivityStore {
         self.psi_nu2
             .slice_mut(ndarray::s![.., j, r])
             .assign(&e.psi_nu2);
+    }
+
+    /// DoubleML's rule after all repetitions: if `ν²` was not positive in any
+    /// repetition of an estimate, every repetition of it uses the
+    /// (non-orthogonal) `mean(α²)`, with `α²` as its influence function (as
+    /// DoubleML, which leaves it uncentred, a conservative choice).
+    pub(crate) fn validate(&mut self) {
+        for j in 0..self.nu2_fallback.len() {
+            if !self.nu2_fallback[j] {
+                continue;
+            }
+            for r in 0..self.nu2.ncols() {
+                let alpha2 = self.riesz.slice(ndarray::s![.., j, r]).mapv(|a| a * a);
+                let e = Elements {
+                    sigma2: self.sigma2[[j, r]],
+                    nu2: alpha2.mean().expect("n > 0"),
+                    psi_sigma2: self.psi_sigma2.slice(ndarray::s![.., j, r]).to_owned(),
+                    psi_nu2: alpha2,
+                    riesz: None,
+                    nu2_fallback: true,
+                };
+                self.set(j, r, &e);
+            }
+        }
     }
 }
 

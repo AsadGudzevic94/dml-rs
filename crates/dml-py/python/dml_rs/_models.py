@@ -357,6 +357,7 @@ class IRM(_HeterogeneityMixin, _DMLEstimator):
         ml_m: Any,
         score: Literal["ATE", "ATTE"] = "ATE",
         clipping_threshold: float = 1e-2,
+        calibration: Optional[Literal["isotonic", "isotonic_cv"]] = None,
         normalize_ipw: bool = False,
         n_folds: int = 5,
         n_rep: int = 1,
@@ -367,6 +368,7 @@ class IRM(_HeterogeneityMixin, _DMLEstimator):
         self.ml_m = ml_m
         self.score = score
         self.clipping_threshold = clipping_threshold
+        self.calibration = calibration
         self.normalize_ipw = normalize_ipw
         self.n_folds = n_folds
         self.n_rep = n_rep
@@ -384,7 +386,7 @@ class IRM(_HeterogeneityMixin, _DMLEstimator):
         self._remember(X, y, d, folds=folds, cluster=cluster)
         result = _dml_rs.fit_irm(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), self.ml_g, self.ml_m,
-            score=self.score, clipping_threshold=self.clipping_threshold, normalize_ipw=self.normalize_ipw,
+            score=self.score, clipping_threshold=self.clipping_threshold, calibration=self.calibration, normalize_ipw=self.normalize_ipw,
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
             **_weights_args(self.weights),
@@ -423,6 +425,7 @@ class IIVM(_DMLEstimator):
         ml_r: Any,
         subgroups: Optional[dict[str, bool]] = None,
         clipping_threshold: float = 1e-2,
+        calibration: Optional[Literal["isotonic", "isotonic_cv"]] = None,
         normalize_ipw: bool = False,
         n_folds: int = 5,
         n_rep: int = 1,
@@ -433,6 +436,7 @@ class IIVM(_DMLEstimator):
         self.ml_r = ml_r
         self.subgroups = subgroups
         self.clipping_threshold = clipping_threshold
+        self.calibration = calibration
         self.normalize_ipw = normalize_ipw
         self.n_folds = n_folds
         self.n_rep = n_rep
@@ -451,7 +455,7 @@ class IIVM(_DMLEstimator):
         result = _dml_rs.fit_iivm(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), _as_1d(z, "z"), self.ml_g, self.ml_m, self.ml_r,
             always_takers=subgroups["always_takers"], never_takers=subgroups["never_takers"],
-            clipping_threshold=self.clipping_threshold, normalize_ipw=self.normalize_ipw,
+            clipping_threshold=self.clipping_threshold, calibration=self.calibration, normalize_ipw=self.normalize_ipw,
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
         )
@@ -466,6 +470,7 @@ class _DIDBase(_DMLEstimator):
         score: Literal["observational", "experimental"] = "observational",
         in_sample_normalization: bool = True,
         clipping_threshold: float = 1e-2,
+        calibration: Optional[Literal["isotonic", "isotonic_cv"]] = None,
         n_folds: int = 5,
         n_rep: int = 1,
         random_state: int = 0,
@@ -475,6 +480,7 @@ class _DIDBase(_DMLEstimator):
         self.score = score
         self.in_sample_normalization = in_sample_normalization
         self.clipping_threshold = clipping_threshold
+        self.calibration = calibration
         self.n_folds = n_folds
         self.n_rep = n_rep
         self.random_state = random_state
@@ -487,7 +493,7 @@ class _DIDBase(_DMLEstimator):
         result = _dml_rs.fit_did(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), self.ml_g, self.ml_m,
             t=None if t is None else _as_1d(t, "t"), score=self.score,
-            in_sample_normalization=self.in_sample_normalization, clipping_threshold=self.clipping_threshold,
+            in_sample_normalization=self.in_sample_normalization, clipping_threshold=self.clipping_threshold, calibration=self.calibration,
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
         )
@@ -613,6 +619,7 @@ class StaggeredDID(_DMLEstimator):
         score: Literal["observational", "experimental"] = "observational",
         in_sample_normalization: bool = True,
         clipping_threshold: float = 1e-2,
+        calibration: Optional[Literal["isotonic", "isotonic_cv"]] = None,
         n_folds: int = 5,
         n_rep: int = 1,
         random_state: int = 0,
@@ -626,6 +633,7 @@ class StaggeredDID(_DMLEstimator):
         self.score = score
         self.in_sample_normalization = in_sample_normalization
         self.clipping_threshold = clipping_threshold
+        self.calibration = calibration
         self.n_folds = n_folds
         self.n_rep = n_rep
         self.random_state = random_state
@@ -641,7 +649,7 @@ class StaggeredDID(_DMLEstimator):
             _as_2d(X, "X"), self.ml_g, self.ml_m, control_group=self.control_group,
             anticipation_periods=self.anticipation_periods, gt_combinations=self.gt_combinations,
             score=self.score, in_sample_normalization=self.in_sample_normalization,
-            clipping_threshold=self.clipping_threshold, n_folds=self.n_folds, n_rep=self.n_rep,
+            clipping_threshold=self.clipping_threshold, calibration=self.calibration, n_folds=self.n_folds, n_rep=self.n_rep,
             seed=self.random_state, panel=self.panel,
         )
         self.group_times_ = self.staggered_result_.group_times
@@ -741,6 +749,7 @@ class APO(_DMLEstimator):
         ml_m: Any,
         treatment_level: float,
         clipping_threshold: float = 1e-2,
+        calibration: Optional[Literal["isotonic", "isotonic_cv"]] = None,
         normalize_ipw: bool = False,
         n_folds: int = 5,
         n_rep: int = 1,
@@ -752,6 +761,7 @@ class APO(_DMLEstimator):
         self.ml_m = ml_m
         self.treatment_level = treatment_level
         self.clipping_threshold = clipping_threshold
+        self.calibration = calibration
         self.normalize_ipw = normalize_ipw
         self.n_folds = n_folds
         self.n_rep = n_rep
@@ -768,7 +778,7 @@ class APO(_DMLEstimator):
         self._remember(X, y, d, folds=folds, cluster=cluster)
         result = _dml_rs.fit_apo(
             _as_1d(y, "y"), _as_2d(_as_1d(d, "d"), "d"), _as_2d(X, "X"), self.ml_g, self.ml_m,
-            float(self.treatment_level), clipping_threshold=self.clipping_threshold,
+            float(self.treatment_level), clipping_threshold=self.clipping_threshold, calibration=self.calibration,
             normalize_ipw=self.normalize_ipw, n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
             **_weights_args(self.weights),
@@ -817,6 +827,7 @@ class APOS(_DMLEstimator):
         ml_m: Any,
         treatment_levels: Sequence[float],
         clipping_threshold: float = 1e-2,
+        calibration: Optional[Literal["isotonic", "isotonic_cv"]] = None,
         normalize_ipw: bool = False,
         n_folds: int = 5,
         n_rep: int = 1,
@@ -828,6 +839,7 @@ class APOS(_DMLEstimator):
         self.ml_m = ml_m
         self.treatment_levels = treatment_levels
         self.clipping_threshold = clipping_threshold
+        self.calibration = calibration
         self.normalize_ipw = normalize_ipw
         self.n_folds = n_folds
         self.n_rep = n_rep
@@ -845,7 +857,7 @@ class APOS(_DMLEstimator):
         levels = [float(v) for v in np.atleast_1d(np.asarray(self.treatment_levels, dtype=np.float64))]
         self._apos = _dml_rs.fit_apos(
             _as_1d(y, "y"), _as_2d(_as_1d(d, "d"), "d"), _as_2d(X, "X"), self.ml_g, self.ml_m, levels,
-            clipping_threshold=self.clipping_threshold, normalize_ipw=self.normalize_ipw, n_folds=self.n_folds,
+            clipping_threshold=self.clipping_threshold, calibration=self.calibration, normalize_ipw=self.normalize_ipw, n_folds=self.n_folds,
             n_rep=self.n_rep, seed=self.random_state, splits=_splits(folds), cluster=_as_clusters(cluster),
             **_weights_args(self.weights),
         )
@@ -1125,6 +1137,7 @@ class SSM(_DMLEstimator):
         ml_m: Any,
         score: Literal["missing-at-random", "nonignorable"] = "missing-at-random",
         clipping_threshold: float = 1e-2,
+        calibration: Optional[Literal["isotonic", "isotonic_cv"]] = None,
         normalize_ipw: bool = False,
         n_folds: int = 5,
         n_rep: int = 1,
@@ -1135,6 +1148,7 @@ class SSM(_DMLEstimator):
         self.ml_m = ml_m
         self.score = score
         self.clipping_threshold = clipping_threshold
+        self.calibration = calibration
         self.normalize_ipw = normalize_ipw
         self.n_folds = n_folds
         self.n_rep = n_rep
@@ -1153,7 +1167,7 @@ class SSM(_DMLEstimator):
         result = _dml_rs.fit_ssm(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), _as_1d(s, "s"), self.ml_g, self.ml_pi, self.ml_m,
             z=None if z is None else _as_1d(z, "z"), score=self.score,
-            clipping_threshold=self.clipping_threshold, normalize_ipw=self.normalize_ipw,
+            clipping_threshold=self.clipping_threshold, calibration=self.calibration, normalize_ipw=self.normalize_ipw,
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state, splits=_splits(folds),
             treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
         )
@@ -1170,6 +1184,7 @@ class _QuantileBase(_DMLEstimator):
         treatment: int = 1,
         quantile: float = 0.5,
         clipping_threshold: float = 1e-2,
+        calibration: Optional[Literal["isotonic", "isotonic_cv"]] = None,
         normalize_ipw: bool = True,
         n_folds: int = 5,
         n_rep: int = 1,
@@ -1180,6 +1195,7 @@ class _QuantileBase(_DMLEstimator):
         self.treatment = treatment
         self.quantile = quantile
         self.clipping_threshold = clipping_threshold
+        self.calibration = calibration
         self.normalize_ipw = normalize_ipw
         self.n_folds = n_folds
         self.n_rep = n_rep
@@ -1189,7 +1205,7 @@ class _QuantileBase(_DMLEstimator):
         result = _dml_rs.fit_quantile(
             _as_1d(y, "y"), _as_2d(_as_1d(d, "d"), "d"), _as_2d(X, "X"), self.ml_g, self.ml_m,
             score=self._score, treatment=int(self.treatment), quantile=float(self.quantile),
-            z=None if z is None else _as_1d(z, "z"), clipping_threshold=self.clipping_threshold,
+            z=None if z is None else _as_1d(z, "z"), clipping_threshold=self.clipping_threshold, calibration=self.calibration,
             normalize_ipw=self.normalize_ipw, n_folds=self.n_folds, n_rep=self.n_rep,
             seed=self.random_state, splits=_splits(folds),
         )
@@ -1281,6 +1297,7 @@ class QTE(_DMLEstimator):
         quantiles: Union[float, Sequence[float]] = 0.5,
         score: Literal["PQ", "LPQ", "CVaR"] = "PQ",
         clipping_threshold: float = 1e-2,
+        calibration: Optional[Literal["isotonic", "isotonic_cv"]] = None,
         normalize_ipw: bool = True,
         n_folds: int = 5,
         n_rep: int = 1,
@@ -1291,6 +1308,7 @@ class QTE(_DMLEstimator):
         self.quantiles = quantiles
         self.score = score
         self.clipping_threshold = clipping_threshold
+        self.calibration = calibration
         self.normalize_ipw = normalize_ipw
         self.n_folds = n_folds
         self.n_rep = n_rep
@@ -1310,7 +1328,7 @@ class QTE(_DMLEstimator):
         self._qte = _dml_rs.fit_qte(
             _as_1d(y, "y"), _as_2d(_as_1d(d, "d"), "d"), _as_2d(X, "X"), self.ml_g,
             self.ml_g if self.ml_m is None else self.ml_m, quantiles, score=self.score,
-            z=None if z is None else _as_1d(z, "z"), clipping_threshold=self.clipping_threshold,
+            z=None if z is None else _as_1d(z, "z"), clipping_threshold=self.clipping_threshold, calibration=self.calibration,
             normalize_ipw=self.normalize_ipw, n_folds=self.n_folds, n_rep=self.n_rep,
             seed=self.random_state, splits=_splits(folds),
         )

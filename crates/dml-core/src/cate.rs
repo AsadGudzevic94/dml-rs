@@ -456,6 +456,7 @@ impl DrLearner {
             arms.d,
             &folds,
             self.clipping_threshold,
+            crate::propensity::Calibration::None,
         )?;
         let d = arms.d.to_owned();
         let phi = &g1 - &g0 + &ipw_residual(arms.y, &d, &g0, &g1, &m);

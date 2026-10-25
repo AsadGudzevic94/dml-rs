@@ -76,7 +76,7 @@ impl PyStaggeredResult {
 #[pyfunction]
 #[pyo3(signature = (y, id, t, g, x, ml_g, ml_m = None, control_group = "never_treated",
                     anticipation_periods = 0, gt_combinations = "standard", score = "observational",
-                    in_sample_normalization = true, clipping_threshold = 1e-2, n_folds = 5,
+                    in_sample_normalization = true, clipping_threshold = 1e-2, calibration = None, n_folds = 5,
                     n_rep = 1, seed = 0, panel = true))]
 #[allow(clippy::too_many_arguments)]
 pub fn fit_staggered_did(
@@ -94,6 +94,7 @@ pub fn fit_staggered_did(
     score: &str,
     in_sample_normalization: bool,
     clipping_threshold: f64,
+    calibration: Option<&str>,
     n_folds: usize,
     n_rep: usize,
     seed: u64,
@@ -128,6 +129,7 @@ pub fn fit_staggered_did(
         .gt_combinations(setting)
         .in_sample_normalization(in_sample_normalization)
         .clipping_threshold(clipping_threshold)
+        .calibration(crate::parse_calibration(calibration)?)
         .n_folds(n_folds)
         .n_rep(n_rep)
         .seed(seed);
