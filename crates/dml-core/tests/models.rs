@@ -3,7 +3,7 @@
 
 use dml_core::{
     Apos, BootstrapMethod, DmlData, Irm, IrmScore, LogisticRegression, Lplr, LplrScore, Ols,
-    PanelApproach, Pliv, Plpr, Plr, Qte, Ssm, SsmScore, StaticPanel,
+    PanelApproach, Pliv, Plpr, Plr, Qte, RdFlex, Ssm, SsmScore, StaticPanel,
 };
 use ndarray::{Array1, Array2};
 use rand::{Rng, SeedableRng};
@@ -823,4 +823,55 @@ fn plpr_has_nominal_coverage_with_unit_effects() {
     for c in cov {
         assert!(c as f64 / reps as f64 >= 0.88, "coverage {c}/{reps}");
     }
+}
+
+/// Sharp and fuzzy RD with covariates that explain much of the outcome; the
+/// effect at the cutoff is 1.5 (fuzzy: the jump in the outcome over the jump
+/// in the treatment probability, also 1.5).
+fn rd_data(n: usize, seed: u64, fuzzy: bool) -> (DmlData, Array1<f64>) {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let x = normal_matrix(&mut rng, n, 3);
+    let (mut y, mut d, mut score) = (Array1::zeros(n), Array1::zeros(n), Array1::zeros(n));
+    for i in 0..n {
+        score[i] = 2.0 * rng.gen::<f64>() - 1.0;
+        let above = f64::from(score[i] >= 0.0);
+        d[i] = if fuzzy {
+            f64::from(rng.gen::<f64>() < 0.2 + 0.6 * above)
+        } else {
+            above
+        };
+        y[i] = 0.5 + 0.8 * score[i] + 1.5 * d[i] + x[[i, 0]] - 0.5 * x[[i, 1]]
+            + 0.5 * std_normal(&mut rng);
+    }
+    (DmlData::new(y, d, x).unwrap(), score)
+}
+
+#[test]
+fn rdflex_robust_intervals_have_nominal_coverage() {
+    let reps = 100;
+    let (mut sharp_cov, mut fuzzy_cov) = (0, 0);
+    for r in 0..reps {
+        let (data, score) = rd_data(1500, 11_000 + r, false);
+        let fit = RdFlex::sharp(Ols::new())
+            .seed(r)
+            .fit(&data, score.view())
+            .unwrap();
+        let ci = fit.ci()[2];
+        sharp_cov += usize::from(ci[0] <= 1.5 && 1.5 <= ci[1]);
+        let (data, score) = rd_data(3000, 12_000 + r, true);
+        let fit = RdFlex::fuzzy(Ols::new(), LogisticRegression::default())
+            .seed(r)
+            .fit(&data, score.view())
+            .unwrap();
+        let ci = fit.ci()[2];
+        fuzzy_cov += usize::from(ci[0] <= 1.5 && 1.5 <= ci[1]);
+    }
+    assert!(
+        sharp_cov as f64 / reps as f64 >= 0.88,
+        "sharp coverage {sharp_cov}/{reps}"
+    );
+    assert!(
+        fuzzy_cov as f64 / reps as f64 >= 0.88,
+        "fuzzy coverage {fuzzy_cov}/{reps}"
+    );
 }

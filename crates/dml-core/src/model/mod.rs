@@ -19,6 +19,7 @@ mod pliv;
 mod plpr;
 mod plr;
 mod quantile;
+mod rdflex;
 mod ssm;
 
 pub use apo::{Apo, Apos, AposFit};
@@ -30,6 +31,7 @@ pub use pliv::Pliv;
 pub use plpr::{PanelApproach, Plpr, StaticPanel};
 pub use plr::{Plr, PlrScore};
 pub use quantile::{Cvar, Lpq, Pq, Qte, QteFit};
+pub use rdflex::{FirstStage, RdFlex, RdFlexFit, RdKernel};
 pub use ssm::{Ssm, SsmScore};
 
 /// The data a model sees when estimating the effect of one treatment.

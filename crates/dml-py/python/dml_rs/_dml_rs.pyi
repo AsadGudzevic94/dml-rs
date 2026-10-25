@@ -24,6 +24,7 @@ __all__ = [
     "fit_plr",
     "fit_qte",
     "fit_quantile",
+    "fit_rdflex",
     "fit_ssm",
     "fit_staggered_did",
     "AposResult",
@@ -40,6 +41,7 @@ __all__ = [
     "Ols",
     "PolicyTree",
     "QteResult",
+    "RdFlexResult",
     "RandomForestClassifier",
     "RandomForestRegressor",
     "SensitivityBenchmark",
@@ -233,6 +235,36 @@ class QteResult:
     @property
     def potential(self) -> DmlResult:
         """Potential quantiles of treatment 0 and 1, ordered ``q1 (d=0), q1 (d=1), q2 (d=0), ...``."""
+
+@final
+class RdFlexResult:
+    """Conventional, bias-corrected and robust RD estimates of an RDFlex fit."""
+
+    @property
+    def coef(self) -> NDArray[np.float64]: ...
+    @property
+    def se(self) -> NDArray[np.float64]: ...
+    @property
+    def t_stat(self) -> NDArray[np.float64]: ...
+    @property
+    def pval(self) -> NDArray[np.float64]: ...
+    @property
+    def ci(self) -> NDArray[np.float64]:
+        """Median of the repetitions' 95% intervals, shape ``(3, 2)``."""
+    @property
+    def all_coef(self) -> NDArray[np.float64]:
+        """Shape ``(3, n_rep)``."""
+    @property
+    def all_se(self) -> NDArray[np.float64]: ...
+    @property
+    def h(self) -> NDArray[np.float64]:
+        """Final RD bandwidth of each repetition."""
+    @property
+    def b(self) -> NDArray[np.float64]:
+        """Bias bandwidth of each repetition."""
+    @property
+    def h_fs(self) -> float: ...
+    def confint(self, level: float = 0.95) -> NDArray[np.float64]: ...
 
 @final
 class StaggeredResult:
@@ -560,6 +592,23 @@ def fit_lplr(
     inner_splits: Optional[Sequence[_Splits]] = None,
     treatment_names: Optional[list[str]] = None,
 ) -> DmlResult: ...
+def fit_rdflex(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    score: NDArray[np.float64],
+    ml_g: Any,
+    ml_m: Any = None,
+    cutoff: float = 0.0,
+    h_fs: Optional[float] = None,
+    fs_specification: Literal["cutoff", "cutoff and score", "interacted cutoff and score"] = "cutoff",
+    fs_kernel: Literal["triangular", "uniform", "epanechnikov"] = "triangular",
+    n_iterations: int = 2,
+    n_folds: int = 5,
+    n_rep: int = 1,
+    seed: int = 0,
+    splits: Optional[_Splits] = None,
+) -> RdFlexResult: ...
 def fit_ssm(
     y: NDArray[np.float64],
     d: NDArray[np.float64],

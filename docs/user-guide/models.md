@@ -374,6 +374,45 @@ units; `anticipation_periods` shifts the reference period. Works with panels and
     let event_study = fit.aggregate(Aggregation::EventStudy)?;
     ```
 
+## Regression discontinuity (RDFlex)
+
+The effect of a treatment assigned by a score crossing a cutoff, estimated at the cutoff with
+flexible covariate adjustment (Noack, Olma and Rothe, 2024). Covariates $X$ do not change what is
+estimated, but they can make the estimate much more precise. The outcome (and in a fuzzy design
+the treatment) is adjusted by a cross-fitted prediction at the cutoff,
+
+$$
+\eta(X) = \tfrac{1}{2}\big(\mu(X;\ \text{left}) + \mu(X;\ \text{right})\big),
+$$
+
+learned with kernel weights around the cutoff. A local linear RD estimator is then run on
+$Y - \eta(X)$, with a quadratic bias correction and robust confidence intervals (Calonico,
+Cattaneo and Titiunik, 2014). The first-stage bandwidth is updated from the RD bandwidth over
+`n_iterations` rounds.
+
+- **Sharp design**: the treatment is $1\{\text{score} \ge \text{cutoff}\}$; only `ml_g` is needed.
+- **Fuzzy design** (`fuzzy=True`): crossing the cutoff changes the treatment probability; `ml_m`
+  adjusts the treatment, and the effect is the ratio of the two jumps.
+
+Results have three rows: the conventional estimate, the bias-corrected estimate, and the
+bias-corrected estimate with its robust standard error, which is the one to report. Learners must
+accept sample weights. The RD back end, a port of the `rdrobust` package's defaults, is also
+available on its own in Rust (`dml_core::rd::rdrobust`, `rdbwselect`).
+
+=== "Python"
+
+    ```python
+    model = dml_rs.RDFlex(ml_g, ml_m, fuzzy=True, cutoff=0.0).fit(X, y, d, score)
+    model.summary                        # Conventional, Bias-Corrected, Robust
+    ```
+
+=== "Rust"
+
+    ```rust
+    let fit = RdFlex::fuzzy(ml_g, ml_m).cutoff(0.0).fit(&data, score.view())?;
+    println!("{fit}");
+    ```
+
 ## Heterogeneous effects
 
 - **Best linear predictor** (`cate`) and **group average treatment effects** (`gate`) give

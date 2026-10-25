@@ -23,6 +23,13 @@ All notable changes to this project are documented here. The format follows
   regression with unit-clustered folds and standard errors. Five parity fixtures (including
   unbalanced panels); the Python tests match DoubleML to `1e-9`. Python accepts any sortable unit
   and period labels (e.g. strings and dates).
+- Regression discontinuity with flexible covariate adjustment (`RdFlex` / `RDFlex`), as
+  DoubleML's `RDFlex`: sharp and fuzzy designs, cutoff, first-stage specifications and kernels
+  (`FirstStage`, `RdKernel`), iterative bandwidth updates. Its back end, the new `rd` module, ports
+  the defaults of the `rdrobust` package (`rdbwselect` MSE-optimal bandwidths with the mass-point
+  floor; `rdrobust` local linear estimates with bias correction, nearest-neighbour standard errors
+  and conventional / bias-corrected / robust intervals) and matches it to `1e-9`. Seven parity
+  fixtures; the Python tests match DoubleML to `1e-9`. `parity/requirements.txt` pins `rdrobust`.
 - `Classifier::fit_weighted` (default: unsupported) and sample weights for `LogisticRegression`;
   Python classifiers receive `sample_weight`.
 

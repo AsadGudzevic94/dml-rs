@@ -915,6 +915,102 @@ class PLPR(_DMLEstimator):
         return self._store(result)
 
 
+class RDFlex(_Params):
+    """Regression discontinuity design with flexible covariate adjustment, as DoubleML's ``RDFlex``
+    (Noack, Olma and Rothe, 2024).
+
+    The outcome (and in a fuzzy design the treatment) is adjusted by a cross-fitted prediction from
+    the covariates at the cutoff, learned with kernel weights around it; a local linear RD estimator
+    (a port of ``rdrobust``: bias correction, robust intervals) is then run on the adjusted outcome.
+    The first-stage bandwidth is updated from the RD bandwidth over ``n_iterations`` rounds. Fitted
+    attributes hold three rows: conventional, bias-corrected and robust estimates.
+
+    Parameters
+    ----------
+    ml_g : regressor for the outcome; must accept ``sample_weight``.
+    ml_m : classifier for the treatment (fuzzy design only); must accept ``sample_weight``.
+    fuzzy : fuzzy design (the treatment may differ from ``score >= cutoff``).
+    cutoff : the cutoff in the score.
+    h_fs : initial first-stage bandwidth (default: ``rdbwselect`` without covariates).
+    fs_specification : ``"cutoff"``, ``"cutoff and score"`` or ``"interacted cutoff and score"``.
+    fs_kernel : ``"triangular"``, ``"uniform"`` or ``"epanechnikov"``.
+    n_iterations : rounds of first-stage fitting and bandwidth updates.
+    """
+
+    _ROWS = ["Conventional", "Bias-Corrected", "Robust"]
+
+    def __init__(
+        self,
+        ml_g: Any,
+        ml_m: Any = None,
+        fuzzy: bool = False,
+        cutoff: float = 0.0,
+        h_fs: Optional[float] = None,
+        fs_specification: Literal["cutoff", "cutoff and score", "interacted cutoff and score"] = "cutoff",
+        fs_kernel: Literal["triangular", "uniform", "epanechnikov"] = "triangular",
+        n_iterations: int = 2,
+        n_folds: int = 5,
+        n_rep: int = 1,
+        random_state: int = 0,
+    ) -> None:
+        self.ml_g = ml_g
+        self.ml_m = ml_m
+        self.fuzzy = fuzzy
+        self.cutoff = cutoff
+        self.h_fs = h_fs
+        self.fs_specification = fs_specification
+        self.fs_kernel = fs_kernel
+        self.n_iterations = n_iterations
+        self.n_folds = n_folds
+        self.n_rep = n_rep
+        self.random_state = random_state
+
+    def fit(self, X: ArrayLike, y: ArrayLike, d: ArrayLike, score: ArrayLike, folds: Optional[Folds] = None) -> Self:
+        if _is_classifier(self.ml_g):
+            raise TypeError("ml_g must be a regressor")
+        if self.fuzzy and self.ml_m is None:
+            raise ValueError("a fuzzy design needs a classifier ml_m for the treatment")
+        result = _dml_rs.fit_rdflex(
+            _as_1d(y, "y"), _as_2d(_as_1d(d, "d"), "d"), _as_2d(X, "X"), _as_1d(score, "score"), self.ml_g,
+            self.ml_m if self.fuzzy else None, cutoff=float(self.cutoff),
+            h_fs=None if self.h_fs is None else float(self.h_fs), fs_specification=self.fs_specification,
+            fs_kernel=self.fs_kernel, n_iterations=self.n_iterations, n_folds=self.n_folds, n_rep=self.n_rep,
+            seed=self.random_state, splits=_splits(folds),
+        )
+        self.result_ = result
+        self.coef_ = result.coef
+        self.se_ = result.se
+        self.t_stat_ = result.t_stat
+        self.pval_ = result.pval
+        self.ci_ = result.ci
+        self.all_coef_ = result.all_coef
+        self.all_se_ = result.all_se
+        self.h_ = result.h
+        self.b_ = result.b
+        self.h_fs_ = result.h_fs
+        return self
+
+    def confint(self, level: float = 0.95) -> NDArray[np.float64]:
+        """Intervals at ``level`` (rows: conventional, bias-corrected, robust), as DoubleML's ``confint``."""
+        return self._check_fitted().confint(level)
+
+    @property
+    def summary(self) -> pd.DataFrame:
+        """Coefficient table (rows: conventional, bias-corrected, robust)."""
+        result = self._check_fitted()
+        ci = result.ci
+        table = {"coef": result.coef, "std err": result.se, "t": result.t_stat, "P>|t|": result.pval,
+                 "2.5 %": ci[:, 0], "97.5 %": ci[:, 1]}
+        try:
+            import pandas as pd
+        except ImportError:
+            return {"index": self._ROWS, **table}  # type: ignore[return-value]  # no pandas
+        return pd.DataFrame(table, index=self._ROWS)
+
+    def __str__(self):
+        return str(self.result_) if hasattr(self, "result_") else repr(self)
+
+
 class LPLR(_DMLEstimator):
     """Logistic partially linear regression for a binary outcome, as DoubleML's ``DoubleMLLPLR``
     (Liu, Zhang and Zhou, 2021): ``P(Y = 1 | D, X) = expit(θ·D + r(X))``, so ``θ`` is a log odds

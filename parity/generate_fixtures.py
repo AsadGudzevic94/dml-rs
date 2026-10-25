@@ -591,6 +591,71 @@ def plpr_case(name, seed, approach, score="partialling out", n_rep=1, drop=0):
     }
 
 
+def rd_case(name, seed, fuzzy=False, grid=None, manual=(0.3, 0.5)):
+    """rdrobust itself (the RD back end of RDFlex): bandwidth selection and estimation."""
+    import rdrobust
+    rng = np.random.default_rng(seed)
+    n = 1000
+    x = rng.uniform(-1, 1, n)
+    if grid:
+        x = np.round(x / grid) * grid
+        x[x == 0] = grid  # keep the cutoff inside, not on, the support's mass points
+    d = (x >= 0).astype(float)
+    if fuzzy:
+        flip = rng.random(n) < 0.25
+        d = np.where(flip, 1 - d, d)
+    y = 1 + 0.8 * x - 0.5 * x**2 + 1.5 * d + rng.normal(0, 0.5, n)
+    t = d if fuzzy else None
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        bw = rdrobust.rdbwselect(y=y, x=x, fuzzy=t).bws.values.flatten()
+        auto = rdrobust.rdrobust(y=y, x=x, fuzzy=t)
+        man = rdrobust.rdrobust(y=y, x=x, fuzzy=t, h=manual[0], b=manual[1])
+
+    def res(r):
+        return {"coef": r.coef.values.flatten().tolist(), "se": r.se.values.flatten().tolist(),
+                "ci": r.ci.values.tolist(), "h": r.bws.loc["h"].tolist(), "b": r.bws.loc["b"].tolist(),
+                "n_h": [int(v) for v in r.N_h]}
+
+    return {"name": name, "model": "rd", "x": x.tolist(), "y": y.tolist(),
+            "fuzzy": None if t is None else t.tolist(), "manual": list(manual),
+            "expected": {"bws": bw.tolist(), "auto": res(auto), "manual": res(man)}, "_model": None}
+
+
+def rdflex_case(name, seed, fuzzy, n_rep=1, cutoff=0.0, h_fs=None, fs_specification="cutoff",
+                fs_kernel="triangular", n_iterations=2):
+    """RDFlex draws its own (treatment-stratified) splits; the fixture records them."""
+    from doubleml.rdd import RDFlex
+    from doubleml.rdd.datasets import make_simple_rdd_data
+    np.random.seed(seed)
+    data = make_simple_rdd_data(n_obs=1000, fuzzy=fuzzy, cutoff=cutoff)
+    x, y, d, score = data["X"], data["Y"], data["D"].astype(float), data["score"]
+    obj = dml.DoubleMLRDDData.from_arrays(x=x, y=y, d=d, score=score)
+    learners = {"ml_g": OLS, **({"ml_m": LOGIT} if fuzzy else {})}
+    np.random.seed(seed + 1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = RDFlex(obj, learner(OLS), learner(LOGIT) if fuzzy else None, fuzzy=fuzzy, cutoff=cutoff, n_rep=n_rep,
+                       h_fs=h_fs, fs_specification=fs_specification, fs_kernel=fs_kernel)
+        model.fit(n_iterations=n_iterations)
+    expected = {
+        "coef": model.coef.tolist(), "se": model.se.tolist(), "ci": np.asarray(model.ci).tolist(),
+        "all_coef": model.all_coef.tolist(), "all_se": model.all_se.tolist(),
+        # DoubleML records no final bandwidth with a single round (it lets rdrobust choose).
+        "h": None if np.isnan(model.h).any() else model.h.tolist(),
+        "h_fs": float(model.h_fs), "t_stat": model.t_stat.tolist(), "pval": model.pval.tolist(),
+        "confint90": model.confint(level=0.9).to_numpy().tolist(),
+    }
+    options = {"fuzzy": fuzzy, "cutoff": cutoff, "h_fs": h_fs, "fs_specification": fs_specification,
+               "fs_kernel": fs_kernel, "n_iterations": n_iterations}
+    return {
+        "name": name, "model": "rdflex", "options": options, "learners": learners,
+        "x": x.tolist(), "y": y.tolist(), "d": d.tolist(), "score": score.tolist(),
+        "folds": [[{"train": tr.tolist(), "test": te.tolist()} for tr, te in rep] for rep in model._smpls],
+        "expected": expected, "_model": model,
+    }
+
+
 def qte_case(name, seed, quantiles, n_rep=2):
     np.random.seed(seed)
     x, y, d = make_irm_data(n_obs=600, dim_x=5, theta=0.5, return_type="array")
@@ -688,6 +753,15 @@ CASES = [
     lambda: quantile_case("cvar_t0_q25", 65, "cvar", 0, 0.25),
     lambda: quantile_case("lpq_t1", 66, "lpq", 1, 0.5),
     lambda: qte_case("qte_rep2", 67, [0.25, 0.5, 0.75]),
+    lambda: rd_case("rd_sharp", 91),
+    lambda: rdflex_case("rdflex_sharp", 94, fuzzy=False),
+    lambda: rdflex_case("rdflex_fuzzy_rep2", 95, fuzzy=True, n_rep=2),
+    lambda: rdflex_case("rdflex_fuzzy_interacted_epa", 96, fuzzy=True, cutoff=0.2,
+                        fs_specification="interacted cutoff and score", fs_kernel="epanechnikov", n_iterations=3),
+    lambda: rdflex_case("rdflex_sharp_score_uniform", 97, fuzzy=False, h_fs=0.6,
+                        fs_specification="cutoff and score", fs_kernel="uniform", n_iterations=1),
+    lambda: rd_case("rd_fuzzy", 92, fuzzy=True),
+    lambda: rd_case("rd_masspoints", 93, grid=0.02),
     lambda: plpr_case("plpr_fd_exact_rep2", 79, "fd_exact", n_rep=2),
     lambda: plpr_case("plpr_fd_exact_unbalanced", 80, "fd_exact", drop=25),
     lambda: plpr_case("plpr_wg_approx_unbalanced", 83, "wg_approx", drop=25),
@@ -722,7 +796,8 @@ def main():
         case["versions"] = {"doubleml": dml.__version__, "sklearn": sklearn.__version__, "numpy": np.__version__}
         path = OUT / f"{case['name']}.json"
         path.write_text(json.dumps(case))
-        print(f"wrote {path.name:28s} coef={np.round(case['expected']['coef'], 6).tolist()}")
+        coef = case["expected"].get("coef", case["expected"].get("auto", {}).get("coef"))
+        print(f"wrote {path.name:28s} coef={np.round(coef, 6).tolist()}")
 
 
 if __name__ == "__main__":

@@ -812,6 +812,150 @@ fn to_treatment_learner(obj: &Bound<'_, PyAny>, classifier: bool) -> PyResult<Tr
     })
 }
 
+/// Result of `fit_rdflex`: conventional, bias-corrected and robust RD estimates.
+#[pyclass(name = "RdFlexResult", module = "dml_rs", frozen)]
+pub struct PyRdFlexResult {
+    fit: dml_core::RdFlexFit,
+}
+
+#[pymethods]
+impl PyRdFlexResult {
+    #[getter]
+    fn coef<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.fit.coef().to_vec().into_pyarray(py)
+    }
+
+    #[getter]
+    fn se<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.fit.se().to_vec().into_pyarray(py)
+    }
+
+    #[getter]
+    fn t_stat<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.fit.t_stat().to_vec().into_pyarray(py)
+    }
+
+    #[getter]
+    fn pval<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.fit.p_value().to_vec().into_pyarray(py)
+    }
+
+    /// Median of the repetitions' 95% `rdrobust` intervals, shape `(3, 2)`.
+    #[getter]
+    fn ci<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        let ci = self.fit.ci();
+        ndarray::Array2::from_shape_fn((3, 2), |(i, j)| ci[i][j]).into_pyarray(py)
+    }
+
+    /// Shape `(3, n_rep)`.
+    #[getter]
+    fn all_coef<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        self.fit.all_coef().into_pyarray(py)
+    }
+
+    #[getter]
+    fn all_se<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        self.fit.all_se().into_pyarray(py)
+    }
+
+    /// Final RD bandwidth of each repetition.
+    #[getter]
+    fn h<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.fit.h().into_pyarray(py)
+    }
+
+    /// Bias bandwidth of each repetition.
+    #[getter]
+    fn b<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.fit.b().into_pyarray(py)
+    }
+
+    #[getter]
+    fn h_fs(&self) -> f64 {
+        self.fit.h_fs()
+    }
+
+    /// Intervals at `level` from the repetitions' estimates and standard errors.
+    #[pyo3(signature = (level = 0.95))]
+    fn confint<'py>(&self, py: Python<'py>, level: f64) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let ci = self.fit.confint(level).map_err(to_py_err)?;
+        Ok(ndarray::Array2::from_shape_fn((3, 2), |(i, j)| ci[i][j]).into_pyarray(py))
+    }
+
+    fn __str__(&self) -> String {
+        self.fit.to_string()
+    }
+}
+
+/// Regression discontinuity with flexible covariate adjustment (sharp, or
+/// fuzzy when `ml_m` is given). `score` is the running variable.
+#[pyfunction]
+#[pyo3(signature = (y, d, x, score, ml_g, ml_m = None, cutoff = 0.0, h_fs = None,
+                    fs_specification = "cutoff", fs_kernel = "triangular", n_iterations = 2,
+                    n_folds = 5, n_rep = 1, seed = 0, splits = None))]
+#[allow(clippy::too_many_arguments)]
+fn fit_rdflex(
+    py: Python<'_>,
+    y: PyReadonlyArray1<'_, f64>,
+    d: PyReadonlyArray2<'_, f64>,
+    x: PyReadonlyArray2<'_, f64>,
+    score: PyReadonlyArray1<'_, f64>,
+    ml_g: &Bound<'_, PyAny>,
+    ml_m: Option<&Bound<'_, PyAny>>,
+    cutoff: f64,
+    h_fs: Option<f64>,
+    fs_specification: &str,
+    fs_kernel: &str,
+    n_iterations: usize,
+    n_folds: usize,
+    n_rep: usize,
+    seed: u64,
+    splits: Option<PySplits>,
+) -> PyResult<PyRdFlexResult> {
+    let first_stage = match fs_specification {
+        "cutoff" => dml_core::FirstStage::Cutoff,
+        "cutoff and score" => dml_core::FirstStage::CutoffAndScore,
+        "interacted cutoff and score" => dml_core::FirstStage::InteractedCutoffAndScore,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown fs_specification {other:?} (use 'cutoff', 'cutoff and score' or 'interacted cutoff and score')"
+            )))
+        }
+    };
+    let kernel = match fs_kernel.to_ascii_lowercase().as_str() {
+        "uniform" => dml_core::RdKernel::Uniform,
+        "triangular" => dml_core::RdKernel::Triangular,
+        "epanechnikov" => dml_core::RdKernel::Epanechnikov,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown fs_kernel {other:?} (use 'uniform', 'triangular' or 'epanechnikov')"
+            )))
+        }
+    };
+    let data = build_data(y, d, x, None, None, None, None)?;
+    let ml_m = ml_m.map(to_classifier).transpose()?;
+    let mut model = dml_core::RdFlex::from_boxed(to_regressor(ml_g)?, ml_m)
+        .cutoff(cutoff)
+        .first_stage(first_stage)
+        .kernel(kernel)
+        .n_iterations(n_iterations)
+        .n_folds(n_folds)
+        .n_rep(n_rep)
+        .seed(seed);
+    if let Some(h) = h_fs {
+        model = model.h_fs(h);
+    }
+    let score = score.as_array().to_owned();
+    let result = match splits {
+        Some(s) => {
+            let s = to_splits(s);
+            py.detach(|| model.fit_with_folds(&data, score.view(), &s))
+        }
+        None => py.detach(|| model.fit(&data, score.view())),
+    };
+    result.map(|fit| PyRdFlexResult { fit }).map_err(to_py_err)
+}
+
 /// Partially linear regression on a static panel (long format: unit `id` and
 /// period `t` per row), clustered by unit. `splits` refer to the rows of the
 /// transformed panel.
@@ -1227,11 +1371,12 @@ mod dml_rs_native {
     #[pymodule_export]
     use super::{
         fit_apo, fit_apos, fit_cate, fit_did, fit_iivm, fit_irm, fit_lplr, fit_pliv, fit_plpr,
-        fit_plr, fit_qte, fit_quantile, fit_ssm, fit_staggered_did, PyAposResult, PyBlp,
-        PyBootstrap, PyCateResult, PyDmlResult, PyGradientBoostingClassifier,
+        fit_plr, fit_qte, fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did, PyAposResult,
+        PyBlp, PyBootstrap, PyCateResult, PyDmlResult, PyGradientBoostingClassifier,
         PyGradientBoostingRegressor, PyLasso, PyLassoCV, PyLogisticRegression,
         PyLogisticRegressionCV, PyOls, PyPolicyTree, PyQteResult, PyRandomForestClassifier,
-        PyRandomForestRegressor, PySensitivityBenchmark, PySensitivityResult, PyStaggeredResult,
+        PyRandomForestRegressor, PyRdFlexResult, PySensitivityBenchmark, PySensitivityResult,
+        PyStaggeredResult,
     };
 
     #[pymodule_init]

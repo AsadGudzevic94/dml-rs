@@ -9,7 +9,7 @@ use dml_core::{
     PAdjust, PanelApproach, Pliv, Plpr, Plr, PlrScore, Pq, Qte, Ssm, SsmScore, StaticPanel,
     TreatmentLearner,
 };
-use ndarray::Array2;
+use ndarray::{Array1, Array2};
 
 /// Closed-form learners (OLS, ridge) and the DML algebra agree to ~1e-12;
 /// iterative learners (Lasso, logistic) to their solver tolerance.
@@ -965,4 +965,187 @@ fn check_sensitivity(name: &str, fx: &Fixture, fit: &DmlFit, tol: f64) {
             );
         }
     }
+}
+
+/// The RD back end of RDFlex against the `rdrobust` package: MSE-optimal
+/// bandwidths, and estimates with selected and with manual bandwidths.
+fn check_rd(name: &str, tol: f64) {
+    let fx = Fixture::load(name);
+    let (y, x) = (fx.vec("y"), fx.vec("x"));
+    let fuzzy = fx.0["fuzzy"].as_array().map(|_| to_vec(&fx.0["fuzzy"]));
+    let e = &fx.0["expected"];
+    let (h, b) =
+        dml_core::rd::rdbwselect(y.view(), x.view(), fuzzy.as_ref().map(|t| t.view()), 0.0)
+            .unwrap();
+    let bws = to_vec(&e["bws"]);
+    assert_close(&format!("{name} h"), h, bws[0], tol);
+    assert_close(&format!("{name} b"), b, bws[2], tol);
+    let manual = to_vec(&fx.0["manual"]);
+    for (key, bw) in [("auto", None), ("manual", Some((manual[0], manual[1])))] {
+        let est = dml_core::rd::rdrobust(
+            y.view(),
+            x.view(),
+            fuzzy.as_ref().map(|t| t.view()),
+            0.0,
+            bw,
+        )
+        .unwrap();
+        let ex = &e[key];
+        assert_all_close(
+            &format!("{name} {key} coef"),
+            &Array1::from(est.coef.to_vec()),
+            &to_vec(&ex["coef"]),
+            tol,
+        );
+        assert_all_close(
+            &format!("{name} {key} se"),
+            &Array1::from(est.se.to_vec()),
+            &to_vec(&ex["se"]),
+            tol,
+        );
+        let ci = to_matrix(&ex["ci"]);
+        for k in 0..3 {
+            assert_close(
+                &format!("{name} {key} ci[{k}]"),
+                est.ci[k][0],
+                ci[[k, 0]],
+                tol,
+            );
+            assert_close(
+                &format!("{name} {key} ci[{k}]"),
+                est.ci[k][1],
+                ci[[k, 1]],
+                tol,
+            );
+        }
+        assert_close(
+            &format!("{name} {key} h"),
+            est.h.0,
+            to_vec(&ex["h"])[0],
+            tol,
+        );
+        assert_close(
+            &format!("{name} {key} b"),
+            est.b.0,
+            to_vec(&ex["b"])[0],
+            tol,
+        );
+        let n_h = to_vec(&ex["n_h"]);
+        assert_eq!(
+            (est.n_h.0 as f64, est.n_h.1 as f64),
+            (n_h[0], n_h[1]),
+            "{name} {key} N_h"
+        );
+    }
+}
+
+#[test]
+fn rd_matches_rdrobust() {
+    check_rd("rd_sharp", TOL);
+    check_rd("rd_fuzzy", TOL);
+    check_rd("rd_masspoints", TOL);
+}
+
+fn check_rdflex(name: &str, tol: f64) {
+    let fx = Fixture::load(name);
+    let o = &fx.0["options"];
+    let first_stage = match o["fs_specification"].as_str().unwrap() {
+        "cutoff" => dml_core::FirstStage::Cutoff,
+        "cutoff and score" => dml_core::FirstStage::CutoffAndScore,
+        _ => dml_core::FirstStage::InteractedCutoffAndScore,
+    };
+    let kernel = match o["fs_kernel"].as_str().unwrap() {
+        "uniform" => dml_core::RdKernel::Uniform,
+        "triangular" => dml_core::RdKernel::Triangular,
+        _ => dml_core::RdKernel::Epanechnikov,
+    };
+    let ml_m = o["fuzzy"].as_bool().unwrap().then(|| fx.classifier("ml_m"));
+    let mut model = dml_core::RdFlex::from_boxed(fx.regressor("ml_g"), ml_m)
+        .cutoff(o["cutoff"].as_f64().unwrap())
+        .first_stage(first_stage)
+        .kernel(kernel)
+        .n_iterations(o["n_iterations"].as_u64().unwrap() as usize);
+    if let Some(h) = o["h_fs"].as_f64() {
+        model = model.h_fs(h);
+    }
+    let fit = model
+        .fit_with_folds(&fx.data(), fx.vec("score").view(), &fx.folds())
+        .unwrap();
+    let e = fx.expected("coef");
+    assert_all_close(
+        &format!("{name} coef"),
+        &Array1::from(fit.coef().to_vec()),
+        &to_vec(e),
+        tol,
+    );
+    assert_all_close(
+        &format!("{name} se"),
+        &Array1::from(fit.se().to_vec()),
+        &to_vec(fx.expected("se")),
+        tol,
+    );
+    assert_all_close(
+        &format!("{name} t"),
+        &Array1::from(fit.t_stat().to_vec()),
+        &to_vec(fx.expected("t_stat")),
+        tol,
+    );
+    assert_all_close(
+        &format!("{name} p"),
+        &Array1::from(fit.p_value().to_vec()),
+        &to_vec(fx.expected("pval")),
+        tol,
+    );
+    assert_matrix_close(
+        &format!("{name} all_coef"),
+        &fit.all_coef(),
+        &to_matrix(fx.expected("all_coef")),
+        tol,
+    );
+    assert_matrix_close(
+        &format!("{name} all_se"),
+        &fit.all_se(),
+        &to_matrix(fx.expected("all_se")),
+        tol,
+    );
+    let as_matrix = |m: [[f64; 2]; 3]| Array2::from_shape_fn((3, 2), |(i, j)| m[i][j]);
+    assert_matrix_close(
+        &format!("{name} ci"),
+        &as_matrix(fit.ci()),
+        &to_matrix(fx.expected("ci")),
+        tol,
+    );
+    assert_matrix_close(
+        &format!("{name} confint90"),
+        &as_matrix(fit.confint(0.9).unwrap()),
+        &to_matrix(fx.expected("confint90")),
+        tol,
+    );
+    assert_close(
+        &format!("{name} h_fs"),
+        fit.h_fs(),
+        fx.expected("h_fs").as_f64().unwrap(),
+        tol,
+    );
+    // DoubleML records no final bandwidth with a single round.
+    if !fx.expected("h").is_null() {
+        assert_all_close(
+            &format!("{name} h"),
+            &Array1::from(fit.h()),
+            &to_vec(fx.expected("h")),
+            tol,
+        );
+    }
+}
+
+#[test]
+fn rdflex_sharp_designs() {
+    check_rdflex("rdflex_sharp", TOL_ITERATIVE);
+    check_rdflex("rdflex_sharp_score_uniform", TOL_ITERATIVE);
+}
+
+#[test]
+fn rdflex_fuzzy_designs() {
+    check_rdflex("rdflex_fuzzy_rep2", TOL_ITERATIVE);
+    check_rdflex("rdflex_fuzzy_interacted_epa", TOL_ITERATIVE);
 }
