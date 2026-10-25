@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-25
+
 ### Added
 - Quantile models, as DoubleML: potential quantiles (`Pq` / `PQ`), local potential quantiles of
   the compliers with a binary instrument (`Lpq` / `LPQ`), conditional value at risk (`Cvar` /
@@ -236,7 +238,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.7.0...v0.8.0
