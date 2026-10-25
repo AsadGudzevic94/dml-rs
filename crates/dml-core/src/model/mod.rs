@@ -16,6 +16,7 @@ pub(crate) mod irm;
 mod pliv;
 mod plr;
 mod quantile;
+mod ssm;
 
 pub use apo::{Apo, Apos, AposFit};
 pub use did::{Did, DidCs, DidScore};
@@ -24,6 +25,7 @@ pub use irm::{Irm, IrmScore};
 pub use pliv::Pliv;
 pub use plr::{Plr, PlrScore};
 pub use quantile::{Cvar, Lpq, Pq, Qte, QteFit};
+pub use ssm::{Ssm, SsmScore};
 
 /// The data a model sees when estimating the effect of one treatment.
 ///
@@ -40,6 +42,8 @@ pub struct ScoreInput<'a> {
     pub z: Option<ArrayView1<'a, f64>>,
     /// 0/1 time-period indicator (repeated cross-sections).
     pub t: Option<ArrayView1<'a, f64>>,
+    /// 0/1 selection indicator (sample selection models).
+    pub s: Option<ArrayView1<'a, f64>>,
     /// Index of the sample-splitting repetition being estimated.
     pub rep: usize,
 }

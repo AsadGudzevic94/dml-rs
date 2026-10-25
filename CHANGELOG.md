@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Sample selection model (`Ssm` / `SSM`), as DoubleML's `DoubleMLSSM`: the average treatment effect
+  when the outcome is observed only for a selected subsample, with selection missing at random or
+  nonignorable (with an instrument for selection; nested cross-fitting within each fold).
+  `DmlData::with_selection_indicator`. Four parity fixtures; the Python tests match DoubleML to
+  `1e-9` with scikit-learn learners.
+
 ## [0.11.0] - 2026-10-25
 
 ### Added

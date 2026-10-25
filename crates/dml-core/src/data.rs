@@ -11,6 +11,7 @@ use crate::error::{DmlError, Result};
 /// - `x`: covariates / confounders, shape `(n, p)`
 /// - `z`: optional instrument, length `n` (for [`Pliv`](crate::Pliv) and, binary, [`Iivm`](crate::Iivm))
 /// - `t`: optional 0/1 time-period indicator (for repeated cross-sections, [`DidCs`](crate::DidCs))
+/// - `s`: optional 0/1 selection indicator, 1 where the outcome is observed (for [`Ssm`](crate::Ssm))
 ///
 /// With several treatments each one is estimated in turn, and the other
 /// treatments are added to the covariates (as in DoubleML).
@@ -21,6 +22,7 @@ pub struct DmlData {
     x: Array2<f64>,
     z: Option<Array1<f64>>,
     t: Option<Array1<f64>>,
+    s: Option<Array1<f64>>,
     clusters: Option<Vec<Array1<i64>>>,
     treatment_names: Vec<String>,
 }
@@ -73,6 +75,7 @@ impl DmlData {
             x,
             z: None,
             t: None,
+            s: None,
             clusters: None,
             treatment_names,
         })
@@ -112,6 +115,27 @@ impl DmlData {
             ));
         }
         self.t = Some(t);
+        Ok(self)
+    }
+
+    /// Attach a 0/1 selection indicator (1 where the outcome is observed),
+    /// required by the sample selection model [`Ssm`](crate::Ssm). The
+    /// outcome of unselected observations is not used but must be finite
+    /// (e.g. 0).
+    pub fn with_selection_indicator(mut self, s: Array1<f64>) -> Result<Self> {
+        if s.len() != self.n_obs() {
+            return Err(DmlError::DimensionMismatch(format!(
+                "s has {} rows, expected {}",
+                s.len(),
+                self.n_obs()
+            )));
+        }
+        if !is_binary(s.view()) {
+            return Err(DmlError::InvalidArgument(
+                "selection indicator must contain only 0 and 1".into(),
+            ));
+        }
+        self.s = Some(s);
         Ok(self)
     }
 
@@ -211,6 +235,11 @@ impl DmlData {
     /// The 0/1 time-period indicator, if attached.
     pub fn time(&self) -> Option<ArrayView1<'_, f64>> {
         self.t.as_ref().map(|t| t.view())
+    }
+
+    /// The 0/1 selection indicator, if attached.
+    pub fn selection(&self) -> Option<ArrayView1<'_, f64>> {
+        self.s.as_ref().map(|s| s.view())
     }
 
     pub fn treatment_names(&self) -> &[String] {

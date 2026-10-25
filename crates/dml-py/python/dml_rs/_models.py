@@ -841,6 +841,71 @@ class APOS(_DMLEstimator):
         return CausalContrast(self._apos.causal_contrast(refs))
 
 
+class SSM(_DMLEstimator):
+    """Average treatment effect of a binary treatment under sample selection (attrition or
+    non-response), as DoubleML's ``DoubleMLSSM`` (Bia, Huber and Lafférs, 2024). The outcome is
+    observed only where the selection indicator ``s`` is 1; other values of ``y`` are ignored but
+    must be finite.
+
+    ``score="missing-at-random"``: selection depends on the treatment and the covariates only.
+    ``score="nonignorable"``: selection may also depend on unobservables; needs an instrument ``z``
+    that shifts selection but not the outcome. Each training fold is then split in halves: the
+    selection probability is learned on the first, the propensity and outcome models (with the
+    predicted selection probability as a covariate) on the second.
+
+    Parameters
+    ----------
+    ml_g : regressor for ``E[Y | D, X]`` among the selected.
+    ml_pi : classifier for the selection probability ``P(S = 1 | D, X)`` (and ``Z``).
+    ml_m : classifier for the propensity ``P(D = 1 | X)``.
+    score : ``"missing-at-random"`` or ``"nonignorable"``.
+    clipping_threshold : propensities are clipped to ``[t, 1 - t]`` (selection probabilities are not,
+        as in DoubleML).
+    normalize_ipw : normalise the inverse-probability weights.
+    """
+
+    def __init__(
+        self,
+        ml_g: Any,
+        ml_pi: Any,
+        ml_m: Any,
+        score: Literal["missing-at-random", "nonignorable"] = "missing-at-random",
+        clipping_threshold: float = 1e-2,
+        normalize_ipw: bool = False,
+        n_folds: int = 5,
+        n_rep: int = 1,
+        random_state: int = 0,
+    ) -> None:
+        self.ml_g = ml_g
+        self.ml_pi = ml_pi
+        self.ml_m = ml_m
+        self.score = score
+        self.clipping_threshold = clipping_threshold
+        self.normalize_ipw = normalize_ipw
+        self.n_folds = n_folds
+        self.n_rep = n_rep
+        self.random_state = random_state
+
+    def fit(
+        self,
+        X: ArrayLike,
+        y: ArrayLike,
+        d: ArrayLike,
+        s: ArrayLike,
+        z: Optional[ArrayLike] = None,
+        folds: Optional[Folds] = None,
+        cluster: Optional[ArrayLike] = None,
+    ) -> Self:
+        result = _dml_rs.fit_ssm(
+            _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), _as_1d(s, "s"), self.ml_g, self.ml_pi, self.ml_m,
+            z=None if z is None else _as_1d(z, "z"), score=self.score,
+            clipping_threshold=self.clipping_threshold, normalize_ipw=self.normalize_ipw,
+            n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state, splits=_splits(folds),
+            treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
+        )
+        return self._store(result)
+
+
 class _QuantileBase(_DMLEstimator):
     _score: str = "PQ"
 

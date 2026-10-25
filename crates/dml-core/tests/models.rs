@@ -2,7 +2,8 @@
 //! effect, where the nuisance learners are correctly specified.
 
 use dml_core::{
-    Apos, BootstrapMethod, DmlData, Irm, IrmScore, LogisticRegression, Ols, Pliv, Plr, Qte,
+    Apos, BootstrapMethod, DmlData, Irm, IrmScore, LogisticRegression, Ols, Pliv, Plr, Qte, Ssm,
+    SsmScore,
 };
 use ndarray::{Array1, Array2};
 use rand::{Rng, SeedableRng};
@@ -659,4 +660,74 @@ fn quantile_and_cvar_effects_cover_a_location_shift() {
     for c in qte_cov.iter().chain(&cvar_cov) {
         assert!(*c as f64 / reps as f64 >= 0.85, "coverage {c}/{reps}");
     }
+}
+
+/// DoubleML's `make_ssm_data`: outcome observed where S = 1; under
+/// nonignorable selection the errors of S and Y are correlated (0.8) and Z
+/// shifts selection only. θ = 1.
+fn ssm_data(n: usize, seed: u64, mar: bool) -> DmlData {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let x = normal_matrix(&mut rng, n, 5);
+    let (rho, gamma) = if mar { (0.0, 0.0) } else { (0.8, 1.0) };
+    let (mut y, mut d, mut z, mut s) = (
+        Array1::zeros(n),
+        Array1::zeros(n),
+        Array1::zeros(n),
+        Array1::zeros(n),
+    );
+    for i in 0..n {
+        let xb: f64 = (0..5)
+            .map(|j| x[[i, j]] * 0.4 / ((j + 1) * (j + 1)) as f64)
+            .sum();
+        let e0 = std_normal(&mut rng);
+        let e1 = rho * e0 + (1.0 - rho * rho).sqrt() * std_normal(&mut rng);
+        d[i] = f64::from(xb + std_normal(&mut rng) > 0.0);
+        z[i] = std_normal(&mut rng);
+        s[i] = f64::from(xb + d[i] + gamma * z[i] + e0 > 0.0);
+        y[i] = if s[i] == 1.0 { xb + d[i] + e1 } else { 0.0 };
+    }
+    let data = DmlData::new(y, d, x)
+        .unwrap()
+        .with_selection_indicator(s)
+        .unwrap();
+    if mar {
+        data
+    } else {
+        data.with_instrument(z).unwrap()
+    }
+}
+
+#[test]
+fn ssm_has_nominal_coverage_under_both_selection_mechanisms() {
+    let reps = 100;
+    let (mut mar_cov, mut nonign_cov) = (0, 0);
+    for r in 0..reps {
+        let mar = Ssm::new(
+            Ols::new(),
+            LogisticRegression::default(),
+            LogisticRegression::default(),
+        )
+        .seed(r)
+        .fit(&ssm_data(2000, 9500 + r, true))
+        .unwrap();
+        mar_cov += usize::from(covers(&mar.confint(0.95).unwrap(), 0, 1.0));
+        let nonign = Ssm::new(
+            Ols::new(),
+            LogisticRegression::default(),
+            LogisticRegression::default(),
+        )
+        .score(SsmScore::Nonignorable)
+        .seed(r)
+        .fit(&ssm_data(2000, 9700 + r, false))
+        .unwrap();
+        nonign_cov += usize::from(covers(&nonign.confint(0.95).unwrap(), 0, 1.0));
+    }
+    assert!(
+        mar_cov as f64 / reps as f64 >= 0.88,
+        "MAR coverage {mar_cov}/{reps}"
+    );
+    assert!(
+        nonign_cov as f64 / reps as f64 >= 0.88,
+        "nonignorable coverage {nonign_cov}/{reps}"
+    );
 }

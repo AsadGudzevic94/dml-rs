@@ -160,6 +160,46 @@ default sample splits are stratified by the treatment (and instrument).
     let q90 = Pq::new(ml_g, ml_m).treatment(1).quantile(0.9).fit(&data)?;
     ```
 
+## Sample selection (SSM)
+
+The average treatment effect of a binary treatment when the outcome is observed only for part
+of the sample: survey non-response, attrition from a panel, or wages observed only for the
+employed (Bia, Huber and Lafférs, 2024). The selection indicator $S$ is 1 where $Y$ is observed.
+The score combines the outcome models of the selected treated and controls with
+inverse-probability weights for both treatment and selection:
+
+$$
+\begin{aligned}
+\theta = {} & E\left[ g(1, X) + \frac{D\, S\, (Y - g(1, X))}{m(X)\, \pi(1, X)} \right] \\
+& - E\left[ g(0, X) + \frac{(1 - D)\, S\, (Y - g(0, X))}{(1 - m(X))\, \pi(0, X)} \right],
+\end{aligned}
+$$
+
+with $m(X) = P(D = 1 \mid X)$ and the selection probability $\pi(D, X) = P(S = 1 \mid D, X)$.
+
+- `score="missing-at-random"`: selection depends on the treatment and the covariates only.
+- `score="nonignorable"`: selection may also depend on unobservables that affect the outcome. This
+  needs an instrument $Z$ that shifts selection but not the outcome. Each training fold is split
+  in halves: $\pi$ is learned from $(X, D, Z)$ on the first, and $m$ and $g$ on the second, with
+  the predicted selection probability as an additional covariate.
+
+Default sample splits are stratified by treatment and selection. The outcome of unselected
+observations is ignored but must be finite (e.g. 0).
+
+=== "Python"
+
+    ```python
+    model = dml_rs.SSM(ml_g, ml_pi, ml_m, score="nonignorable").fit(X, y, d, s, z=z)
+    model.summary
+    ```
+
+=== "Rust"
+
+    ```rust
+    let data = DmlData::new(y, d, x)?.with_selection_indicator(s)?.with_instrument(z)?;
+    let fit = Ssm::new(ml_g, ml_pi, ml_m).score(SsmScore::Nonignorable).fit(&data)?;
+    ```
+
 ## Partially linear IV regression (PLIV)
 
 $$

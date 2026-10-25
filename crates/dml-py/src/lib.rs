@@ -4,7 +4,7 @@
 
 use dml_core::{
     Apo, Apos, AposFit, BootstrapMethod, Cvar, Did, DidCs, DidScore, DmlData, DmlFit, Fold, Iivm,
-    Irm, IrmScore, Lpq, PAdjust, Pliv, Plr, PlrScore, Pq, Qte, QteFit,
+    Irm, IrmScore, Lpq, PAdjust, Pliv, Plr, PlrScore, Pq, Qte, QteFit, Ssm, SsmScore,
 };
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -802,6 +802,59 @@ fn fit_apos(
         .map_err(to_py_err)
 }
 
+/// Average treatment effect under sample selection: the outcome is observed
+/// where the 0/1 indicator `s` is 1. The nonignorable score needs `z`.
+#[pyfunction]
+#[pyo3(signature = (y, d, x, s, ml_g, ml_pi, ml_m, z = None, score = "missing-at-random",
+                    clipping_threshold = 1e-2, normalize_ipw = false, n_folds = 5, n_rep = 1,
+                    seed = 0, splits = None, treatment_names = None, cluster = None))]
+#[allow(clippy::too_many_arguments)]
+fn fit_ssm(
+    py: Python<'_>,
+    y: PyReadonlyArray1<'_, f64>,
+    d: PyReadonlyArray2<'_, f64>,
+    x: PyReadonlyArray2<'_, f64>,
+    s: PyReadonlyArray1<'_, f64>,
+    ml_g: &Bound<'_, PyAny>,
+    ml_pi: &Bound<'_, PyAny>,
+    ml_m: &Bound<'_, PyAny>,
+    z: Option<PyReadonlyArray1<'_, f64>>,
+    score: &str,
+    clipping_threshold: f64,
+    normalize_ipw: bool,
+    n_folds: usize,
+    n_rep: usize,
+    seed: u64,
+    splits: Option<PySplits>,
+    treatment_names: Option<Vec<String>>,
+    cluster: Option<PyReadonlyArray2<'_, i64>>,
+) -> PyResult<PyDmlResult> {
+    let score = match score {
+        "missing-at-random" => SsmScore::MissingAtRandom,
+        "nonignorable" => SsmScore::Nonignorable,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown SSM score {other:?} (use 'missing-at-random' or 'nonignorable')"
+            )))
+        }
+    };
+    let data = build_data(y, d, x, z, None, treatment_names, cluster)?
+        .with_selection_indicator(s.as_array().to_owned())
+        .map_err(to_py_err)?;
+    let model = Ssm::from_boxed(
+        to_regressor(ml_g)?,
+        to_classifier(ml_pi)?,
+        to_classifier(ml_m)?,
+    )
+    .score(score)
+    .clipping_threshold(clipping_threshold)
+    .normalize_ipw(normalize_ipw)
+    .n_folds(n_folds)
+    .n_rep(n_rep)
+    .seed(seed);
+    run_model!(py, model, data, splits)
+}
+
 /// Potential quantile (`"PQ"`), local potential quantile (`"LPQ"`, needs `z`)
 /// or conditional value at risk (`"CVaR"`) of one treatment level.
 #[pyfunction]
@@ -1012,7 +1065,7 @@ mod dml_rs_native {
     #[pymodule_export]
     use super::{
         fit_apo, fit_apos, fit_cate, fit_did, fit_iivm, fit_irm, fit_pliv, fit_plr, fit_qte,
-        fit_quantile, fit_staggered_did, PyAposResult, PyBlp, PyBootstrap, PyCateResult,
+        fit_quantile, fit_ssm, fit_staggered_did, PyAposResult, PyBlp, PyBootstrap, PyCateResult,
         PyDmlResult, PyGradientBoostingClassifier, PyGradientBoostingRegressor, PyLasso, PyLassoCV,
         PyLogisticRegression, PyLogisticRegressionCV, PyOls, PyPolicyTree, PyQteResult,
         PyRandomForestClassifier, PyRandomForestRegressor, PySensitivityBenchmark,

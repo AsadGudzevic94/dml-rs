@@ -6,7 +6,7 @@ mod common;
 use common::{assert_all_close, assert_close, to_matrix, to_vec, Fixture};
 use dml_core::{
     Apo, Apos, Cvar, Did, DidCs, DidScore, DmlFit, Iivm, Irm, IrmScore, Lpq, PAdjust, Pliv, Plr,
-    PlrScore, Pq, Qte,
+    PlrScore, Pq, Qte, Ssm, SsmScore,
 };
 use ndarray::Array2;
 
@@ -96,6 +96,21 @@ fn fit_fixture_on(fx: &Fixture, data: &dml_core::DmlData) -> DmlFit {
                     .normalize_ipw(norm)
                     .fit_with_folds(&data, &folds),
             }
+        }
+        "ssm" => {
+            let score = match fx.option_str("score") {
+                "missing-at-random" => SsmScore::MissingAtRandom,
+                "nonignorable" => SsmScore::Nonignorable,
+                s => panic!("unknown SSM score {s}"),
+            };
+            let ssm = Ssm::from_boxed(
+                fx.regressor("ml_g"),
+                fx.classifier("ml_pi"),
+                fx.classifier("ml_m"),
+            )
+            .score(score)
+            .normalize_ipw(fx.option_bool("normalize_ipw"));
+            fit!(ssm)
         }
         "apo" => {
             let apo = Apo::from_boxed(
@@ -574,6 +589,18 @@ fn qte_repeated_splits() {
             );
         }
     }
+}
+
+#[test]
+fn ssm_missing_at_random() {
+    check("ssm_mar_rep2", TOL_ITERATIVE);
+    check("ssm_mar_normalized", TOL_ITERATIVE);
+}
+
+#[test]
+fn ssm_nonignorable() {
+    check("ssm_nonignorable", TOL_ITERATIVE);
+    check("ssm_nonignorable_normalized_rep2", TOL_ITERATIVE);
 }
 
 #[test]

@@ -151,6 +151,10 @@ impl Fixture {
             Some(t) => data.with_time_indicator(to_vec(t)).unwrap(),
             None => data,
         };
+        let data = match self.0.get("s") {
+            Some(s) => data.with_selection_indicator(to_vec(s)).unwrap(),
+            None => data,
+        };
         let ids = |v: &Value| -> Array1<i64> {
             v.as_array()
                 .expect("cluster ids")

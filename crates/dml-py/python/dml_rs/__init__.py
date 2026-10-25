@@ -46,6 +46,7 @@ from ._dml_rs import (
     fit_plr,
     fit_qte,
     fit_quantile,
+    fit_ssm,
     fit_staggered_did,
 )
 from ._blp import BLP
@@ -64,6 +65,7 @@ from ._models import (
     PLR,
     PQ,
     QTE,
+    SSM,
     CausalContrast,
     DIDAggregation,
     PotentialQuantiles,
@@ -82,6 +84,7 @@ __all__ = [
     "APO",
     "APOS",
     "CausalContrast",
+    "SSM",
     "PQ",
     "LPQ",
     "CVAR",
@@ -120,5 +123,6 @@ __all__ = [
     "fit_pliv",
     "fit_quantile",
     "fit_qte",
+    "fit_ssm",
     "__version__",
 ]

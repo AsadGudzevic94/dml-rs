@@ -124,6 +124,18 @@ fn min_max(y: ArrayView1<'_, f64>) -> (f64, f64) {
         })
 }
 
+/// Split a training fold into halves stratified by `strata`, as DoubleML's
+/// `train_test_split(train, test_size=0.5, random_state=42, stratify=…)`.
+/// Returns data indices, in scikit-learn's (shuffled) order.
+pub(super) fn half_split(train: &[usize], strata: &[f64]) -> Result<(Vec<usize>, Vec<usize>)> {
+    let labels: Vec<f64> = train.iter().map(|&i| strata[i]).collect();
+    let (p1, p2) = stratified_train_test_split(&labels, 42)?;
+    Ok((
+        p1.iter().map(|&p| train[p]).collect(),
+        p2.iter().map(|&p| train[p]).collect(),
+    ))
+}
+
 /// One fold's nested split: the two halves of the training fold (data
 /// indices) and the preliminary folds on the first half (positions within it).
 fn nested_split(
@@ -131,10 +143,7 @@ fn nested_split(
     strata: &[f64],
     n_folds: usize,
 ) -> Result<(Vec<usize>, Vec<usize>, Vec<Fold>)> {
-    let labels: Vec<f64> = train.iter().map(|&i| strata[i]).collect();
-    let (p1, p2) = stratified_train_test_split(&labels, 42)?;
-    let train1: Vec<usize> = p1.iter().map(|&p| train[p]).collect();
-    let train2: Vec<usize> = p2.iter().map(|&p| train[p]).collect();
+    let (train1, train2) = half_split(train, strata)?;
     let labels1: Vec<f64> = train1.iter().map(|&i| strata[i]).collect();
     let n1 = train1.len();
     let folds = stratified_kfold(&labels1, n_folds)?

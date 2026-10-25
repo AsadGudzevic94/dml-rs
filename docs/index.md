@@ -78,6 +78,7 @@ Continue with [Getting started](getting-started.md), or browse the [examples](ex
 | Interactive regression model | ATE and ATTE of a binary treatment | `IRM` | `Irm` |
 | Multi-valued treatments | Average potential outcomes and contrasts between levels | `APO`, `APOS` | `Apo`, `Apos` |
 | Quantile effects | Quantile and CVaR treatment effects, potential and compliers' quantiles | `QTE`, `PQ`, `LPQ`, `CVAR` | `Qte`, `Pq`, `Lpq`, `Cvar` |
+| Sample selection | ATE when outcomes are missing at random or non-ignorably | `SSM` | `Ssm` |
 | Partially linear IV regression | Effect of an endogenous treatment with an instrument | `PLIV` | `Pliv` |
 | Interactive IV model | Local average treatment effect (LATE) | `IIVM` | `Iivm` |
 | Difference-in-differences | ATT for panels and repeated cross-sections | `DID`, `DIDCS` | `Did`, `DidCs` |

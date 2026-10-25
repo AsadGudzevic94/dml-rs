@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 import sklearn
 from doubleml.did.datasets import make_did_CS2021, make_did_cs_CS2021, make_did_SZ2020
-from doubleml.irm.datasets import make_iivm_data, make_irm_data, make_irm_data_discrete_treatments
+from doubleml.irm.datasets import make_iivm_data, make_irm_data, make_irm_data_discrete_treatments, make_ssm_data
 from doubleml.plm.datasets import make_pliv_CHS2015, make_pliv_multiway_cluster_CKMS2021, make_plr_CCDDHNR2018
 from doubleml.utils._estimation import _draw_weights
 from sklearn.dummy import DummyClassifier
@@ -79,6 +79,7 @@ def fit_case(name, model_kind, data, arrays, learners, options, n_folds=5, n_rep
         "pq": dml.DoubleMLPQ,
         "lpq": dml.DoubleMLLPQ,
         "cvar": dml.DoubleMLCVAR,
+        "ssm": dml.DoubleMLSSM,
     }[model_kind]
     model = cls(data, **kwargs, n_folds=n_folds, n_rep=n_rep, draw_sample_splitting=False, **options)
     model.set_sample_splitting(reps)
@@ -499,6 +500,21 @@ def quantile_case(name, seed, kind, treatment, quantile, normalize_ipw=True, n_r
     return fit_case(name, kind, data, arrays, learners, options, n_rep=n_rep, seed=seed)
 
 
+def ssm_case(name, seed, score, normalize_ipw=False, n_rep=1):
+    mar = score == "missing-at-random"
+    np.random.seed(seed)
+    x, y, d, z, s = make_ssm_data(n_obs=800, dim_x=5, theta=1.0, mar=mar, return_type="array")
+    arrays = {"x": x, "y": y, "d": d, "s": s}
+    if mar:
+        data = dml.DoubleMLSSMData.from_arrays(x, y, d, s=s)
+    else:
+        data = dml.DoubleMLSSMData.from_arrays(x, y, d, z=z, s=s)
+        arrays["z"] = z
+    learners = {"ml_g": OLS, "ml_pi": LOGIT, "ml_m": LOGIT}
+    options = {"score": score, "normalize_ipw": normalize_ipw}
+    return fit_case(name, "ssm", data, arrays, learners, options, n_rep=n_rep, seed=seed)
+
+
 def qte_case(name, seed, quantiles, n_rep=2):
     np.random.seed(seed)
     x, y, d = make_irm_data(n_obs=600, dim_x=5, theta=0.5, return_type="array")
@@ -596,6 +612,10 @@ CASES = [
     lambda: quantile_case("cvar_t0_q25", 65, "cvar", 0, 0.25),
     lambda: quantile_case("lpq_t1", 66, "lpq", 1, 0.5),
     lambda: qte_case("qte_rep2", 67, [0.25, 0.5, 0.75]),
+    lambda: ssm_case("ssm_mar_rep2", 71, "missing-at-random", n_rep=2),
+    lambda: ssm_case("ssm_mar_normalized", 72, "missing-at-random", normalize_ipw=True),
+    lambda: ssm_case("ssm_nonignorable", 73, "nonignorable"),
+    lambda: ssm_case("ssm_nonignorable_normalized_rep2", 74, "nonignorable", normalize_ipw=True, n_rep=2),
     lambda: apo("apo_level1_rep2", 31, 1, n_rep=2),
     lambda: apo("apo_level0_normalized", 32, 0, normalize_ipw=True),
     lambda: apos("apos_rep2", 33, [0, 1, 2]),

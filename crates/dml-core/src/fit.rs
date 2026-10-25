@@ -109,6 +109,7 @@ fn fit_model_impl<M: LinearScoreModel + ?Sized>(
                 x: x_j.view(),
                 z: data.z(),
                 t: data.time(),
+                s: data.selection(),
                 rep: r,
             };
             let est = model.estimate_score(&input, folds)?;

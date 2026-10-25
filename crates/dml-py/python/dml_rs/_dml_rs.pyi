@@ -22,6 +22,7 @@ __all__ = [
     "fit_plr",
     "fit_qte",
     "fit_quantile",
+    "fit_ssm",
     "fit_staggered_did",
     "AposResult",
     "Blp",
@@ -520,6 +521,25 @@ def fit_apos(
     weights: Optional[NDArray[np.float64]] = None,
     weights_bar: Optional[NDArray[np.float64]] = None,
 ) -> AposResult: ...
+def fit_ssm(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    s: NDArray[np.float64],
+    ml_g: Any,
+    ml_pi: Any,
+    ml_m: Any,
+    z: Optional[NDArray[np.float64]] = None,
+    score: Literal["missing-at-random", "nonignorable"] = "missing-at-random",
+    clipping_threshold: float = 1e-2,
+    normalize_ipw: bool = False,
+    n_folds: int = 5,
+    n_rep: int = 1,
+    seed: int = 0,
+    splits: Optional[_Splits] = None,
+    treatment_names: Optional[list[str]] = None,
+    cluster: Optional[NDArray[np.int64]] = None,
+) -> DmlResult: ...
 def fit_quantile(
     y: NDArray[np.float64],
     d: NDArray[np.float64],
