@@ -2,9 +2,10 @@
 //! estimator act as a Rust [`Regressor`] / [`Classifier`].
 
 use dml_core::{
-    Classifier, CvScoring, DmlError, GradientBoostingClassifier, GradientBoostingRegressor, Lasso,
-    LassoCV, LogisticRegression, LogisticRegressionCV, MaxFeatures, Ols, RandomForestClassifier,
-    RandomForestRegressor, Regressor,
+    Classifier, CvScoring, DmlError, GradientBoostingClassifier, GradientBoostingRegressor,
+    GridSearchClassifier, GridSearchRegressor, Lasso, LassoCV, LogisticRegression,
+    LogisticRegressionCV, MaxFeatures, Ols, RandomForestClassifier, RandomForestRegressor,
+    Regressor,
 };
 use ndarray::{Array1, ArrayView1, ArrayView2};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
@@ -867,8 +868,153 @@ impl Classifier for PyClassifier {
     }
 }
 
+/// Grid search over regression learners: the candidate with the smallest
+/// cross-validated mean squared error is refitted on all data.
+#[pyclass(name = "GridSearchRegressor", module = "dml_rs")]
+#[derive(Clone)]
+pub struct PyGridSearchRegressor {
+    pub(crate) inner: GridSearchRegressor,
+    repr: String,
+}
+
+#[pymethods]
+impl PyGridSearchRegressor {
+    #[new]
+    #[pyo3(signature = (candidates, cv = 5))]
+    fn new(candidates: Vec<Bound<'_, PyAny>>, cv: usize) -> PyResult<Self> {
+        let boxed = candidates
+            .iter()
+            .map(to_regressor)
+            .collect::<PyResult<Vec<_>>>()?;
+        Ok(Self {
+            inner: GridSearchRegressor::new(boxed).cv(cv),
+            repr: format!(
+                "GridSearchRegressor({} candidates, cv={cv})",
+                candidates.len()
+            ),
+        })
+    }
+
+    fn fit<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        x: PyReadonlyArray2<'py, f64>,
+        y: PyReadonlyArray1<'py, f64>,
+    ) -> PyResult<PyRefMut<'py, Self>> {
+        let (x, y) = (x.as_array().to_owned(), y.as_array().to_owned());
+        let py = slf.py();
+        let inner = &mut slf.inner;
+        py.detach(|| inner.fit(x.view(), y.view()))
+            .map_err(to_py_err)?;
+        Ok(slf)
+    }
+
+    fn predict<'py>(
+        &self,
+        py: Python<'py>,
+        x: PyReadonlyArray2<'py, f64>,
+    ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        Ok(self
+            .inner
+            .predict(x.as_array())
+            .map_err(to_py_err)?
+            .into_pyarray(py))
+    }
+
+    /// Index of the chosen candidate.
+    #[getter]
+    fn best_index_(&self) -> PyResult<usize> {
+        self.inner
+            .best_index()
+            .ok_or_else(|| PyValueError::new_err("not fitted"))
+    }
+
+    /// Cross-validated mean squared error of every candidate.
+    #[getter]
+    fn cv_scores_(&self) -> Vec<f64> {
+        self.inner.cv_scores().to_vec()
+    }
+
+    fn __repr__(&self) -> String {
+        self.repr.clone()
+    }
+}
+
+/// Grid search over classifiers: the candidate with the smallest
+/// cross-validated log loss is refitted on all data.
+#[pyclass(name = "GridSearchClassifier", module = "dml_rs")]
+#[derive(Clone)]
+pub struct PyGridSearchClassifier {
+    pub(crate) inner: GridSearchClassifier,
+    repr: String,
+}
+
+#[pymethods]
+impl PyGridSearchClassifier {
+    #[new]
+    #[pyo3(signature = (candidates, cv = 5))]
+    fn new(candidates: Vec<Bound<'_, PyAny>>, cv: usize) -> PyResult<Self> {
+        let boxed = candidates
+            .iter()
+            .map(to_classifier)
+            .collect::<PyResult<Vec<_>>>()?;
+        Ok(Self {
+            inner: GridSearchClassifier::new(boxed).cv(cv),
+            repr: format!(
+                "GridSearchClassifier({} candidates, cv={cv})",
+                candidates.len()
+            ),
+        })
+    }
+
+    fn fit<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        x: PyReadonlyArray2<'py, f64>,
+        y: PyReadonlyArray1<'py, f64>,
+    ) -> PyResult<PyRefMut<'py, Self>> {
+        let (x, y) = (x.as_array().to_owned(), y.as_array().to_owned());
+        let py = slf.py();
+        let inner = &mut slf.inner;
+        py.detach(|| inner.fit(x.view(), y.view()))
+            .map_err(to_py_err)?;
+        Ok(slf)
+    }
+
+    /// Class-1 probabilities.
+    fn predict_proba<'py>(
+        &self,
+        py: Python<'py>,
+        x: PyReadonlyArray2<'py, f64>,
+    ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        Ok(self
+            .inner
+            .predict_proba(x.as_array())
+            .map_err(to_py_err)?
+            .into_pyarray(py))
+    }
+
+    #[getter]
+    fn best_index_(&self) -> PyResult<usize> {
+        self.inner
+            .best_index()
+            .ok_or_else(|| PyValueError::new_err("not fitted"))
+    }
+
+    /// Cross-validated log loss of every candidate.
+    #[getter]
+    fn cv_scores_(&self) -> Vec<f64> {
+        self.inner.cv_scores().to_vec()
+    }
+
+    fn __repr__(&self) -> String {
+        self.repr.clone()
+    }
+}
+
 /// Built-in learner if `obj` is one, otherwise wrap the Python estimator.
 pub fn to_regressor(obj: &Bound<'_, PyAny>) -> PyResult<Box<dyn Regressor>> {
+    if let Ok(o) = obj.cast::<PyGridSearchRegressor>() {
+        return Ok(Box::new(o.borrow().inner.clone()));
+    }
     if let Ok(o) = obj.cast::<PyOls>() {
         return Ok(Box::new(o.borrow().inner.clone()));
     }
@@ -888,6 +1034,9 @@ pub fn to_regressor(obj: &Bound<'_, PyAny>) -> PyResult<Box<dyn Regressor>> {
 }
 
 pub fn to_classifier(obj: &Bound<'_, PyAny>) -> PyResult<Box<dyn Classifier>> {
+    if let Ok(o) = obj.cast::<PyGridSearchClassifier>() {
+        return Ok(Box::new(o.borrow().inner.clone()));
+    }
     if let Ok(o) = obj.cast::<PyLogisticRegression>() {
         return Ok(Box::new(o.borrow().inner.clone()));
     }

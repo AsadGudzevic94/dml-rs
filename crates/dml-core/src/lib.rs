@@ -93,9 +93,10 @@ pub use data::DmlData;
 pub use error::{DmlError, Result};
 pub use fit::{fit_model, fit_model_clustered, DmlFit, PAdjust};
 pub use learner::{
-    Classifier, CvScoring, GradientBoostingClassifier, GradientBoostingRegressor, Lasso, LassoCV,
-    LogisticRegression, LogisticRegressionCV, MaxFeatures, Ols, RandomForestClassifier,
-    RandomForestRegressor, Regressor,
+    Classifier, CvScoring, GradientBoostingClassifier, GradientBoostingRegressor,
+    GridSearchClassifier, GridSearchRegressor, Lasso, LassoCV, LogisticRegression,
+    LogisticRegressionCV, MaxFeatures, Ols, RandomForestClassifier, RandomForestRegressor,
+    Regressor,
 };
 pub use model::{
     Apo, Apos, AposFit, CateSignal, Cvar, Did, DidCs, DidScore, ExternalPredictions, FirstStage,

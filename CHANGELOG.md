@@ -25,6 +25,12 @@ All notable changes to this project are documented here. The format follows
   supplied learners are not fitted and report no loss. Models read them through
   `ScoreInput::predictions_or`; `ScoreInput` gains `treatment` and `external`.
 
+- Tuning by grid search: `GridSearchRegressor` (cross-validated mean squared error) and
+  `GridSearchClassifier` (log loss, stratified folds) choose the best of several candidate learners
+  and refit it; as nuisance learners they tune inside every cross-fitting fold, as DoubleML's
+  `tune(..., tune_on_folds=True)`. Python classes of the same names accept built-in and
+  scikit-learn candidates and reproduce `GridSearchCV(scoring="neg_mean_squared_error")`.
+
 ### Fixed
 - Sensitivity analysis: when `ν²` is not positive in some repetition of an estimate, every
   repetition now falls back to the non-orthogonal `mean(α²)`, as DoubleML (previously only the

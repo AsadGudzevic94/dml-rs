@@ -22,8 +22,8 @@ use cate::{fit_cate, PyBlp, PyCateResult};
 use errors::to_py_err;
 use learners::{
     to_classifier, to_regressor, PyGradientBoostingClassifier, PyGradientBoostingRegressor,
-    PyLasso, PyLassoCV, PyLogisticRegression, PyLogisticRegressionCV, PyOls,
-    PyRandomForestClassifier, PyRandomForestRegressor,
+    PyGridSearchClassifier, PyGridSearchRegressor, PyLasso, PyLassoCV, PyLogisticRegression,
+    PyLogisticRegressionCV, PyOls, PyRandomForestClassifier, PyRandomForestRegressor,
 };
 use staggered::{fit_staggered_did, PyStaggeredResult};
 
@@ -1485,10 +1485,10 @@ mod dml_rs_native {
         fit_apo, fit_apos, fit_cate, fit_did, fit_iivm, fit_irm, fit_lplr, fit_pliv, fit_plpr,
         fit_plr, fit_qte, fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did, PyAposResult,
         PyBlp, PyBootstrap, PyCateResult, PyDmlResult, PyGradientBoostingClassifier,
-        PyGradientBoostingRegressor, PyLasso, PyLassoCV, PyLogisticRegression,
-        PyLogisticRegressionCV, PyOls, PyPolicyTree, PyQteResult, PyRandomForestClassifier,
-        PyRandomForestRegressor, PyRdFlexResult, PySensitivityBenchmark, PySensitivityResult,
-        PyStaggeredResult,
+        PyGradientBoostingRegressor, PyGridSearchClassifier, PyGridSearchRegressor, PyLasso,
+        PyLassoCV, PyLogisticRegression, PyLogisticRegressionCV, PyOls, PyPolicyTree, PyQteResult,
+        PyRandomForestClassifier, PyRandomForestRegressor, PyRdFlexResult, PySensitivityBenchmark,
+        PySensitivityResult, PyStaggeredResult,
     };
 
     #[pymodule_init]

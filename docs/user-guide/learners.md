@@ -50,6 +50,36 @@ model = dml_rs.IRM(HistGradientBoostingRegressor(), HistGradientBoostingClassifi
 Pipelines and tuned search objects (`GridSearchCV`, ...) work too. Python learners are slower than
 built-in ones because each fold calls back into Python, but the DML algebra still runs in Rust.
 
+## Tuning
+
+`GridSearchRegressor` and `GridSearchClassifier` choose the best of several candidate learners by
+5-fold cross-validation (mean squared error, or log loss with stratified folds) and refit it.
+Candidates can be built-in or scikit-learn learners. As a nuisance learner the search runs inside
+every cross-fitting fold on that fold's training data, which is DoubleML's
+`tune(..., tune_on_folds=True)`; with scikit-learn candidates it reproduces `GridSearchCV` with
+`scoring="neg_mean_squared_error"` exactly. `LassoCV` and `LogisticRegressionCV` tune their
+penalty the same way, faster.
+
+=== "Python"
+
+    ```python
+    ml = dml_rs.GridSearchRegressor([dml_rs.RandomForestRegressor(max_depth=d) for d in (3, 5, 8)])
+    model = dml_rs.PLR(ml, ml).fit(X, y, d)
+    ```
+
+=== "Rust"
+
+    ```rust
+    let grid = || {
+        let candidates: Vec<Box<dyn Regressor>> = [3, 5, 8]
+            .iter()
+            .map(|&depth| Box::new(RandomForestRegressor::new().max_depth(Some(depth))) as Box<dyn Regressor>)
+            .collect();
+        GridSearchRegressor::new(candidates)
+    };
+    let fit = Plr::new(grid(), grid()).fit(&data)?;
+    ```
+
 ## Comparing learners
 
 Each fit reports the out-of-fold loss of every nuisance learner, on data the learner did not see:

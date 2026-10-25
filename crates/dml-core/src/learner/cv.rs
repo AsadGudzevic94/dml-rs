@@ -13,7 +13,7 @@ use crate::error::{DmlError, Result};
 /// numpy's `finfo(float64).resolution`, scikit-learn's floor for the alpha grid.
 const RESOLUTION: f64 = 1e-15;
 
-fn check_cv(n: usize, cv: usize) -> Result<()> {
+pub(super) fn check_cv(n: usize, cv: usize) -> Result<()> {
     if cv < 2 {
         return Err(DmlError::InvalidArgument("cv must be at least 2".into()));
     }
@@ -27,7 +27,7 @@ fn check_cv(n: usize, cv: usize) -> Result<()> {
 
 /// Test sets of scikit-learn's `KFold(cv)` without shuffling: contiguous
 /// blocks, the first `n % cv` of them one observation larger.
-fn kfold_test_sets(n: usize, cv: usize) -> Vec<Vec<usize>> {
+pub(super) fn kfold_test_sets(n: usize, cv: usize) -> Vec<Vec<usize>> {
     let mut start = 0;
     (0..cv)
         .map(|k| {
@@ -42,7 +42,7 @@ fn kfold_test_sets(n: usize, cv: usize) -> Vec<Vec<usize>> {
 /// Test sets of scikit-learn's `StratifiedKFold(cv)` without shuffling, for
 /// 0/1 labels: each class (numbered by order of first appearance) is dealt
 /// round-robin over the sorted labels, then assigned to folds in data order.
-fn stratified_test_sets(y: ArrayView1<'_, f64>, cv: usize) -> Result<Vec<Vec<usize>>> {
+pub(super) fn stratified_test_sets(y: ArrayView1<'_, f64>, cv: usize) -> Result<Vec<Vec<usize>>> {
     let n = y.len();
     let first = y[0];
     let n_first = y.iter().filter(|&&v| v == first).count();
@@ -81,7 +81,7 @@ fn stratified_test_sets(y: ArrayView1<'_, f64>, cv: usize) -> Result<Vec<Vec<usi
 
 /// `fit_fold(test set)` for every fold, in parallel with the `parallel`
 /// feature; results are in fold order either way.
-fn map_folds<T: Send>(
+pub(super) fn map_folds<T: Send>(
     folds: &[Vec<usize>],
     fit_fold: impl Fn(&[usize]) -> Result<T> + Sync,
 ) -> Result<Vec<T>> {
@@ -96,7 +96,7 @@ fn map_folds<T: Send>(
     }
 }
 
-fn complement(n: usize, test: &[usize]) -> Vec<usize> {
+pub(super) fn complement(n: usize, test: &[usize]) -> Vec<usize> {
     let mut in_test = vec![false; n];
     for &i in test {
         in_test[i] = true;

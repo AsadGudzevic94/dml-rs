@@ -11,6 +11,7 @@ mod forest;
 mod lasso;
 mod logistic;
 mod ols;
+mod search;
 
 pub use boosting::{GradientBoostingClassifier, GradientBoostingRegressor};
 pub use cv::{CvScoring, LassoCV, LogisticRegressionCV};
@@ -19,6 +20,7 @@ pub(crate) use forest::{Node, Tree, TreeBuilder, TreeParams};
 pub use lasso::Lasso;
 pub use logistic::LogisticRegression;
 pub use ols::Ols;
+pub use search::{GridSearchClassifier, GridSearchRegressor};
 
 /// A regression learner for nuisance functions such as `E[Y | X]` or `E[D | X]`.
 ///

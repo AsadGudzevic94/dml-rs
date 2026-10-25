@@ -42,6 +42,8 @@ All classes are available from the top-level package, e.g. `dml_rs.PLR`.
 ::: dml_rs.LassoCV
 ::: dml_rs.LogisticRegression
 ::: dml_rs.LogisticRegressionCV
+::: dml_rs.GridSearchRegressor
+::: dml_rs.GridSearchClassifier
 ::: dml_rs.RandomForestRegressor
 ::: dml_rs.RandomForestClassifier
 ::: dml_rs.GradientBoostingRegressor

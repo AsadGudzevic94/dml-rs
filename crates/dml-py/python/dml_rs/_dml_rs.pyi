@@ -34,6 +34,8 @@ __all__ = [
     "DmlResult",
     "GradientBoostingClassifier",
     "GradientBoostingRegressor",
+    "GridSearchClassifier",
+    "GridSearchRegressor",
     "Lasso",
     "LassoCV",
     "LogisticRegression",
@@ -282,6 +284,32 @@ class StaggeredResult:
 # ---------------------------------------------------------------------------
 # Learners
 # ---------------------------------------------------------------------------
+
+@final
+class GridSearchRegressor:
+    """Grid search over regression learners: the candidate with the smallest cross-validated mean
+    squared error (``cv``-fold, no shuffling) is refitted on all data. As a nuisance learner the
+    search runs inside every cross-fitting fold."""
+
+    def __new__(cls, candidates: Sequence[Any], cv: int = 5) -> GridSearchRegressor: ...
+    def fit(self, x: NDArray[np.float64], y: NDArray[np.float64]) -> GridSearchRegressor: ...
+    def predict(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
+    @property
+    def best_index_(self) -> int: ...
+    @property
+    def cv_scores_(self) -> list[float]: ...
+
+@final
+class GridSearchClassifier:
+    """Grid search over classifiers by cross-validated log loss (stratified folds)."""
+
+    def __new__(cls, candidates: Sequence[Any], cv: int = 5) -> GridSearchClassifier: ...
+    def fit(self, x: NDArray[np.float64], y: NDArray[np.float64]) -> GridSearchClassifier: ...
+    def predict_proba(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
+    @property
+    def best_index_(self) -> int: ...
+    @property
+    def cv_scores_(self) -> list[float]: ...
 
 @final
 class Ols:
