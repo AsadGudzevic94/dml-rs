@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-26
+
 ### Added
 - Framework arithmetic, as DoubleML's `DoubleMLFramework`: `&a + &b`, `&a - &b`, `c * &fit` and
   `-&fit` on `DmlFit` (the operator traits `Add`, `Sub`, `Mul<f64>` and `Neg`), and the public
@@ -328,7 +330,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.10.0...v0.11.0
