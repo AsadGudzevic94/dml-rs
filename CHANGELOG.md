@@ -17,6 +17,12 @@ All notable changes to this project are documented here. The format follows
   double cross-fitting (`n_folds_inner`; `fit_with_inner_folds` replays given inner splits) and
   Newton's method on the non-linear score. `ml_m` may be a regressor or, for a binary treatment, a
   classifier (`TreatmentLearner`). Four parity fixtures; the Python tests match DoubleML to `1e-9`.
+- Partially linear panel regression (`Plpr` / `PLPR`), as DoubleML's `DoubleMLPLPR`: static
+  panels (`StaticPanel`, long format with unit and period) transformed by first differences,
+  within-group demeaning or correlated random effects (`PanelApproach`), then a partially linear
+  regression with unit-clustered folds and standard errors. Five parity fixtures (including
+  unbalanced panels); the Python tests match DoubleML to `1e-9`. Python accepts any sortable unit
+  and period labels (e.g. strings and dates).
 - `Classifier::fit_weighted` (default: unsupported) and sample weights for `LogisticRegression`;
   Python classifiers receive `sample_weight`.
 

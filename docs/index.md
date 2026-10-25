@@ -76,6 +76,7 @@ Continue with [Getting started](getting-started.md), or browse the [examples](ex
 |---|---|---|---|
 | Partially linear regression | Effect of a continuous or binary treatment | `PLR` | `Plr` |
 | Logistic partially linear regression | Log odds ratio of a treatment on a binary outcome | `LPLR` | `Lplr` |
+| Partially linear panel regression | Effect in static panels with correlated unit effects | `PLPR` | `Plpr` |
 | Interactive regression model | ATE and ATTE of a binary treatment | `IRM` | `Irm` |
 | Multi-valued treatments | Average potential outcomes and contrasts between levels | `APO`, `APOS` | `Apo`, `Apos` |
 | Quantile effects | Quantile and CVaR treatment effects, potential and compliers' quantiles | `QTE`, `PQ`, `LPQ`, `CVAR` | `Qte`, `Pq`, `Lpq`, `Cvar` |

@@ -6,7 +6,8 @@ mod common;
 use common::{assert_all_close, assert_close, to_matrix, to_vec, Fixture};
 use dml_core::{
     Apo, Apos, Cvar, Did, DidCs, DidScore, DmlFit, Iivm, Irm, IrmScore, Lplr, LplrScore, Lpq,
-    PAdjust, Pliv, Plr, PlrScore, Pq, Qte, Ssm, SsmScore, TreatmentLearner,
+    PAdjust, PanelApproach, Pliv, Plpr, Plr, PlrScore, Pq, Qte, Ssm, SsmScore, StaticPanel,
+    TreatmentLearner,
 };
 use ndarray::Array2;
 
@@ -96,6 +97,55 @@ fn fit_fixture_on(fx: &Fixture, data: &dml_core::DmlData) -> DmlFit {
                     .normalize_ipw(norm)
                     .fit_with_folds(&data, &folds),
             }
+        }
+        "plpr" => {
+            let score = match fx.option_str("score") {
+                "partialling out" => PlrScore::PartiallingOut,
+                "IV-type" => PlrScore::IvType,
+                s => panic!("unknown PLPR score {s}"),
+            };
+            let approach = match fx.option_str("approach") {
+                "cre_general" => PanelApproach::CreGeneral,
+                "cre_normal" => PanelApproach::CreNormal,
+                "fd_exact" => PanelApproach::FdExact,
+                "wg_approx" => PanelApproach::WgApprox,
+                a => panic!("unknown PLPR approach {a}"),
+            };
+            let ids = fx.0["panel_id"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_i64().unwrap())
+                .collect();
+            let panel = StaticPanel::new(
+                fx.vec("y"),
+                fx.vec("d"),
+                fx.matrix("x"),
+                ids,
+                fx.vec("panel_t"),
+            )
+            .unwrap();
+            let mut plpr = Plpr::from_boxed(
+                fx.regressor("ml_l"),
+                TreatmentLearner::Regressor(fx.regressor("ml_m")),
+            )
+            .score(score)
+            .approach(approach);
+            if score == PlrScore::IvType {
+                plpr = plpr.ml_g_boxed(fx.regressor("ml_g"));
+            }
+            let fit = plpr.fit_with_cluster_folds(&panel, &cluster_folds.expect("cluster folds"));
+            if let Ok(fit) = &fit {
+                let names: Vec<String> = fx
+                    .expected("treatment_names")
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_str().unwrap().to_string())
+                    .collect();
+                assert_eq!(fit.treatment_names(), names.as_slice());
+            }
+            fit
         }
         "lplr" => {
             let score = match fx.option_str("score") {
@@ -603,6 +653,19 @@ fn qte_repeated_splits() {
             );
         }
     }
+}
+
+#[test]
+fn plpr_first_differences() {
+    check("plpr_fd_exact_rep2", TOL);
+    check("plpr_fd_exact_unbalanced", TOL);
+}
+
+#[test]
+fn plpr_within_groups_and_correlated_random_effects() {
+    check("plpr_wg_approx_unbalanced", TOL);
+    check("plpr_cre_general", TOL);
+    check("plpr_cre_normal_ivtype", TOL);
 }
 
 #[test]

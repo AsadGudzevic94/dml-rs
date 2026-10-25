@@ -50,6 +50,7 @@ tested for numerical agreement with the reference [DoubleML](https://docs.double
 |---|---|---|---|
 | Partially linear regression | Effect of a continuous or binary treatment (partialling-out or IV-type score) | `Plr` | `PLR` |
 | Logistic partially linear regression | Log odds ratio of a treatment on a binary outcome | `Lplr` | `LPLR` |
+| Partially linear panel regression | Effect in static panels with unit effects (first differences, within groups, correlated random effects) | `Plpr` | `PLPR` |
 | Interactive regression model | ATE and ATTE of a binary treatment | `Irm` | `IRM` |
 | Multi-valued treatments | Average potential outcomes of each level and contrasts between levels | `Apo`, `Apos` | `APO`, `APOS` |
 | Quantile effects | Quantile and CVaR treatment effects; potential quantiles, compliers' (local) quantiles | `Qte`, `Pq`, `Lpq`, `Cvar` | `QTE`, `PQ`, `LPQ`, `CVAR` |

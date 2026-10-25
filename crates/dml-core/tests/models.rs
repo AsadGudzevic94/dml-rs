@@ -2,8 +2,8 @@
 //! effect, where the nuisance learners are correctly specified.
 
 use dml_core::{
-    Apos, BootstrapMethod, DmlData, Irm, IrmScore, LogisticRegression, Lplr, LplrScore, Ols, Pliv,
-    Plr, Qte, Ssm, SsmScore,
+    Apos, BootstrapMethod, DmlData, Irm, IrmScore, LogisticRegression, Lplr, LplrScore, Ols,
+    PanelApproach, Pliv, Plpr, Plr, Qte, Ssm, SsmScore, StaticPanel,
 };
 use ndarray::{Array1, Array2};
 use rand::{Rng, SeedableRng};
@@ -772,4 +772,55 @@ fn lplr_has_nominal_coverage_with_both_scores() {
         iv_cov as f64 / reps as f64 >= 0.88,
         "instrument coverage {iv_cov}/{reps}"
     );
+}
+
+/// Static panel in the style of Clarke and Polselli (2025): unit effects in
+/// both equations, correlated with the treatment and covariates, so pooled
+/// estimates are biased. θ = 0.5.
+fn panel_data(n_id: usize, n_t: usize, seed: u64) -> StaticPanel {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let n = n_id * n_t;
+    let x = normal_matrix(&mut rng, n, 3);
+    let (mut y, mut d) = (Array1::zeros(n), Array1::zeros(n));
+    let id: Array1<i64> = (0..n).map(|r| (r / n_t) as i64).collect();
+    let t: Array1<f64> = (0..n).map(|r| (r % n_t) as f64).collect();
+    for i in 0..n_id {
+        let (c, a) = (std_normal(&mut rng), std_normal(&mut rng));
+        let rows = i * n_t..(i + 1) * n_t;
+        for r in rows.clone() {
+            d[r] = 0.5 * x[[r, 0]] + x[[r, 2]] + c + std_normal(&mut rng);
+        }
+        let d_bar = rows.clone().map(|r| d[r]).sum::<f64>() / n_t as f64;
+        let x_bar = rows.clone().map(|r| x[[r, 0]] + x[[r, 2]]).sum::<f64>() / n_t as f64;
+        let alpha = 0.25 * d_bar + 0.25 * x_bar + a;
+        for r in rows {
+            y[r] = 0.5 * d[r] + 0.5 * x[[r, 0]] + x[[r, 2]] + alpha + std_normal(&mut rng);
+        }
+    }
+    StaticPanel::new(y, d, x, id, t).unwrap()
+}
+
+#[test]
+fn plpr_has_nominal_coverage_with_unit_effects() {
+    let reps = 100;
+    let approaches = [
+        PanelApproach::FdExact,
+        PanelApproach::WgApprox,
+        PanelApproach::CreGeneral,
+    ];
+    let mut cov = [0usize; 3];
+    for r in 0..reps {
+        let panel = panel_data(150, 5, 10_100 + r);
+        for (k, &approach) in approaches.iter().enumerate() {
+            let fit = Plpr::new(Ols::new(), Ols::new())
+                .approach(approach)
+                .seed(r)
+                .fit(&panel)
+                .unwrap();
+            cov[k] += usize::from(covers(&fit.confint(0.95).unwrap(), 0, 0.5));
+        }
+    }
+    for c in cov {
+        assert!(c as f64 / reps as f64 >= 0.88, "coverage {c}/{reps}");
+    }
 }

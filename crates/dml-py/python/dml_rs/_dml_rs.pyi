@@ -20,6 +20,7 @@ __all__ = [
     "fit_irm",
     "fit_lplr",
     "fit_pliv",
+    "fit_plpr",
     "fit_plr",
     "fit_qte",
     "fit_quantile",
@@ -522,6 +523,24 @@ def fit_apos(
     weights: Optional[NDArray[np.float64]] = None,
     weights_bar: Optional[NDArray[np.float64]] = None,
 ) -> AposResult: ...
+def fit_plpr(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    id: NDArray[np.int64],
+    t: NDArray[np.float64],
+    ml_l: Any,
+    ml_m: Any,
+    m_classifier: bool = False,
+    ml_g: Any = None,
+    score: Literal["partialling out", "IV-type"] = "partialling out",
+    approach: Literal["cre_general", "cre_normal", "fd_exact", "wg_approx"] = "fd_exact",
+    n_folds: int = 5,
+    n_rep: int = 1,
+    seed: int = 0,
+    splits: Optional[_Splits] = None,
+    treatment_names: Optional[list[str]] = None,
+) -> DmlResult: ...
 def fit_lplr(
     y: NDArray[np.float64],
     d: NDArray[np.float64],

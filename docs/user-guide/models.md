@@ -75,6 +75,46 @@ method.
         .fit(&data)?;
     ```
 
+## Partially linear panel regression (PLPR)
+
+For static panels with unit effects correlated with the covariates and the treatment (Clarke and
+Polselli, 2025):
+
+$$
+\begin{aligned}
+Y_{it} &= \theta D_{it} + g_0(X_{it}) + \alpha_i + U_{it}, \\
+D_{it} &= m_0(X_{it}) + \gamma_i + V_{it} .
+\end{aligned}
+$$
+
+The panel, in long format with a unit `id` and a period `t` per row, is transformed to deal with
+the unit effects, and a partially linear regression (either score) is fitted on the transformed
+rows. Folds hold whole units and standard errors are clustered by unit.
+
+| Approach | Transformation | Option |
+|---|---|---|
+| First differences (default) | $\Delta Y_{it}$ and $\Delta D_{it}$ on $X_{it}$ and $X_{i,t-1}$; rows after a gap are dropped | `approach="fd_exact"` |
+| Within groups | outcome, treatment and covariates demeaned within units | `approach="wg_approx"` |
+| Correlated random effects | unit means of the covariates added; treatment predictions shifted to the unit means of the treatment | `approach="cre_general"` |
+| Correlated random effects, normal | unit means added; `ml_m` also sees the unit mean of the treatment | `approach="cre_normal"` |
+
+Units observed in a single period are dropped. With the correlated random effects approaches a
+binary treatment may use a classifier for `ml_m`.
+
+=== "Python"
+
+    ```python
+    model = dml_rs.PLPR(ml_l, ml_m, approach="fd_exact").fit(X, y, d, id=df["id"], t=df["year"])
+    model.summary                        # treatment "d_diff"
+    ```
+
+=== "Rust"
+
+    ```rust
+    let panel = StaticPanel::new(y, d, x, id, t)?;
+    let fit = Plpr::new(ml_l, ml_m).approach(PanelApproach::WgApprox).fit(&panel)?;
+    ```
+
 ## Interactive regression model (IRM)
 
 $$

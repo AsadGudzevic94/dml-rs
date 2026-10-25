@@ -55,6 +55,11 @@ class _HeterogeneityMixin:
         return blp_from(self._check_fitted().gate(_as_2d(groups, "groups")), groups, "group_")  # type: ignore[attr-defined]
 
 
+def _is_classifier(learner: Any) -> bool:
+    """A learner predicting class probabilities (scikit-learn's ``predict_proba``)."""
+    return hasattr(learner, "predict_proba")
+
+
 def _rmse(y_true, y_pred):
     keep = ~np.isnan(y_true)
     return float(np.sqrt(np.mean((y_true[keep] - y_pred[keep]) ** 2)))
@@ -841,9 +846,73 @@ class APOS(_DMLEstimator):
         return CausalContrast(self._apos.causal_contrast(refs))
 
 
-def _is_classifier(learner: Any) -> bool:
-    """A learner predicting class probabilities (scikit-learn's ``predict_proba``)."""
-    return hasattr(learner, "predict_proba")
+def _codes(values: ArrayLike, name: str) -> NDArray[np.int64]:
+    """Integer codes in sorted order of the distinct values (numbers, strings or dates)."""
+    arr = np.asarray(values)
+    if arr.ndim != 1:
+        raise ValueError(f"{name} must be one-dimensional")
+    return np.unique(arr, return_inverse=True)[1].astype(np.int64)
+
+
+class PLPR(_DMLEstimator):
+    """Partially linear regression for static panels, as DoubleML's ``DoubleMLPLPR`` (Clarke and
+    Polselli, 2025): ``Y_it = θ·D_it + g(X_it) + α_i + U_it`` with unit effects correlated with the
+    covariates and the treatment.
+
+    The panel (long format, one row per unit ``id`` and period ``t``) is transformed according to
+    ``approach``, and a partially linear regression is fitted on the transformed rows with folds of
+    whole units and unit-clustered standard errors.
+
+    Parameters
+    ----------
+    ml_l : regressor for ``E[Y | X]`` on the transformed panel.
+    ml_m : regressor for ``E[D | X]``, or a classifier for a binary treatment with the correlated
+        random effects approaches.
+    ml_g : regressor for ``E[Y - θD | X]``, used by ``score="IV-type"`` (default: a copy of ``ml_l``).
+    score : ``"partialling out"`` or ``"IV-type"``.
+    approach : ``"fd_exact"`` (first differences, covariates and their lags), ``"wg_approx"``
+        (within-unit demeaning), ``"cre_general"`` or ``"cre_normal"`` (correlated random effects:
+        unit means of the covariates added).
+    """
+
+    def __init__(
+        self,
+        ml_l: Any,
+        ml_m: Any,
+        ml_g: Any = None,
+        score: Literal["partialling out", "IV-type"] = "partialling out",
+        approach: Literal["cre_general", "cre_normal", "fd_exact", "wg_approx"] = "fd_exact",
+        n_folds: int = 5,
+        n_rep: int = 1,
+        random_state: int = 0,
+    ) -> None:
+        self.ml_l = ml_l
+        self.ml_m = ml_m
+        self.ml_g = ml_g
+        self.score = score
+        self.approach = approach
+        self.n_folds = n_folds
+        self.n_rep = n_rep
+        self.random_state = random_state
+
+    def fit(
+        self,
+        X: ArrayLike,
+        y: ArrayLike,
+        d: ArrayLike,
+        id: ArrayLike,
+        t: ArrayLike,
+        folds: Optional[Folds] = None,
+    ) -> Self:
+        """``folds`` (optional) index the rows of the transformed panel, sorted by unit and period,
+        as DoubleML's ``smpls``; each test set should hold whole units."""
+        result = _dml_rs.fit_plpr(
+            _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), _codes(id, "id"),
+            _codes(t, "t").astype(np.float64), self.ml_l, self.ml_m, _is_classifier(self.ml_m), self.ml_g,
+            score=self.score, approach=self.approach, n_folds=self.n_folds, n_rep=self.n_rep,
+            seed=self.random_state, splits=_splits(folds), treatment_names=_treatment_names(d),
+        )
+        return self._store(result)
 
 
 class LPLR(_DMLEstimator):

@@ -20,7 +20,7 @@ import pandas as pd
 import sklearn
 from doubleml.did.datasets import make_did_CS2021, make_did_cs_CS2021, make_did_SZ2020
 from doubleml.irm.datasets import make_iivm_data, make_irm_data, make_irm_data_discrete_treatments, make_ssm_data
-from doubleml.plm.datasets import make_lplr_LZZ2020, make_pliv_CHS2015, make_pliv_multiway_cluster_CKMS2021, make_plr_CCDDHNR2018
+from doubleml.plm.datasets import make_lplr_LZZ2020, make_pliv_CHS2015, make_plpr_CP2025, make_pliv_multiway_cluster_CKMS2021, make_plr_CCDDHNR2018
 from doubleml.utils._estimation import _draw_weights
 from sklearn.dummy import DummyClassifier
 from sklearn.linear_model import Lasso, LassoCV, LinearRegression, LogisticRegression, LogisticRegressionCV, Ridge
@@ -546,6 +546,51 @@ def lplr_case(name, seed, score, treatment="continuous", n_rep=1):
     }
 
 
+def plpr_case(name, seed, approach, score="partialling out", n_rep=1, drop=0):
+    """Static panel: DoubleML transforms the panel and clusters by unit; the fixture stores the raw
+    panel and DoubleML's cluster splits of the transformed rows. `drop` removes random rows
+    (gaps and units observed once)."""
+    np.random.seed(seed)
+    df = make_plpr_CP2025(num_id=80, num_t=5, dim_x=4, theta=0.5, dgp_type="dgp1")
+    if drop:
+        df = df.drop(index=np.random.choice(len(df), size=drop, replace=False)).reset_index(drop=True)
+    df = df.sample(frac=1.0, random_state=seed).reset_index(drop=True)  # input order must not matter
+    x_cols = [c for c in df.columns if c.startswith("x")]
+    data = dml.DoubleMLPanelData(df, "y", "d", "time", "id", x_cols=x_cols, static_panel=True)
+    learners = {"ml_l": OLS, "ml_m": OLS}
+    kwargs = {"ml_l": learner(OLS), "ml_m": learner(OLS)}
+    if score == "IV-type":
+        learners["ml_g"] = OLS
+        kwargs["ml_g"] = learner(OLS)
+    np.random.seed(seed + 1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = dml.DoubleMLPLPR(data, **kwargs, n_folds=5, n_rep=n_rep, score=score, approach=approach)
+        model.fit(store_predictions=True)
+    expected = {
+        "coef": model.coef.tolist(), "se": model.se.tolist(), "t_stat": model.t_stat.tolist(),
+        "pval": model.pval.tolist(), "ci95": model.confint(level=0.95).to_numpy().tolist(),
+        "all_coef": model.all_coef.tolist(), "all_se": model.all_se.tolist(),
+        "predictions": {k: np.transpose(v, (2, 1, 0)).tolist() for k, v in model.predictions.items() if v is not None},
+        "nuisance_loss": {k: np.asarray(v).tolist() for k, v in model.nuisance_loss.items()},
+        "p_bonferroni": model.p_adjust("bonferroni")["pval"].tolist(),
+        "p_holm": model.p_adjust("holm")["pval"].tolist(),
+        "treatment_names": list(model.data_transform.d_cols),
+    }
+    cluster_folds = [
+        [{"train": tr.tolist(), "test": te.tolist(), "test_clusters": [np.asarray(c).tolist() for c in sc[1]]}
+         for (tr, te), sc in zip(smpls, smpls_cl)]
+        for smpls, smpls_cl in zip(model.smpls, model.smpls_cluster)
+    ]
+    return {
+        "name": name, "model": "plpr", "options": {"score": score, "approach": approach}, "learners": learners,
+        "x": df[x_cols].to_numpy().tolist(), "y": df["y"].tolist(), "d": df["d"].tolist(),
+        "panel_id": df["id"].astype(int).tolist(), "panel_t": df["time"].astype(float).tolist(),
+        "folds": [[{"train": f["train"], "test": f["test"]} for f in rep] for rep in cluster_folds],
+        "cluster_folds": cluster_folds, "expected": expected, "_model": model,
+    }
+
+
 def qte_case(name, seed, quantiles, n_rep=2):
     np.random.seed(seed)
     x, y, d = make_irm_data(n_obs=600, dim_x=5, theta=0.5, return_type="array")
@@ -643,6 +688,11 @@ CASES = [
     lambda: quantile_case("cvar_t0_q25", 65, "cvar", 0, 0.25),
     lambda: quantile_case("lpq_t1", 66, "lpq", 1, 0.5),
     lambda: qte_case("qte_rep2", 67, [0.25, 0.5, 0.75]),
+    lambda: plpr_case("plpr_fd_exact_rep2", 79, "fd_exact", n_rep=2),
+    lambda: plpr_case("plpr_fd_exact_unbalanced", 80, "fd_exact", drop=25),
+    lambda: plpr_case("plpr_wg_approx_unbalanced", 83, "wg_approx", drop=25),
+    lambda: plpr_case("plpr_cre_general", 84, "cre_general"),
+    lambda: plpr_case("plpr_cre_normal_ivtype", 85, "cre_normal", score="IV-type"),
     lambda: lplr_case("lplr_nuisance_space_rep2", 75, "nuisance_space", n_rep=2),
     lambda: lplr_case("lplr_instrument", 76, "instrument"),
     lambda: lplr_case("lplr_binary_propensity", 77, "nuisance_space", treatment="binary"),
