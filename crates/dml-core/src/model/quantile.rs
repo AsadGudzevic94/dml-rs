@@ -18,9 +18,10 @@
 //! exact ports of NumPy, scikit-learn, SciPy and statsmodels (see `compat`),
 //! so results match DoubleML on the same sample splits.
 
-use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, Axis};
+use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis};
 
 use super::irm::normalize_propensity;
+use super::nonlinear::{assemble, RepFit};
 use super::{dml_model_api, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput};
 use crate::compat::{
     bracket_guess, brent_minimize, brentq, kde_at_zero, np_mean, np_quantile, stratified_kfold,
@@ -29,7 +30,7 @@ use crate::compat::{
 use crate::crossfit::{cross_fit_predict_proba, Fold, SampleSplitting};
 use crate::data::DmlData;
 use crate::error::{DmlError, Result};
-use crate::fit::{aggregate, DmlFit, NuisanceLoss};
+use crate::fit::DmlFit;
 use crate::learner::{Classifier, Regressor};
 use crate::score::LinearScore;
 
@@ -182,18 +183,6 @@ fn ipw_estimate(score: &mut dyn FnMut(f64) -> f64, start: f64, bounds: (f64, f64
     brent_minimize(&mut |theta| score(theta).abs(), guess.0, guess.1)
 }
 
-/// Result of one repetition of a model with a non-linear score.
-struct RepFit {
-    /// Mean preliminary estimate, the next repetition's start value.
-    next_start: f64,
-    theta: f64,
-    psi: Array1<f64>,
-    /// Score derivative (density) `J`.
-    jacobian: f64,
-    predictions: Vec<(&'static str, Array1<f64>)>,
-    targets: Vec<NuisanceTarget>,
-}
-
 /// Solve the non-linear score: bracket around `start`, then `brentq`.
 fn solve_score(score: &mut dyn FnMut(f64) -> f64, start: f64, bounds: (f64, f64)) -> Result<f64> {
     let (guess, different) = bracket_guess(score, start, bounds);
@@ -204,93 +193,6 @@ fn solve_score(score: &mut dyn FnMut(f64) -> f64, start: f64, bounds: (f64, f64)
         ));
     }
     brentq(score, guess.0, guess.1)
-}
-
-/// Assemble a [`DmlFit`] from the repetitions of a non-linear model. The score
-/// is stored linearised at the estimate (`ψ_a = J`, `ψ_b = ψ − J·θ̂`), so the
-/// bootstrap and linear combinations work as for linear scores.
-fn assemble(name: String, data: &DmlData, n_folds: usize, reps: Vec<RepFit>) -> DmlFit {
-    let n = data.n_obs();
-    let n_rep = reps.len();
-    let mut all_coef = Array2::zeros((1, n_rep));
-    let mut all_se = Array2::zeros((1, n_rep));
-    let mut psi = Array3::zeros((n, 1, n_rep));
-    let mut psi_a = Array3::zeros((n, 1, n_rep));
-    let mut psi_b = Array3::zeros((n, 1, n_rep));
-    let mut psi_deriv = Array2::zeros((1, n_rep));
-    let mut predictions: Vec<(String, Array3<f64>)> = Vec::new();
-    let mut losses: Vec<NuisanceLoss> = Vec::new();
-    for (r, rep) in reps.into_iter().enumerate() {
-        // DoubleML: J = mean of the (constant) derivative, σ² = γ / (n·J²).
-        let jac = np_mean(&vec![rep.jacobian; n]);
-        let squares: Vec<f64> = rep.psi.iter().map(|v| v * v).collect();
-        let gamma = np_mean(&squares);
-        let sigma2 = 1.0 / (n as f64 * (jac * jac)) * gamma;
-        all_coef[[0, r]] = rep.theta;
-        all_se[[0, r]] = sigma2.sqrt();
-        psi_deriv[[0, r]] = jac;
-        psi.slice_mut(ndarray::s![.., 0, r]).assign(&rep.psi);
-        psi_a.slice_mut(ndarray::s![.., 0, r]).fill(jac);
-        psi_b
-            .slice_mut(ndarray::s![.., 0, r])
-            .assign(&(&rep.psi - jac * rep.theta));
-        for target in &rep.targets {
-            let Some((_, pred)) = rep.predictions.iter().find(|(nm, _)| *nm == target.name) else {
-                continue;
-            };
-            let slot = match losses.iter().position(|l| l.name == target.name) {
-                Some(i) => i,
-                None => {
-                    losses.push(NuisanceLoss {
-                        name: target.name.to_string(),
-                        kind: target.kind,
-                        loss: Array2::from_elem((1, n_rep), f64::NAN),
-                        targets: Array3::from_elem((n, n_rep, 1), f64::NAN),
-                    });
-                    losses.len() - 1
-                }
-            };
-            losses[slot].loss[[0, r]] = target.loss(pred);
-            losses[slot]
-                .targets
-                .slice_mut(ndarray::s![.., r, 0])
-                .assign(&target.target);
-        }
-        for (name, pred) in rep.predictions {
-            let slot = match predictions.iter().position(|(nm, _)| nm == name) {
-                Some(i) => i,
-                None => {
-                    predictions
-                        .push((name.to_string(), Array3::from_elem((n, n_rep, 1), f64::NAN)));
-                    predictions.len() - 1
-                }
-            };
-            predictions[slot]
-                .1
-                .slice_mut(ndarray::s![.., r, 0])
-                .assign(&pred);
-        }
-    }
-    let (coef, se) = aggregate(&all_coef, &all_se);
-    DmlFit {
-        model: name,
-        treatment_names: data.treatment_names().to_vec(),
-        n_obs: n,
-        n_folds,
-        coef,
-        se,
-        all_coef,
-        all_se,
-        psi,
-        psi_a,
-        psi_b,
-        psi_deriv,
-        predictions,
-        sensitivity: None,
-        cate: None,
-        losses,
-        cluster: None,
-    }
 }
 
 /// Default sample splits, stratified by `strata` codes.
@@ -488,7 +390,8 @@ impl Pq {
         let psi = terms(theta);
         let u: Vec<f64> = y.iter().map(|&v| v - theta).collect();
         let weights: Vec<f64> = (0..n).map(|i| ind[i] / m_adj[i]).collect();
-        let jacobian = kde_at_zero(&u, &weights);
+        // DoubleML: J is the mean of the (constant) score derivative.
+        let jacobian = np_mean(&vec![kde_at_zero(&u, &weights); n]);
         Ok(RepFit {
             next_start,
             theta,
@@ -726,7 +629,8 @@ impl Lpq {
                     / comp_prob
             })
             .collect();
-        let jacobian = kde_at_zero(&u, &weights);
+        // DoubleML: J is the mean of the (constant) score derivative.
+        let jacobian = np_mean(&vec![kde_at_zero(&u, &weights); n]);
         let d_owned = d.to_owned();
         Ok(RepFit {
             next_start,

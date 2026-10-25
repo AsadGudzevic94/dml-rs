@@ -4,7 +4,8 @@
 
 use dml_core::{
     Apo, Apos, AposFit, BootstrapMethod, Cvar, Did, DidCs, DidScore, DmlData, DmlFit, Fold, Iivm,
-    Irm, IrmScore, Lpq, PAdjust, Pliv, Plr, PlrScore, Pq, Qte, QteFit, Ssm, SsmScore,
+    Irm, IrmScore, Lplr, LplrScore, Lpq, PAdjust, Pliv, Plr, PlrScore, Pq, Qte, QteFit, Ssm,
+    SsmScore, TreatmentLearner,
 };
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -802,6 +803,87 @@ fn fit_apos(
         .map_err(to_py_err)
 }
 
+/// `E[D | X]` learner of LPLR: a classifier (probabilities) or a regressor.
+fn to_treatment_learner(obj: &Bound<'_, PyAny>, classifier: bool) -> PyResult<TreatmentLearner> {
+    Ok(if classifier {
+        TreatmentLearner::Classifier(to_classifier(obj)?)
+    } else {
+        TreatmentLearner::Regressor(to_regressor(obj)?)
+    })
+}
+
+/// Logistic partially linear regression for a binary outcome. `inner_splits`
+/// (per repetition, per outer fold: `(train, test)` index lists) fixes the
+/// inner folds of the double cross-fitting; otherwise they are drawn.
+#[pyfunction]
+#[pyo3(signature = (y, d, x, ml_M, ml_t, ml_m, m_classifier, ml_a = None, a_classifier = None,
+                    score = "nuisance_space", n_folds = 5, n_folds_inner = 5, n_rep = 1, seed = 0,
+                    splits = None, inner_splits = None, treatment_names = None))]
+#[allow(clippy::too_many_arguments, non_snake_case)]
+fn fit_lplr(
+    py: Python<'_>,
+    y: PyReadonlyArray1<'_, f64>,
+    d: PyReadonlyArray2<'_, f64>,
+    x: PyReadonlyArray2<'_, f64>,
+    ml_M: &Bound<'_, PyAny>,
+    ml_t: &Bound<'_, PyAny>,
+    ml_m: &Bound<'_, PyAny>,
+    m_classifier: bool,
+    ml_a: Option<&Bound<'_, PyAny>>,
+    a_classifier: Option<bool>,
+    score: &str,
+    n_folds: usize,
+    n_folds_inner: usize,
+    n_rep: usize,
+    seed: u64,
+    splits: Option<PySplits>,
+    inner_splits: Option<Vec<PySplits>>,
+    treatment_names: Option<Vec<String>>,
+) -> PyResult<PyDmlResult> {
+    let score = match score {
+        "nuisance_space" => LplrScore::NuisanceSpace,
+        "instrument" => LplrScore::Instrument,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown LPLR score {other:?} (use 'nuisance_space' or 'instrument')"
+            )))
+        }
+    };
+    let data = build_data(y, d, x, None, None, treatment_names, None)?;
+    let ml_a = match ml_a {
+        Some(a) => Some(to_treatment_learner(
+            a,
+            a_classifier.unwrap_or(m_classifier),
+        )?),
+        None => None,
+    };
+    let model = Lplr::from_boxed(
+        to_classifier(ml_M)?,
+        to_regressor(ml_t)?,
+        to_treatment_learner(ml_m, m_classifier)?,
+        ml_a,
+    )
+    .score(score)
+    .n_folds(n_folds)
+    .n_folds_inner(n_folds_inner)
+    .n_rep(n_rep)
+    .seed(seed);
+    let result = match (splits, inner_splits) {
+        (Some(s), Some(inner)) => {
+            let s = to_splits(s);
+            let inner: Vec<Vec<Vec<Fold>>> = inner.into_iter().map(to_splits).collect();
+            py.detach(|| model.fit_with_inner_folds(&data, &s, &inner))
+        }
+        (Some(s), None) => {
+            let s = to_splits(s);
+            py.detach(|| model.fit_with_folds(&data, &s))
+        }
+        (None, None) => py.detach(|| model.fit(&data)),
+        (None, Some(_)) => return Err(PyValueError::new_err("inner_splits requires splits")),
+    };
+    result.map(PyDmlResult::from_fit).map_err(to_py_err)
+}
+
 /// Average treatment effect under sample selection: the outcome is observed
 /// where the 0/1 indicator `s` is 1. The nonignorable score needs `z`.
 #[pyfunction]
@@ -1064,11 +1146,11 @@ fn fit_did(
 mod dml_rs_native {
     #[pymodule_export]
     use super::{
-        fit_apo, fit_apos, fit_cate, fit_did, fit_iivm, fit_irm, fit_pliv, fit_plr, fit_qte,
-        fit_quantile, fit_ssm, fit_staggered_did, PyAposResult, PyBlp, PyBootstrap, PyCateResult,
-        PyDmlResult, PyGradientBoostingClassifier, PyGradientBoostingRegressor, PyLasso, PyLassoCV,
-        PyLogisticRegression, PyLogisticRegressionCV, PyOls, PyPolicyTree, PyQteResult,
-        PyRandomForestClassifier, PyRandomForestRegressor, PySensitivityBenchmark,
+        fit_apo, fit_apos, fit_cate, fit_did, fit_iivm, fit_irm, fit_lplr, fit_pliv, fit_plr,
+        fit_qte, fit_quantile, fit_ssm, fit_staggered_did, PyAposResult, PyBlp, PyBootstrap,
+        PyCateResult, PyDmlResult, PyGradientBoostingClassifier, PyGradientBoostingRegressor,
+        PyLasso, PyLassoCV, PyLogisticRegression, PyLogisticRegressionCV, PyOls, PyPolicyTree,
+        PyQteResult, PyRandomForestClassifier, PyRandomForestRegressor, PySensitivityBenchmark,
         PySensitivityResult, PyStaggeredResult,
     };
 

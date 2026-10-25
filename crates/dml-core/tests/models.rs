@@ -2,8 +2,8 @@
 //! effect, where the nuisance learners are correctly specified.
 
 use dml_core::{
-    Apos, BootstrapMethod, DmlData, Irm, IrmScore, LogisticRegression, Ols, Pliv, Plr, Qte, Ssm,
-    SsmScore,
+    Apos, BootstrapMethod, DmlData, Irm, IrmScore, LogisticRegression, Lplr, LplrScore, Ols, Pliv,
+    Plr, Qte, Ssm, SsmScore,
 };
 use ndarray::{Array1, Array2};
 use rand::{Rng, SeedableRng};
@@ -729,5 +729,47 @@ fn ssm_has_nominal_coverage_under_both_selection_mechanisms() {
     assert!(
         nonign_cov as f64 / reps as f64 >= 0.88,
         "nonignorable coverage {nonign_cov}/{reps}"
+    );
+}
+
+/// Binary outcome with P(Y = 1 | D, X) = expit(0.5·D + r(X)), continuous D
+/// confounded by X; θ = 0.5 is a log odds ratio.
+fn lplr_data(n: usize, seed: u64) -> DmlData {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let x = normal_matrix(&mut rng, n, 3);
+    let (mut y, mut d) = (Array1::zeros(n), Array1::zeros(n));
+    for i in 0..n {
+        d[i] = 0.5 * x[[i, 0]] - 0.3 * x[[i, 1]] + std_normal(&mut rng);
+        let eta = 0.5 * d[i] + 0.5 * x[[i, 0]] + 0.4 * x[[i, 1]] - 0.3 * x[[i, 2]];
+        y[i] = f64::from(rng.gen::<f64>() < 1.0 / (1.0 + (-eta).exp()));
+    }
+    DmlData::new(y, d, x).unwrap()
+}
+
+#[test]
+fn lplr_has_nominal_coverage_with_both_scores() {
+    let reps = 100;
+    let (mut ns_cov, mut iv_cov) = (0, 0);
+    for r in 0..reps {
+        let data = lplr_data(2000, 9900 + r);
+        for (score, cov) in [
+            (LplrScore::NuisanceSpace, &mut ns_cov),
+            (LplrScore::Instrument, &mut iv_cov),
+        ] {
+            let fit = Lplr::new(LogisticRegression::unpenalized(), Ols::new(), Ols::new())
+                .score(score)
+                .seed(r)
+                .fit(&data)
+                .unwrap();
+            *cov += usize::from(covers(&fit.confint(0.95).unwrap(), 0, 0.5));
+        }
+    }
+    assert!(
+        ns_cov as f64 / reps as f64 >= 0.88,
+        "nuisance-space coverage {ns_cov}/{reps}"
+    );
+    assert!(
+        iv_cov as f64 / reps as f64 >= 0.88,
+        "instrument coverage {iv_cov}/{reps}"
     );
 }

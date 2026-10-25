@@ -37,6 +37,44 @@ at once (`d` with one column each).
     Plr::new(ml_l, ml_m).score(PlrScore::IvType).ml_g(ml_g).fit(&data)?;
     ```
 
+## Logistic partially linear regression (LPLR)
+
+For a binary outcome (Liu, Zhang and Zhou, 2021):
+
+$$
+P(Y = 1 \mid D, X) = \operatorname{expit}\big(\theta D + r_0(X)\big),
+$$
+
+so $\theta$ is a log odds ratio, constant across $X$. The nuisances are `ml_M` for
+$M(D, X) = P(Y = 1 \mid D, X)$, `ml_t` for the log odds $E[\operatorname{logit} M(D, X) \mid X]$,
+`ml_m` for $E[D \mid X]$ (a regressor, or a classifier for a binary treatment) and optionally
+`ml_a`, a second learner for $E[D \mid X]$. `ml_M` and `ml_a` are double cross-fitted: inner folds
+within each training fold provide the out-of-sample predictions from which the targets of `ml_t`
+and a preliminary estimate are built. The score, non-linear in $\theta$, is solved with Newton's
+method.
+
+| Score | `ml_m` is fitted | Option |
+|---|---|---|
+| Nuisance space (default) | on the observations with $Y = 0$ | `score="nuisance_space"` |
+| Instrument | on all observations, weighted by $M(1 - M)$ | `score="instrument"` |
+
+=== "Python"
+
+    ```python
+    from sklearn.linear_model import LinearRegression, LogisticRegression
+
+    model = dml_rs.LPLR(LogisticRegression(), LinearRegression(), LinearRegression()).fit(X, y, d)
+    model.summary                        # log odds ratio of D
+    ```
+
+=== "Rust"
+
+    ```rust
+    let fit = Lplr::new(LogisticRegression::default(), Ols::new(), Ols::new())
+        .score(LplrScore::Instrument)
+        .fit(&data)?;
+    ```
+
 ## Interactive regression model (IRM)
 
 $$

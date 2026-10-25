@@ -37,9 +37,19 @@ pub enum SsmScore {
     Nonignorable,
 }
 
-/// Average treatment effect under sample selection. Requires a selection
-/// indicator ([`DmlData::with_selection_indicator`]) and, for the
-/// nonignorable score, an instrument ([`DmlData::with_instrument`]).
+/// Average treatment effect of a binary treatment when the outcome is
+/// observed only where the selection indicator `S` is 1 (attrition,
+/// non-response), as DoubleML's `DoubleMLSSM`. Requires a selection indicator
+/// ([`DmlData::with_selection_indicator`]) and, for
+/// [`SsmScore::Nonignorable`], an instrument for selection
+/// ([`DmlData::with_instrument`]).
+///
+/// The score is doubly robust in the outcome models of the selected treated
+/// and controls, the propensity `P(D = 1 | X)` and the selection probability
+/// `P(S = 1 | D, X)`. Under nonignorable selection each training fold is
+/// split in halves: the selection probability is learned on the first, and
+/// the other nuisances on the second with the predicted selection
+/// probability as a covariate.
 pub struct Ssm {
     ml_g: Box<dyn Regressor>,
     ml_pi: Box<dyn Classifier>,

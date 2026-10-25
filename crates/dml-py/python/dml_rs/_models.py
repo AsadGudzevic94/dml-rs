@@ -841,6 +841,78 @@ class APOS(_DMLEstimator):
         return CausalContrast(self._apos.causal_contrast(refs))
 
 
+def _is_classifier(learner: Any) -> bool:
+    """A learner predicting class probabilities (scikit-learn's ``predict_proba``)."""
+    return hasattr(learner, "predict_proba")
+
+
+class LPLR(_DMLEstimator):
+    """Logistic partially linear regression for a binary outcome, as DoubleML's ``DoubleMLLPLR``
+    (Liu, Zhang and Zhou, 2021): ``P(Y = 1 | D, X) = expit(θ·D + r(X))``, so ``θ`` is a log odds
+    ratio.
+
+    ``ml_M`` and ``ml_a`` are double cross-fitted (inner folds within every outer training fold),
+    and the score is solved with Newton's method from a preliminary estimate.
+
+    Parameters
+    ----------
+    ml_M : classifier for ``P(Y = 1 | D, X)``.
+    ml_t : regressor for the log odds ``E[logit M(D, X) | X]``.
+    ml_m : regressor for ``E[D | X]``, or a classifier for a binary treatment.
+    ml_a : learner for ``E[D | X]`` used for the preliminary estimate (default: a copy of ``ml_m``).
+    score : ``"nuisance_space"`` (``ml_m`` fitted on ``Y = 0``) or ``"instrument"`` (``ml_m`` fitted
+        with weights ``M(1 - M)``; the learner must accept ``sample_weight``).
+    n_folds_inner : inner folds of the double cross-fitting.
+    """
+
+    def __init__(
+        self,
+        ml_M: Any,
+        ml_t: Any,
+        ml_m: Any,
+        ml_a: Any = None,
+        score: Literal["nuisance_space", "instrument"] = "nuisance_space",
+        n_folds: int = 5,
+        n_folds_inner: int = 5,
+        n_rep: int = 1,
+        random_state: int = 0,
+    ) -> None:
+        self.ml_M = ml_M
+        self.ml_t = ml_t
+        self.ml_m = ml_m
+        self.ml_a = ml_a
+        self.score = score
+        self.n_folds = n_folds
+        self.n_folds_inner = n_folds_inner
+        self.n_rep = n_rep
+        self.random_state = random_state
+
+    def fit(
+        self,
+        X: ArrayLike,
+        y: ArrayLike,
+        d: ArrayLike,
+        folds: Optional[Folds] = None,
+        inner_folds: Optional[Sequence[Any]] = None,
+    ) -> Self:
+        """``inner_folds`` (with ``folds``) fixes the inner splits in DoubleML's ``smpls_inner``
+        layout: per repetition, per outer fold, a list of ``(train, test)`` index pairs within that
+        fold's training set."""
+        splits = _splits(folds)
+        inner = None
+        if inner_folds is not None:
+            if splits is None:
+                raise ValueError("inner_folds requires folds")
+            inner = [[_splits(fold)[0] for fold in rep] for rep in inner_folds]  # type: ignore[index]
+        result = _dml_rs.fit_lplr(
+            _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), self.ml_M, self.ml_t, self.ml_m,
+            _is_classifier(self.ml_m), self.ml_a, None if self.ml_a is None else _is_classifier(self.ml_a),
+            score=self.score, n_folds=self.n_folds, n_folds_inner=self.n_folds_inner, n_rep=self.n_rep,
+            seed=self.random_state, splits=splits, inner_splits=inner, treatment_names=_treatment_names(d),
+        )
+        return self._store(result)
+
+
 class SSM(_DMLEstimator):
     """Average treatment effect of a binary treatment under sample selection (attrition or
     non-response), as DoubleML's ``DoubleMLSSM`` (Bia, Huber and Lafférs, 2024). The outcome is

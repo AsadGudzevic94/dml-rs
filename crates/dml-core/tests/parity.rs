@@ -5,8 +5,8 @@ mod common;
 
 use common::{assert_all_close, assert_close, to_matrix, to_vec, Fixture};
 use dml_core::{
-    Apo, Apos, Cvar, Did, DidCs, DidScore, DmlFit, Iivm, Irm, IrmScore, Lpq, PAdjust, Pliv, Plr,
-    PlrScore, Pq, Qte, Ssm, SsmScore,
+    Apo, Apos, Cvar, Did, DidCs, DidScore, DmlFit, Iivm, Irm, IrmScore, Lplr, LplrScore, Lpq,
+    PAdjust, Pliv, Plr, PlrScore, Pq, Qte, Ssm, SsmScore, TreatmentLearner,
 };
 use ndarray::Array2;
 
@@ -96,6 +96,20 @@ fn fit_fixture_on(fx: &Fixture, data: &dml_core::DmlData) -> DmlFit {
                     .normalize_ipw(norm)
                     .fit_with_folds(&data, &folds),
             }
+        }
+        "lplr" => {
+            let score = match fx.option_str("score") {
+                "nuisance_space" => LplrScore::NuisanceSpace,
+                "instrument" => LplrScore::Instrument,
+                s => panic!("unknown LPLR score {s}"),
+            };
+            let ml_m = match fx.0["learners"]["ml_m"]["kind"].as_str().unwrap() {
+                "logit" => TreatmentLearner::Classifier(fx.classifier("ml_m")),
+                _ => TreatmentLearner::Regressor(fx.regressor("ml_m")),
+            };
+            Lplr::from_boxed(fx.classifier("ml_M"), fx.regressor("ml_t"), ml_m, None)
+                .score(score)
+                .fit_with_inner_folds(&data, &folds, &fx.inner_folds())
         }
         "ssm" => {
             let score = match fx.option_str("score") {
@@ -589,6 +603,18 @@ fn qte_repeated_splits() {
             );
         }
     }
+}
+
+#[test]
+fn lplr_continuous_treatment() {
+    check("lplr_nuisance_space_rep2", TOL_ITERATIVE);
+    check("lplr_instrument", TOL_ITERATIVE);
+}
+
+#[test]
+fn lplr_binary_treatment() {
+    check("lplr_binary_propensity", TOL_ITERATIVE);
+    check("lplr_binary_instrument", TOL_ITERATIVE);
 }
 
 #[test]

@@ -18,6 +18,7 @@ __all__ = [
     "fit_did",
     "fit_iivm",
     "fit_irm",
+    "fit_lplr",
     "fit_pliv",
     "fit_plr",
     "fit_qte",
@@ -521,6 +522,25 @@ def fit_apos(
     weights: Optional[NDArray[np.float64]] = None,
     weights_bar: Optional[NDArray[np.float64]] = None,
 ) -> AposResult: ...
+def fit_lplr(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    ml_M: Any,
+    ml_t: Any,
+    ml_m: Any,
+    m_classifier: bool,
+    ml_a: Any = None,
+    a_classifier: Optional[bool] = None,
+    score: Literal["nuisance_space", "instrument"] = "nuisance_space",
+    n_folds: int = 5,
+    n_folds_inner: int = 5,
+    n_rep: int = 1,
+    seed: int = 0,
+    splits: Optional[_Splits] = None,
+    inner_splits: Optional[Sequence[_Splits]] = None,
+    treatment_names: Optional[list[str]] = None,
+) -> DmlResult: ...
 def fit_ssm(
     y: NDArray[np.float64],
     d: NDArray[np.float64],

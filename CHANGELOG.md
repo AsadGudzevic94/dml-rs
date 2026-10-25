@@ -12,6 +12,13 @@ All notable changes to this project are documented here. The format follows
   nonignorable (with an instrument for selection; nested cross-fitting within each fold).
   `DmlData::with_selection_indicator`. Four parity fixtures; the Python tests match DoubleML to
   `1e-9` with scikit-learn learners.
+- Logistic partially linear regression (`Lplr` / `LPLR`), as DoubleML's `DoubleMLLPLR`: the log
+  odds ratio of a treatment on a binary outcome, with the nuisance-space and instrument scores,
+  double cross-fitting (`n_folds_inner`; `fit_with_inner_folds` replays given inner splits) and
+  Newton's method on the non-linear score. `ml_m` may be a regressor or, for a binary treatment, a
+  classifier (`TreatmentLearner`). Four parity fixtures; the Python tests match DoubleML to `1e-9`.
+- `Classifier::fit_weighted` (default: unsupported) and sample weights for `LogisticRegression`;
+  Python classifiers receive `sample_weight`.
 
 ## [0.11.0] - 2026-10-25
 

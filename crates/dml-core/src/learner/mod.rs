@@ -50,6 +50,20 @@ pub trait Regressor: Send + Sync {
 /// propensity scores in models with a binary treatment such as [`Irm`](crate::Irm).
 pub trait Classifier: Send + Sync {
     fn fit(&mut self, x: ArrayView2<'_, f64>, y: ArrayView1<'_, f64>) -> Result<()>;
+
+    /// Fit minimising a `w`-weighted loss (needed by [`Lplr`](crate::Lplr)'s
+    /// instrument score). The default reports that weights are unsupported.
+    fn fit_weighted(
+        &mut self,
+        _x: ArrayView2<'_, f64>,
+        _y: ArrayView1<'_, f64>,
+        _w: ArrayView1<'_, f64>,
+    ) -> Result<()> {
+        Err(DmlError::InvalidArgument(
+            "this learner does not support sample weights".into(),
+        ))
+    }
+
     fn predict_proba(&self, x: ArrayView2<'_, f64>) -> Result<Array1<f64>>;
     fn fresh(&self) -> Box<dyn Classifier>;
 }

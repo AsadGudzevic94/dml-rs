@@ -96,7 +96,33 @@ impl LogisticRegression {
         y: ArrayView1<'_, f64>,
         init: Option<&Array1<f64>>,
     ) -> Result<()> {
+        self.fit_impl(x, y, None, init)
+    }
+
+    /// Newton's method on `Σ wᵢ·loglossᵢ + ‖coef‖² / (2C)` (unit weights if
+    /// `weights` is `None`), the minimiser scikit-learn's `sample_weight` gives.
+    fn fit_impl(
+        &mut self,
+        x: ArrayView2<'_, f64>,
+        y: ArrayView1<'_, f64>,
+        weights: Option<ArrayView1<'_, f64>>,
+        init: Option<&Array1<f64>>,
+    ) -> Result<()> {
         let (n, p) = x.dim();
+        let sw = match weights {
+            Some(w) if w.len() != n => {
+                return Err(DmlError::DimensionMismatch(
+                    "LogisticRegression::fit_weighted weights length".into(),
+                ))
+            }
+            Some(w) if !w.iter().all(|&v| v.is_finite() && v >= 0.0) || w.sum() <= 0.0 => {
+                return Err(DmlError::InvalidArgument(
+                    "sample weights must be finite, non-negative and not all zero".into(),
+                ))
+            }
+            Some(w) => w.to_owned(),
+            None => Array1::ones(n),
+        };
         if y.len() != n {
             return Err(DmlError::DimensionMismatch(
                 "LogisticRegression::fit x/y rows".into(),
@@ -125,7 +151,8 @@ impl LogisticRegression {
             let loss: f64 = eta
                 .iter()
                 .zip(y.iter())
-                .map(|(&e, &t)| softplus(e) - t * e)
+                .zip(sw.iter())
+                .map(|((&e, &t), &w)| w * (softplus(e) - t * e))
                 .sum();
             loss + 0.5
                 * lambda
@@ -137,7 +164,7 @@ impl LogisticRegression {
         let mut beta = match init {
             Some(b) if b.len() == p + 1 => b.clone(),
             _ => {
-                let mean = n1 / n as f64;
+                let mean = sw.dot(&y) / sw.sum();
                 let mut b = Array1::<f64>::zeros(p + 1);
                 b[0] = (mean / (1.0 - mean)).ln();
                 b
@@ -147,8 +174,8 @@ impl LogisticRegression {
         let mut converged = false;
         for _ in 0..self.max_iter {
             let prob = xa.dot(&beta).mapv(sigmoid);
-            let mut grad = xa.t().dot(&(&prob - &y));
-            let w = prob.mapv(|q| q * (1.0 - q));
+            let mut grad = xa.t().dot(&(&sw * &(&prob - &y)));
+            let w = &sw * &prob.mapv(|q| q * (1.0 - q));
             let mut hess = xa.t().dot(&(&xa * &w.insert_axis(Axis(1))));
             for j in 1..=p {
                 grad[j] += lambda * beta[j];
@@ -189,6 +216,15 @@ impl Classifier for LogisticRegression {
         self.fit_from(x, y, None)
     }
 
+    fn fit_weighted(
+        &mut self,
+        x: ArrayView2<'_, f64>,
+        y: ArrayView1<'_, f64>,
+        w: ArrayView1<'_, f64>,
+    ) -> Result<()> {
+        self.fit_impl(x, y, Some(w), None)
+    }
+
     fn predict_proba(&self, x: ArrayView2<'_, f64>) -> Result<Array1<f64>> {
         let coef = self.coef.as_ref().ok_or(DmlError::NotFitted)?;
         if x.ncols() != coef.len() {
@@ -208,6 +244,40 @@ impl Classifier for LogisticRegression {
 mod tests {
     use super::*;
     use ndarray::array;
+
+    #[test]
+    fn integer_weights_equal_repeated_rows() {
+        let x = array![
+            [0.0, 1.0],
+            [1.0, 0.5],
+            [2.0, -1.0],
+            [3.0, 0.0],
+            [1.5, 2.0],
+            [0.5, -0.5]
+        ];
+        let y = array![0.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+        let w = array![1.0, 2.0, 1.0, 3.0, 1.0, 2.0];
+        let mut weighted = LogisticRegression::new(2.0).tol(1e-12);
+        weighted.fit_weighted(x.view(), y.view(), w.view()).unwrap();
+        let rows: Vec<usize> = (0..6)
+            .flat_map(|i| std::iter::repeat(i).take(w[i] as usize))
+            .collect();
+        let mut repeated = LogisticRegression::new(2.0).tol(1e-12);
+        repeated
+            .fit(
+                x.select(Axis(0), &rows).view(),
+                y.select(Axis(0), &rows).view(),
+            )
+            .unwrap();
+        let (a, b) = (
+            weighted.predict_proba(x.view()).unwrap(),
+            repeated.predict_proba(x.view()).unwrap(),
+        );
+        assert!(a.iter().zip(&b).all(|(p, q)| (p - q).abs() < 1e-10));
+        assert!(weighted
+            .fit_weighted(x.view(), y.view(), (-&w).view())
+            .is_err());
+    }
 
     #[test]
     fn gradient_is_zero_at_optimum() {

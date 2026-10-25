@@ -49,6 +49,26 @@ impl Fixture {
             .collect()
     }
 
+    /// Inner folds of double sample splitting (LPLR): `[rep][outer fold]`.
+    pub fn inner_folds(&self) -> Vec<Vec<Vec<Fold>>> {
+        let folds = |v: &Value| -> Vec<Fold> {
+            v.as_array()
+                .expect("inner folds")
+                .iter()
+                .map(|f| Fold {
+                    train: indices(&f["train"]),
+                    test: indices(&f["test"]),
+                })
+                .collect()
+        };
+        self.0["inner_folds"]
+            .as_array()
+            .expect("inner_folds")
+            .iter()
+            .map(|rep| rep.as_array().expect("rep").iter().map(folds).collect())
+            .collect()
+    }
+
     /// DoubleML's cluster splits per repetition, for clustered fixtures.
     pub fn cluster_folds(&self) -> Option<Vec<Vec<ClusterFold>>> {
         let reps = self

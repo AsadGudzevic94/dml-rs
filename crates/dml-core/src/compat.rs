@@ -326,6 +326,36 @@ pub(crate) fn brentq(f: &mut dyn FnMut(f64) -> f64, a: f64, b: f64) -> Result<f6
     Ok(xcur)
 }
 
+/// SciPy's `root_scalar(method="newton")` with an analytic derivative:
+/// Newton–Raphson from `x0` with `newton`'s defaults (`tol = 1.48e-8`
+/// absolute on the step, at most 50 iterations). Returns the root and whether
+/// it converged (SciPy returns the last iterate either way).
+pub(crate) fn newton(
+    f: &mut dyn FnMut(f64) -> f64,
+    fprime: &mut dyn FnMut(f64) -> f64,
+    x0: f64,
+) -> (f64, bool) {
+    const TOL: f64 = 1.48e-8;
+    let mut p0 = x0;
+    for _ in 0..50 {
+        let fval = f(p0);
+        if fval == 0.0 {
+            return (p0, true);
+        }
+        let fder = fprime(p0);
+        if fder == 0.0 {
+            return (p0, false);
+        }
+        let p = p0 - fval / fder;
+        // np.isclose(p, p0, rtol=0, atol=tol)
+        if (p - p0).abs() <= TOL {
+            return (p, true);
+        }
+        p0 = p;
+    }
+    (p0, false)
+}
+
 /// SciPy's `bracket`: from `(xa, xb)`, a triple with `f(xb)` below both ends,
 /// or the last triple tried if none is valid (SciPy then raises `BracketError`).
 fn bracket(f: &mut dyn FnMut(f64) -> f64, xa: f64, xb: f64) -> ([f64; 3], [f64; 3], bool) {

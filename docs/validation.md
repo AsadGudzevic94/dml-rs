@@ -19,6 +19,7 @@ losses.
 | `plr_ols`, `plr_ridge`, `plr_lasso`, `plr_ivtype_rep3` | PLR with partialling-out and IV-type scores, several learners, repeated splits |
 | `plr_lasso_cv`, `irm_ate_lasso_cv_logit_cv` | scikit-learn's `LassoCV` and `LogisticRegressionCV` as nuisance learners |
 | `plr_boot_bayes`, `plr_boot_wild`, `plr_multi_rep3_boot` | Bootstrap methods, multiple treatments, joint intervals, Romano–Wolf |
+| `lplr_*` | Logistic partially linear regression: both scores, continuous and binary treatments, replaying DoubleML's outer and inner splits |
 | `irm_ate`, `irm_atte`, `irm_ate_normalized`, `irm_cate_gate` | IRM (ATE / ATTE, normalised IPW), BLP and GATE |
 | `apo_*`, `apos_rep2` | Average potential outcomes, causal contrasts and their sensitivity bounds |
 | `pq_*`, `lpq_t1`, `cvar_*`, `qte_rep2` | Potential, local potential and CVaR quantiles for both treatment levels, with and without normalised weights, and quantile treatment effects |
@@ -36,7 +37,7 @@ learners themselves), and the type stubs are checked against the compiled extens
 ## Statistical tests
 
 Monte-Carlo tests simulate data with a known effect and check that confidence intervals reach
-their nominal coverage: PLR, IRM (ATE and ATTE), PLIV, IIVM, DiD, sample selection (both scores), quantile and CVaR effects, joint bootstrap bands, and
+their nominal coverage: PLR, LPLR (both scores), IRM (ATE and ATTE), PLIV, IIVM, DiD, sample selection (both scores), quantile and CVaR effects, joint bootstrap bands, and
 clustered data (where iid intervals cover about 75% of the time and cluster-robust ones about 95%).
 
 ## Known differences
@@ -69,6 +70,11 @@ These are deliberate, documented, and covered by tests:
   fits on simulated data, 54 agreed to `1e-9` and the other three differed by at most 0.08
   standard errors. The Rust parity fixtures therefore use class-share propensities, which are exact
   on both sides.
+- **LPLR with `n_folds_inner` different from `n_folds`.** The outer predictions of `ml_M` and
+  `ml_a` average the inner models. DoubleML 0.11 sums the inner models' predictions and divides by
+  the number of outer folds, which scales them by `n_folds_inner / n_folds` when the two differ
+  (with 4 outer and 2 inner folds its `ml_M` predictions average half the outcome mean) and changes
+  the estimate through `r̂ = t̂ − β·â`. With the default, equal fold counts the two agree to `1e-9`.
 - **`LogisticRegressionCV`** solves each fit to the exact optimum with Newton's method;
   scikit-learn's default L-BFGS solver stops earlier, so its probabilities can differ by about
   `1e-3` at default settings.

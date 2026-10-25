@@ -20,7 +20,7 @@ import pandas as pd
 import sklearn
 from doubleml.did.datasets import make_did_CS2021, make_did_cs_CS2021, make_did_SZ2020
 from doubleml.irm.datasets import make_iivm_data, make_irm_data, make_irm_data_discrete_treatments, make_ssm_data
-from doubleml.plm.datasets import make_pliv_CHS2015, make_pliv_multiway_cluster_CKMS2021, make_plr_CCDDHNR2018
+from doubleml.plm.datasets import make_lplr_LZZ2020, make_pliv_CHS2015, make_pliv_multiway_cluster_CKMS2021, make_plr_CCDDHNR2018
 from doubleml.utils._estimation import _draw_weights
 from sklearn.dummy import DummyClassifier
 from sklearn.linear_model import Lasso, LassoCV, LinearRegression, LogisticRegression, LogisticRegressionCV, Ridge
@@ -515,6 +515,37 @@ def ssm_case(name, seed, score, normalize_ipw=False, n_rep=1):
     return fit_case(name, "ssm", data, arrays, learners, options, n_rep=n_rep, seed=seed)
 
 
+def lplr_case(name, seed, score, treatment="continuous", n_rep=1):
+    """LPLR draws its own outer and inner (double) sample splits; the fixture stores both."""
+    np.random.seed(seed)
+    x, y, d, _ = make_lplr_LZZ2020(n_obs=800, dim_x=13, alpha=0.5, return_type="array", treatment=treatment)
+    data = dml.DoubleMLData.from_arrays(x, y, d)
+    ml_m = OLS if treatment == "continuous" else LOGIT
+    learners = {"ml_M": LOGIT, "ml_t": OLS, "ml_m": ml_m}
+    np.random.seed(seed + 1)
+    model = dml.DoubleMLLPLR(data, learner(LOGIT), learner(OLS), learner(ml_m), n_folds=5, n_folds_inner=5,
+                             n_rep=n_rep, score=score)
+    model.fit(store_predictions=True)
+    expected = {
+        "coef": model.coef.tolist(), "se": model.se.tolist(), "t_stat": model.t_stat.tolist(),
+        "pval": model.pval.tolist(), "ci95": model.confint(level=0.95).to_numpy().tolist(),
+        "all_coef": model.all_coef.tolist(), "all_se": model.all_se.tolist(),
+        "predictions": {k: np.transpose(model.predictions[k], (2, 1, 0)).tolist()
+                        for k in ("ml_m", "ml_a", "ml_t", "ml_M")},
+        "nuisance_loss": {k: np.asarray(model.nuisance_loss[k]).tolist() for k in ("ml_m", "ml_a", "ml_M")},
+        "p_bonferroni": model.p_adjust("bonferroni")["pval"].tolist(),
+        "p_holm": model.p_adjust("holm")["pval"].tolist(),
+    }
+    return {
+        "name": name, "model": "lplr", "options": {"score": score}, "learners": learners,
+        "x": x.tolist(), "y": y.tolist(), "d": np.asarray(d, dtype=float).tolist(),
+        "folds": [[{"train": tr.tolist(), "test": te.tolist()} for tr, te in rep] for rep in model.smpls],
+        "inner_folds": [[[{"train": tr.tolist(), "test": te.tolist()} for tr, te in fold] for fold in rep]
+                        for rep in model.smpls_inner],
+        "expected": expected, "_model": model,
+    }
+
+
 def qte_case(name, seed, quantiles, n_rep=2):
     np.random.seed(seed)
     x, y, d = make_irm_data(n_obs=600, dim_x=5, theta=0.5, return_type="array")
@@ -612,6 +643,10 @@ CASES = [
     lambda: quantile_case("cvar_t0_q25", 65, "cvar", 0, 0.25),
     lambda: quantile_case("lpq_t1", 66, "lpq", 1, 0.5),
     lambda: qte_case("qte_rep2", 67, [0.25, 0.5, 0.75]),
+    lambda: lplr_case("lplr_nuisance_space_rep2", 75, "nuisance_space", n_rep=2),
+    lambda: lplr_case("lplr_instrument", 76, "instrument"),
+    lambda: lplr_case("lplr_binary_propensity", 77, "nuisance_space", treatment="binary"),
+    lambda: lplr_case("lplr_binary_instrument", 78, "instrument", treatment="binary"),
     lambda: ssm_case("ssm_mar_rep2", 71, "missing-at-random", n_rep=2),
     lambda: ssm_case("ssm_mar_normalized", 72, "missing-at-random", normalize_ipw=True),
     lambda: ssm_case("ssm_nonignorable", 73, "nonignorable"),

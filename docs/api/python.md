@@ -5,6 +5,7 @@ All classes are available from the top-level package, e.g. `dml_rs.PLR`.
 ## Models
 
 ::: dml_rs.PLR
+::: dml_rs.LPLR
 ::: dml_rs.IRM
 ::: dml_rs.APO
 ::: dml_rs.APOS
