@@ -181,15 +181,19 @@ impl LinearScoreModel for Pliv {
             PlivVariant::PartialX => {
                 let ml_l = self.learner(&self.ml_l, "ml_l")?;
                 let ml_m = self.learner(&self.ml_m, "ml_m")?;
-                let l_hat = cross_fit_predict(ml_l.as_ref(), x, y, folds)?;
-                let r_hat = cross_fit_predict(self.ml_r.as_ref(), x, d, folds)?;
+                let l_hat = input
+                    .predictions_or("ml_l", || cross_fit_predict(ml_l.as_ref(), x, y, folds))?;
+                let r_hat = input.predictions_or("ml_r", || {
+                    cross_fit_predict(self.ml_r.as_ref(), x, d, folds)
+                })?;
                 let u: Array1<f64> = &y - &l_hat;
                 let w: Array1<f64> = &d - &r_hat;
                 let mut predictions: Vec<(Name, Array1<f64>)> = vec![("ml_l".into(), l_hat)];
                 let mut targets = vec![NuisanceTarget::regression("ml_l", y.to_owned())];
                 if z.ncols() == 1 {
                     let z = z.column(0);
-                    let m_hat = cross_fit_predict(ml_m.as_ref(), x, z, folds)?;
+                    let m_hat = input
+                        .predictions_or("ml_m", || cross_fit_predict(ml_m.as_ref(), x, z, folds))?;
                     let v: Array1<f64> = &z - &m_hat;
                     predictions.push(("ml_m".into(), m_hat));
                     targets.push(NuisanceTarget::regression("ml_m", z.to_owned()));
@@ -205,7 +209,9 @@ impl LinearScoreModel for Pliv {
                                 Some(g) => g.fresh(),
                                 None => ml_l.fresh(),
                             };
-                            let g_hat = cross_fit_predict(ml_g.as_ref(), x, target.view(), folds)?;
+                            let g_hat = input.predictions_or("ml_g", || {
+                                cross_fit_predict(ml_g.as_ref(), x, target.view(), folds)
+                            })?;
                             let score = LinearScore::new(-(&v * &d), &v * &(&y - &g_hat))?;
                             predictions.push(("ml_g".into(), g_hat));
                             targets.push(NuisanceTarget::regression("ml_g", target));
@@ -220,9 +226,11 @@ impl LinearScoreModel for Pliv {
                 // treatment residual on them (OLS with intercept).
                 let mut v = Array2::zeros(z.dim());
                 for (j, col) in z.columns().into_iter().enumerate() {
-                    let m_hat = cross_fit_predict(ml_m.fresh().as_ref(), x, col, folds)?;
-                    v.column_mut(j).assign(&(&col - &m_hat));
                     let name = format!("ml_m_z{}", j + 1);
+                    let m_hat = input.predictions_or(&name, || {
+                        cross_fit_predict(ml_m.fresh().as_ref(), x, col, folds)
+                    })?;
+                    v.column_mut(j).assign(&(&col - &m_hat));
                     targets.push(NuisanceTarget::regression(name.clone(), col.to_owned()));
                     predictions.push((name.into(), m_hat));
                 }

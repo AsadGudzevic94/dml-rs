@@ -234,16 +234,19 @@ impl LinearScoreModel for Irm {
 
     fn estimate_score(&self, input: &ScoreInput<'_>, folds: &[Fold]) -> Result<ScoreEstimate> {
         let ScoreInput { y, d, x, rep, .. } = *input;
-        let (g0, g1, m) = irm_nuisances(
-            self.ml_g.as_ref(),
-            self.ml_m.as_ref(),
-            x,
-            y,
-            d,
-            folds,
-            self.clipping_threshold,
-            self.calibration,
-        )?;
+        let treated: Vec<bool> = d.iter().map(|&v| v == 1.0).collect();
+        let control: Vec<bool> = treated.iter().map(|t| !t).collect();
+        let ml_g = self.ml_g.as_ref();
+        let g0 = input.predictions_or("ml_g0", || {
+            cross_fit_predict_subset(ml_g, x, y, folds, &control)
+        })?;
+        let g1 = input.predictions_or("ml_g1", || {
+            cross_fit_predict_subset(ml_g, x, y, folds, &treated)
+        })?;
+        let m_raw = input.predictions_or("ml_m", || {
+            cross_fit_predict_proba(self.ml_m.as_ref(), x, d, folds)
+        })?;
+        let m = adjust_propensity(m_raw, d, folds, self.clipping_threshold, self.calibration)?;
         let d = d.to_owned();
         let m_adj = if self.normalize_ipw {
             normalize_propensity(&m, &d)

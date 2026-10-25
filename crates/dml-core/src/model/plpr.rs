@@ -54,6 +54,7 @@ pub struct StaticPanel {
     id: Array1<i64>,
     t: Array1<f64>,
     treatment_names: Vec<String>,
+    external: Option<super::ExternalPredictions>,
 }
 
 impl StaticPanel {
@@ -109,6 +110,7 @@ impl StaticPanel {
             x,
             id,
             t,
+            external: None,
         })
     }
 
@@ -122,6 +124,13 @@ impl StaticPanel {
         }
         self.treatment_names = names;
         Ok(self)
+    }
+
+    /// External nuisance predictions for the rows of the transformed panel
+    /// ([`Plpr::transform`]), as DoubleML.
+    pub fn with_external_predictions(mut self, external: super::ExternalPredictions) -> Self {
+        self.external = Some(external);
+        self
     }
 
     pub fn n_obs(&self) -> usize {
@@ -333,9 +342,12 @@ fn transform(panel: &StaticPanel, approach: PanelApproach) -> Result<(DmlData, V
             "no rows left after first-differencing (units need consecutive periods)".into(),
         ));
     }
-    let data = DmlData::with_treatments(y, d, x)?
+    let mut data = DmlData::with_treatments(y, d, x)?
         .with_treatment_names(names)?
         .with_clusters(Array1::from(ids.clone()))?;
+    if let Some(e) = &panel.external {
+        data = data.with_external_predictions(e.clone());
+    }
     Ok((data, ids))
 }
 
@@ -379,7 +391,8 @@ impl LinearScoreModel for PlprModel<'_> {
     fn estimate_score(&self, input: &ScoreInput<'_>, folds: &[Fold]) -> Result<ScoreEstimate> {
         let ScoreInput { y, d, x, .. } = *input;
         let p = self.plpr;
-        let l_hat = cross_fit_predict(p.ml_l.as_ref(), x, y, folds)?;
+        let l_hat =
+            input.predictions_or("ml_l", || cross_fit_predict(p.ml_l.as_ref(), x, y, folds))?;
         let d_mean = unit_means(d, self.ids);
         let x_m = match p.approach {
             PanelApproach::CreNormal => {
@@ -387,18 +400,22 @@ impl LinearScoreModel for PlprModel<'_> {
             }
             _ => x.to_owned(),
         };
-        let mut m_hat = match &p.ml_m {
-            TreatmentLearner::Regressor(r) => cross_fit_predict(r.as_ref(), x_m.view(), d, folds)?,
+        let external_m = input
+            .external_ref()
+            .is_some_and(|e| e.preds.contains(e.treatment, "ml_m"));
+        let mut m_hat = input.predictions_or("ml_m", || match &p.ml_m {
+            TreatmentLearner::Regressor(r) => cross_fit_predict(r.as_ref(), x_m.view(), d, folds),
             TreatmentLearner::Classifier(c) => {
                 if !is_binary(d) {
                     return Err(DmlError::InvalidArgument(
                         "a classifier for ml_m needs a binary treatment".into(),
                     ));
                 }
-                cross_fit_predict_proba(c.as_ref(), x_m.view(), d, folds)?
+                cross_fit_predict_proba(c.as_ref(), x_m.view(), d, folds)
             }
-        };
-        if p.approach == PanelApproach::CreGeneral {
+        })?;
+        // External predictions are used as given (DoubleML).
+        if p.approach == PanelApproach::CreGeneral && !external_m {
             // Shift the predictions so their unit means match the treatment's.
             let m_mean = unit_means(m_hat.view(), self.ids);
             m_hat = &m_hat + &d_mean - &m_mean;
@@ -439,7 +456,8 @@ impl LinearScoreModel for PlprModel<'_> {
                         fresh_l.as_ref()
                     }
                 };
-                let g_hat = cross_fit_predict(ml_g, x, target.view(), folds)?;
+                let g_hat = input
+                    .predictions_or("ml_g", || cross_fit_predict(ml_g, x, target.view(), folds))?;
                 let resid: Array1<f64> = &y - &g_hat;
                 Ok(ScoreEstimate::new(
                     LinearScore::new(-(&v * &d), &v * &resid)?,

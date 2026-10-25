@@ -175,10 +175,16 @@ impl LinearScoreModel for Apo {
 
         // g(d, X) on the units at the level; the model for the other levels
         // also sees D (it only enters the sensitivity analysis).
-        let g1 = cross_fit_predict_subset(self.ml_g.as_ref(), x, y, folds, &at_level)?;
+        let g1 = input.predictions_or("ml_g_d_lvl1", || {
+            cross_fit_predict_subset(self.ml_g.as_ref(), x, y, folds, &at_level)
+        })?;
         let dx: Array2<f64> = concatenate![Axis(1), d.insert_axis(Axis(1)), x];
-        let g0 = cross_fit_predict_subset(self.ml_g.as_ref(), dx.view(), y, folds, &others)?;
-        let m_raw = cross_fit_predict_proba(self.ml_m.as_ref(), x, treated.view(), folds)?;
+        let g0 = input.predictions_or("ml_g_d_lvl0", || {
+            cross_fit_predict_subset(self.ml_g.as_ref(), dx.view(), y, folds, &others)
+        })?;
+        let m_raw = input.predictions_or("ml_m", || {
+            cross_fit_predict_proba(self.ml_m.as_ref(), x, treated.view(), folds)
+        })?;
         let m = adjust_propensity(
             m_raw,
             treated.view(),

@@ -82,8 +82,12 @@ impl LinearScoreModel for Plr {
 
     fn estimate_score(&self, input: &ScoreInput<'_>, folds: &[Fold]) -> Result<ScoreEstimate> {
         let ScoreInput { y, d, x, .. } = *input;
-        let l_hat = cross_fit_predict(self.ml_l.as_ref(), x, y, folds)?;
-        let m_hat = cross_fit_predict(self.ml_m.as_ref(), x, d, folds)?;
+        let l_hat = input.predictions_or("ml_l", || {
+            cross_fit_predict(self.ml_l.as_ref(), x, y, folds)
+        })?;
+        let m_hat = input.predictions_or("ml_m", || {
+            cross_fit_predict(self.ml_m.as_ref(), x, d, folds)
+        })?;
         let v: Array1<f64> = &d - &m_hat;
         if v.dot(&v) <= f64::EPSILON * d.dot(&d).max(1.0) {
             return Err(DmlError::InvalidArgument(
@@ -129,7 +133,8 @@ impl LinearScoreModel for Plr {
                         fresh_l.as_ref()
                     }
                 };
-                let g_hat = cross_fit_predict(ml_g, x, target.view(), folds)?;
+                let g_hat = input
+                    .predictions_or("ml_g", || cross_fit_predict(ml_g, x, target.view(), folds))?;
                 let resid_g: Array1<f64> = &y - &g_hat;
                 // Outcome residual y − ĝ − θd.
                 let parts = SensitivityParts {

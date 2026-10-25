@@ -467,6 +467,7 @@ def fit_plr(
     splits: Optional[_Splits] = None,
     treatment_names: Optional[list[str]] = None,
     cluster: Optional[NDArray[np.int64]] = None,
+    external_predictions: Optional[Sequence[tuple[int, str, NDArray[np.float64]]]] = None,
 ) -> DmlResult: ...
 def fit_irm(
     y: NDArray[np.float64],
@@ -486,6 +487,7 @@ def fit_irm(
     cluster: Optional[NDArray[np.int64]] = None,
     weights: Optional[NDArray[np.float64]] = None,
     weights_bar: Optional[NDArray[np.float64]] = None,
+    external_predictions: Optional[Sequence[tuple[int, str, NDArray[np.float64]]]] = None,
 ) -> DmlResult: ...
 def fit_pliv(
     y: NDArray[np.float64],
@@ -504,6 +506,7 @@ def fit_pliv(
     splits: Optional[_Splits] = None,
     treatment_names: Optional[list[str]] = None,
     cluster: Optional[NDArray[np.int64]] = None,
+    external_predictions: Optional[Sequence[tuple[int, str, NDArray[np.float64]]]] = None,
 ) -> DmlResult: ...
 def fit_iivm(
     y: NDArray[np.float64],
@@ -524,6 +527,7 @@ def fit_iivm(
     splits: Optional[_Splits] = None,
     treatment_names: Optional[list[str]] = None,
     cluster: Optional[NDArray[np.int64]] = None,
+    external_predictions: Optional[Sequence[tuple[int, str, NDArray[np.float64]]]] = None,
 ) -> DmlResult: ...
 def fit_apo(
     y: NDArray[np.float64],
@@ -543,6 +547,7 @@ def fit_apo(
     cluster: Optional[NDArray[np.int64]] = None,
     weights: Optional[NDArray[np.float64]] = None,
     weights_bar: Optional[NDArray[np.float64]] = None,
+    external_predictions: Optional[Sequence[tuple[int, str, NDArray[np.float64]]]] = None,
 ) -> DmlResult: ...
 def fit_apos(
     y: NDArray[np.float64],
@@ -579,6 +584,7 @@ def fit_plpr(
     seed: int = 0,
     splits: Optional[_Splits] = None,
     treatment_names: Optional[list[str]] = None,
+    external_predictions: Optional[Sequence[tuple[int, str, NDArray[np.float64]]]] = None,
 ) -> DmlResult: ...
 def fit_lplr(
     y: NDArray[np.float64],
@@ -688,6 +694,7 @@ def fit_did(
     splits: Optional[_Splits] = None,
     treatment_names: Optional[list[str]] = None,
     cluster: Optional[NDArray[np.int64]] = None,
+    external_predictions: Optional[Sequence[tuple[int, str, NDArray[np.float64]]]] = None,
 ) -> DmlResult: ...
 def fit_staggered_did(
     y: NDArray[np.float64],

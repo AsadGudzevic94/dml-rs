@@ -19,6 +19,12 @@ All notable changes to this project are documented here. The format follows
   `IsotonicRegression`, a port of scikit-learn's. Six parity fixtures; the Python tests match
   DoubleML to `1e-9`.
 
+- External nuisance predictions, as DoubleML's `external_predictions`
+  (`DmlData::with_external_predictions(ExternalPredictions)`, `StaticPanel::with_external_predictions`;
+  Python `fit(..., external_predictions=...)`) for PLR, IRM, APO, PLIV, IIVM, DID, DIDCS and PLPR:
+  supplied learners are not fitted and report no loss. Models read them through
+  `ScoreInput::predictions_or`; `ScoreInput` gains `treatment` and `external`.
+
 ### Fixed
 - Sensitivity analysis: when `ν²` is not positive in some repetition of an estimate, every
   repetition now falls back to the non-orthogonal `mean(α²)`, as DoubleML (previously only the

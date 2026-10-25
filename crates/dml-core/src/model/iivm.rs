@@ -145,17 +145,26 @@ impl LinearScoreModel for Iivm {
         let z0: Vec<bool> = z1.iter().map(|b| !b).collect();
         let n = y.len();
 
-        let g0 = cross_fit_predict_subset(self.ml_g.as_ref(), x, y, folds, &z0)?;
-        let g1 = cross_fit_predict_subset(self.ml_g.as_ref(), x, y, folds, &z1)?;
-        let m_raw = cross_fit_predict_proba(self.ml_m.as_ref(), x, z, folds)?;
+        let ml_g = self.ml_g.as_ref();
+        let g0 =
+            input.predictions_or("ml_g0", || cross_fit_predict_subset(ml_g, x, y, folds, &z0))?;
+        let g1 =
+            input.predictions_or("ml_g1", || cross_fit_predict_subset(ml_g, x, y, folds, &z1))?;
+        let m_raw = input.predictions_or("ml_m", || {
+            cross_fit_predict_proba(self.ml_m.as_ref(), x, z, folds)
+        })?;
         let m = adjust_propensity(m_raw, z, folds, self.clipping_threshold, self.calibration)?;
         let r0 = if self.always_takers {
-            cross_fit_predict_proba_subset(self.ml_r.as_ref(), x, d, folds, &z0)?
+            input.predictions_or("ml_r0", || {
+                cross_fit_predict_proba_subset(self.ml_r.as_ref(), x, d, folds, &z0)
+            })?
         } else {
             Array1::zeros(n)
         };
         let r1 = if self.never_takers {
-            cross_fit_predict_proba_subset(self.ml_r.as_ref(), x, d, folds, &z1)?
+            input.predictions_or("ml_r1", || {
+                cross_fit_predict_proba_subset(self.ml_r.as_ref(), x, d, folds, &z1)
+            })?
         } else {
             Array1::ones(n)
         };

@@ -12,7 +12,10 @@
 
 use ndarray::{Array1, ArrayView1, ArrayView2};
 
-use super::{dml_model_api, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput};
+use super::{
+    dml_model_api, external_or, ExternalRef, LinearScoreModel, NuisanceTarget, ScoreEstimate,
+    ScoreInput,
+};
 use crate::crossfit::{cross_fit_predict_proba, cross_fit_predict_subset, Fold, SampleSplitting};
 use crate::data::DmlData;
 use crate::error::{DmlError, Result};
@@ -159,6 +162,7 @@ impl LinearScoreModel for Did {
                 in_sample_normalization: self.in_sample_normalization,
                 clipping_threshold: self.clipping_threshold,
                 calibration: self.calibration,
+                external: input.external_ref(),
             },
             x,
             y,
@@ -178,6 +182,8 @@ pub(crate) struct DidSettings<'a> {
     pub in_sample_normalization: bool,
     pub clipping_threshold: f64,
     pub calibration: Calibration,
+    /// User-supplied nuisance predictions, if any.
+    pub external: Option<ExternalRef<'a>>,
 }
 
 /// Panel DID score elements for outcome changes `y`, group indicator `d`.
@@ -190,8 +196,14 @@ pub(crate) fn panel_did_score(
 ) -> Result<ScoreEstimate> {
     let treated: Vec<bool> = d.iter().map(|&v| v == 1.0).collect();
     let control: Vec<bool> = treated.iter().map(|b| !b).collect();
-    let g0 = cross_fit_predict_subset(settings.ml_g, x, y, folds, &control)?;
-    let g1 = cross_fit_predict_subset(settings.ml_g, x, y, folds, &treated)?;
+    let n = y.len();
+    let ext = settings.external;
+    let g0 = external_or(ext, n, "ml_g0", || {
+        cross_fit_predict_subset(settings.ml_g, x, y, folds, &control)
+    })?;
+    let g1 = external_or(ext, n, "ml_g1", || {
+        cross_fit_predict_subset(settings.ml_g, x, y, folds, &treated)
+    })?;
     let d = d.to_owned();
     let n = d.len();
     let p = mean(&d);
@@ -203,7 +215,9 @@ pub(crate) fn panel_did_score(
             let ml_m = settings.ml_m.ok_or_else(|| {
                 DmlError::InvalidArgument("the observational DID score needs ml_m".into())
             })?;
-            let m_raw = cross_fit_predict_proba(ml_m, x, d.view(), folds)?;
+            let m_raw = external_or(settings.external, d.len(), "ml_m", || {
+                cross_fit_predict_proba(ml_m, x, d.view(), folds)
+            })?;
             let m = adjust_propensity(
                 m_raw,
                 d.view(),
@@ -365,6 +379,7 @@ impl LinearScoreModel for DidCs {
                 in_sample_normalization: self.in_sample_normalization,
                 clipping_threshold: self.clipping_threshold,
                 calibration: self.calibration,
+                external: input.external_ref(),
             },
             x,
             y,
@@ -388,12 +403,20 @@ pub(crate) fn cs_did_score(
     let d = d.to_owned();
     let (d1t1, d1t0) = (cell(&d, t, 1.0, 1.0), cell(&d, t, 1.0, 0.0));
     let (d0t1, d0t0) = (cell(&d, t, 0.0, 1.0), cell(&d, t, 0.0, 0.0));
-    let fit_cell = |c: &Array1<f64>| -> Result<Array1<f64>> {
+    let fit_cell = |c: &Array1<f64>, name: &str| -> Result<Array1<f64>> {
         let keep: Vec<bool> = c.iter().map(|&v| v == 1.0).collect();
-        cross_fit_predict_subset(settings.ml_g, x, y, folds, &keep)
+        external_or(settings.external, y.len(), name, || {
+            cross_fit_predict_subset(settings.ml_g, x, y, folds, &keep)
+        })
     };
-    let (g00, g01) = (fit_cell(&d0t0)?, fit_cell(&d0t1)?);
-    let (g10, g11) = (fit_cell(&d1t0)?, fit_cell(&d1t1)?);
+    let (g00, g01) = (
+        fit_cell(&d0t0, "ml_g_d0_t0")?,
+        fit_cell(&d0t1, "ml_g_d0_t1")?,
+    );
+    let (g10, g11) = (
+        fit_cell(&d1t0, "ml_g_d1_t0")?,
+        fit_cell(&d1t1, "ml_g_d1_t1")?,
+    );
     let n = d.len();
     let p = mean(&d);
     let lambda = t.mean().expect("n > 0");
@@ -403,7 +426,9 @@ pub(crate) fn cs_did_score(
             let ml_m = settings.ml_m.ok_or_else(|| {
                 DmlError::InvalidArgument("the observational DID score needs ml_m".into())
             })?;
-            let m_raw = cross_fit_predict_proba(ml_m, x, d.view(), folds)?;
+            let m_raw = external_or(settings.external, d.len(), "ml_m", || {
+                cross_fit_predict_proba(ml_m, x, d.view(), folds)
+            })?;
             Some(adjust_propensity(
                 m_raw,
                 d.view(),

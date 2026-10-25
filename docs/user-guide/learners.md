@@ -71,6 +71,28 @@ model.evaluate_learners(metric=mae)
 
 See the [clustered data and diagnostics example](../examples/05_clusters_and_diagnostics.ipynb).
 
+## External predictions
+
+Nuisance predictions computed elsewhere (a model trained on another system, or an expensive model
+fitted once and reused) can replace any learner, as DoubleML's `external_predictions`. They must
+be out-of-fold predictions for the same sample splits, one column per repetition. The learners
+they replace are not fitted and have no out-of-sample loss. Supported by PLR, IRM, APO, PLIV,
+IIVM, DID, DIDCS and PLPR, with DoubleML's learner names (`ml_l`, `ml_m`, `ml_g0`, ...).
+
+=== "Python"
+
+    ```python
+    # {treatment: {learner: array (n_obs, n_rep)}}, or {learner: array} for one treatment
+    model = dml_rs.PLR(ml_l, ml_m).fit(X, y, d, folds=folds, external_predictions={"ml_m": m_hat})
+    ```
+
+=== "Rust"
+
+    ```rust
+    let external = ExternalPredictions::new().with(0, "ml_m", m_hat); // (n_obs, n_rep)
+    let fit = Plr::new(ml_l, ml_m).fit_with_folds(&data.with_external_predictions(external), &folds)?;
+    ```
+
 ## Your own learner in Rust
 
 Implement the `Regressor` (or `Classifier`) trait: `fit`, `predict` (or `predict_proba`) and

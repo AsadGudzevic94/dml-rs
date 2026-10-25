@@ -43,6 +43,25 @@ def _weights_args(weights: Any) -> dict[str, Any]:
     return {"weights": _as_1d(weights, "weights"), "weights_bar": None}
 
 
+def _external_args(external: Any, d: Any) -> Optional[list[tuple[int, str, Any]]]:
+    """DoubleML's ``external_predictions``: ``{treatment: {learner: array (n_obs, n_rep)}}``, keyed by
+    treatment name or index (a single treatment may also be given as ``{learner: array}``)."""
+    if external is None:
+        return None
+    names = _treatment_names(d)
+    n_treat = 1 if np.ndim(np.asarray(d)) == 1 else np.asarray(d).shape[1]
+    names = names if names is not None else (["d"] if n_treat == 1 else [f"d{j}" for j in range(n_treat)])
+    if all(not isinstance(v, dict) for v in external.values()):
+        external = {0: external}
+    out = []
+    for key, learners in external.items():
+        j = key if isinstance(key, (int, np.integer)) else names.index(str(key))
+        for name, preds in learners.items():
+            arr = np.ascontiguousarray(preds, dtype=np.float64)
+            out.append((int(j), str(name), arr.reshape(-1, 1) if arr.ndim == 1 else arr))
+    return out
+
+
 class _HeterogeneityMixin:
     """``cate`` and ``gate`` (best linear predictor inference on effect heterogeneity)."""
 
@@ -316,6 +335,7 @@ class PLR(_HeterogeneityMixin, _DMLEstimator):
         d: ArrayLike,
         folds: Optional[Folds] = None,
         cluster: Optional[ArrayLike] = None,
+        external_predictions: Optional[dict[Any, Any]] = None,
     ) -> Self:
         """Fit on covariates ``X``, outcome ``y`` and treatment(s) ``d``.
 
@@ -332,6 +352,7 @@ class PLR(_HeterogeneityMixin, _DMLEstimator):
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), self.ml_l, self.ml_m, self.ml_g,
             score=self.score, n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
+            external_predictions=_external_args(external_predictions, d),
         )
         return self._store(result)
 
@@ -382,6 +403,7 @@ class IRM(_HeterogeneityMixin, _DMLEstimator):
         d: ArrayLike,
         folds: Optional[Folds] = None,
         cluster: Optional[ArrayLike] = None,
+        external_predictions: Optional[dict[Any, Any]] = None,
     ) -> Self:
         self._remember(X, y, d, folds=folds, cluster=cluster)
         result = _dml_rs.fit_irm(
@@ -390,6 +412,7 @@ class IRM(_HeterogeneityMixin, _DMLEstimator):
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
             **_weights_args(self.weights),
+            external_predictions=_external_args(external_predictions, d),
         )
         return self._store(result)
 
@@ -450,6 +473,7 @@ class IIVM(_DMLEstimator):
         z: ArrayLike,
         folds: Optional[Folds] = None,
         cluster: Optional[ArrayLike] = None,
+        external_predictions: Optional[dict[Any, Any]] = None,
     ) -> Self:
         subgroups = {"always_takers": True, "never_takers": True, **(self.subgroups or {})}
         result = _dml_rs.fit_iivm(
@@ -458,6 +482,7 @@ class IIVM(_DMLEstimator):
             clipping_threshold=self.clipping_threshold, calibration=self.calibration, normalize_ipw=self.normalize_ipw,
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
+            external_predictions=_external_args(external_predictions, d),
         )
         return self._store(result)
 
@@ -485,7 +510,7 @@ class _DIDBase(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
-    def _fit(self, X, y, d, t, folds, cluster):
+    def _fit(self, X, y, d, t, folds, cluster, external_predictions=None):
         if t is None:
             self._remember(X, y, d, folds=folds, cluster=cluster)
         else:
@@ -496,6 +521,7 @@ class _DIDBase(_DMLEstimator):
             in_sample_normalization=self.in_sample_normalization, clipping_threshold=self.clipping_threshold, calibration=self.calibration,
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
+            external_predictions=_external_args(external_predictions, d),
         )
         return self._store(result)
 
@@ -520,8 +546,9 @@ class DID(_DIDBase):
         d: ArrayLike,
         folds: Optional[Folds] = None,
         cluster: Optional[ArrayLike] = None,
+        external_predictions: Optional[dict[Any, Any]] = None,
     ) -> Self:
-        return self._fit(X, y, d, None, folds, cluster)
+        return self._fit(X, y, d, None, folds, cluster, external_predictions)
 
 
 class DIDCS(_DIDBase):
@@ -539,8 +566,9 @@ class DIDCS(_DIDBase):
         t: ArrayLike,
         folds: Optional[Folds] = None,
         cluster: Optional[ArrayLike] = None,
+        external_predictions: Optional[dict[Any, Any]] = None,
     ) -> Self:
-        return self._fit(X, y, d, t, folds, cluster)
+        return self._fit(X, y, d, t, folds, cluster, external_predictions)
 
 
 class DIDAggregation:
@@ -719,12 +747,14 @@ class PLIV(_DMLEstimator):
         z: ArrayLike,
         folds: Optional[Folds] = None,
         cluster: Optional[ArrayLike] = None,
+        external_predictions: Optional[dict[Any, Any]] = None,
     ) -> Self:
         result = _dml_rs.fit_pliv(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), _as_2d(z, "z"), self.ml_l, self.ml_m, self.ml_r,
             ml_g=self.ml_g, score=self.score, partial=self.partial,
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
+            external_predictions=_external_args(external_predictions, d),
         )
         return self._store(result)
 
@@ -774,6 +804,7 @@ class APO(_DMLEstimator):
         d: ArrayLike,
         folds: Optional[Folds] = None,
         cluster: Optional[ArrayLike] = None,
+        external_predictions: Optional[dict[Any, Any]] = None,
     ) -> Self:
         self._remember(X, y, d, folds=folds, cluster=cluster)
         result = _dml_rs.fit_apo(
@@ -782,6 +813,7 @@ class APO(_DMLEstimator):
             normalize_ipw=self.normalize_ipw, n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
             **_weights_args(self.weights),
+            external_predictions=_external_args(external_predictions, d),
         )
         return self._store(result)
 
@@ -932,6 +964,7 @@ class PLPR(_DMLEstimator):
         id: ArrayLike,
         t: ArrayLike,
         folds: Optional[Folds] = None,
+        external_predictions: Optional[dict[Any, Any]] = None,
     ) -> Self:
         """``folds`` (optional) index the rows of the transformed panel, sorted by unit and period,
         as DoubleML's ``smpls``; each test set should hold whole units."""
@@ -940,6 +973,7 @@ class PLPR(_DMLEstimator):
             _codes(t, "t").astype(np.float64), self.ml_l, self.ml_m, _is_classifier(self.ml_m), self.ml_g,
             score=self.score, approach=self.approach, n_folds=self.n_folds, n_rep=self.n_rep,
             seed=self.random_state, splits=_splits(folds), treatment_names=_treatment_names(d),
+            external_predictions=_external_args(external_predictions, d),
         )
         return self._store(result)
 

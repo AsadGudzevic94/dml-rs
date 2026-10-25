@@ -3,9 +3,10 @@
 //! `fit_*` functions below.
 
 use dml_core::{
-    Apo, Apos, AposFit, BootstrapMethod, Cvar, Did, DidCs, DidScore, DmlData, DmlFit, Fold, Iivm,
-    Irm, IrmScore, Lplr, LplrScore, Lpq, PAdjust, PanelApproach, Pliv, PlivScore, PlivVariant,
-    Plpr, Plr, PlrScore, Pq, Qte, QteFit, Ssm, SsmScore, StaticPanel, TreatmentLearner,
+    Apo, Apos, AposFit, BootstrapMethod, Cvar, Did, DidCs, DidScore, DmlData, DmlFit,
+    ExternalPredictions, Fold, Iivm, Irm, IrmScore, Lplr, LplrScore, Lpq, PAdjust, PanelApproach,
+    Pliv, PlivScore, PlivVariant, Plpr, Plr, PlrScore, Pq, Qte, QteFit, Ssm, SsmScore, StaticPanel,
+    TreatmentLearner,
 };
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -83,6 +84,27 @@ fn build_data(
         .map_err(to_py_err)?;
     }
     Ok(data)
+}
+
+/// External nuisance predictions from Python: `(treatment index, learner
+/// name, predictions of shape (n_obs, n_rep))`.
+pub(crate) type PyExternal<'py> = Vec<(usize, String, PyReadonlyArray2<'py, f64>)>;
+
+fn external_from(external: Option<PyExternal<'_>>) -> Option<ExternalPredictions> {
+    external.map(|items| {
+        items
+            .into_iter()
+            .fold(ExternalPredictions::new(), |e, (j, name, p)| {
+                e.with(j, name, p.as_array().to_owned())
+            })
+    })
+}
+
+fn attach_external(data: DmlData, external: Option<PyExternal<'_>>) -> DmlData {
+    match external_from(external) {
+        Some(e) => data.with_external_predictions(e),
+        None => data,
+    }
 }
 
 /// A fitted DML model (returned by the `fit_*` functions).
@@ -501,7 +523,7 @@ macro_rules! run_model {
 
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_l, ml_m, ml_g = None, score = "partialling out",
-                    n_folds = 5, n_rep = 1, seed = 0, splits = None, treatment_names = None, cluster = None))]
+                    n_folds = 5, n_rep = 1, seed = 0, splits = None, treatment_names = None, cluster = None, external_predictions = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_plr(
     py: Python<'_>,
@@ -518,6 +540,7 @@ fn fit_plr(
     splits: Option<PySplits>,
     treatment_names: Option<Vec<String>>,
     cluster: Option<PyReadonlyArray2<'_, i64>>,
+    external_predictions: Option<PyExternal<'_>>,
 ) -> PyResult<PyDmlResult> {
     let score = match score {
         "partialling out" => PlrScore::PartiallingOut,
@@ -529,6 +552,7 @@ fn fit_plr(
         }
     };
     let data = build_data(y, d, x, None, None, treatment_names, cluster)?;
+    let data = attach_external(data, external_predictions);
     let mut model = Plr::from_boxed(to_regressor(ml_l)?, to_regressor(ml_m)?)
         .score(score)
         .n_folds(n_folds)
@@ -543,7 +567,7 @@ fn fit_plr(
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g, ml_m, score = "ATE", clipping_threshold = 1e-2, calibration = None,
                     normalize_ipw = false, n_folds = 5, n_rep = 1, seed = 0, splits = None,
-                    treatment_names = None, cluster = None, weights = None, weights_bar = None))]
+                    treatment_names = None, cluster = None, weights = None, weights_bar = None, external_predictions = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_irm(
     py: Python<'_>,
@@ -564,6 +588,7 @@ fn fit_irm(
     cluster: Option<PyReadonlyArray2<'_, i64>>,
     weights: Option<PyReadonlyArray1<'_, f64>>,
     weights_bar: Option<PyReadonlyArray2<'_, f64>>,
+    external_predictions: Option<PyExternal<'_>>,
 ) -> PyResult<PyDmlResult> {
     let score = match score {
         "ATE" => IrmScore::Ate,
@@ -575,6 +600,7 @@ fn fit_irm(
         }
     };
     let data = build_data(y, d, x, None, None, treatment_names, cluster)?;
+    let data = attach_external(data, external_predictions);
     let model = Irm::from_boxed(to_regressor(ml_g)?, to_classifier(ml_m)?)
         .score(score)
         .clipping_threshold(clipping_threshold)
@@ -603,7 +629,7 @@ fn required<'a, 'py>(
 #[pyfunction]
 #[pyo3(signature = (y, d, x, z, ml_l, ml_m, ml_r, ml_g = None, score = "partialling out",
                     partial = "X", n_folds = 5, n_rep = 1, seed = 0, splits = None,
-                    treatment_names = None, cluster = None))]
+                    treatment_names = None, cluster = None, external_predictions = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_pliv(
     py: Python<'_>,
@@ -623,6 +649,7 @@ fn fit_pliv(
     splits: Option<PySplits>,
     treatment_names: Option<Vec<String>>,
     cluster: Option<PyReadonlyArray2<'_, i64>>,
+    external_predictions: Option<PyExternal<'_>>,
 ) -> PyResult<PyDmlResult> {
     let score = match score {
         "partialling out" => PlivScore::PartiallingOut,
@@ -636,6 +663,7 @@ fn fit_pliv(
     let data = build_data(y, d, x, None, None, treatment_names, cluster)?
         .with_instruments(z.as_array().to_owned())
         .map_err(to_py_err)?;
+    let data = attach_external(data, external_predictions);
     let mut model = match partial {
         "X" | "XZ" => Pliv::from_boxed(
             to_regressor(required(ml_l, partial, "ml_l")?)?,
@@ -667,7 +695,7 @@ fn fit_pliv(
 #[pyfunction]
 #[pyo3(signature = (y, d, x, z, ml_g, ml_m, ml_r, always_takers = true, never_takers = true,
                     clipping_threshold = 1e-2, calibration = None, normalize_ipw = false, n_folds = 5, n_rep = 1,
-                    seed = 0, splits = None, treatment_names = None, cluster = None))]
+                    seed = 0, splits = None, treatment_names = None, cluster = None, external_predictions = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_iivm(
     py: Python<'_>,
@@ -689,8 +717,10 @@ fn fit_iivm(
     splits: Option<PySplits>,
     treatment_names: Option<Vec<String>>,
     cluster: Option<PyReadonlyArray2<'_, i64>>,
+    external_predictions: Option<PyExternal<'_>>,
 ) -> PyResult<PyDmlResult> {
     let data = build_data(y, d, x, Some(z), None, treatment_names, cluster)?;
+    let data = attach_external(data, external_predictions);
     let model = Iivm::from_boxed(
         to_regressor(ml_g)?,
         to_classifier(ml_m)?,
@@ -710,7 +740,7 @@ fn fit_iivm(
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g, ml_m, treatment_level, clipping_threshold = 1e-2, calibration = None,
                     normalize_ipw = false, n_folds = 5, n_rep = 1, seed = 0, splits = None,
-                    treatment_names = None, cluster = None, weights = None, weights_bar = None))]
+                    treatment_names = None, cluster = None, weights = None, weights_bar = None, external_predictions = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_apo(
     py: Python<'_>,
@@ -731,8 +761,10 @@ fn fit_apo(
     cluster: Option<PyReadonlyArray2<'_, i64>>,
     weights: Option<PyReadonlyArray1<'_, f64>>,
     weights_bar: Option<PyReadonlyArray2<'_, f64>>,
+    external_predictions: Option<PyExternal<'_>>,
 ) -> PyResult<PyDmlResult> {
     let data = build_data(y, d, x, None, None, treatment_names, cluster)?;
+    let data = attach_external(data, external_predictions);
     let model = Apo::from_boxed(to_regressor(ml_g)?, to_classifier(ml_m)?, treatment_level)
         .clipping_threshold(clipping_threshold)
         .calibration(parse_calibration(calibration)?)
@@ -1015,7 +1047,7 @@ fn fit_rdflex(
 #[pyfunction]
 #[pyo3(signature = (y, d, x, id, t, ml_l, ml_m, m_classifier = false, ml_g = None,
                     score = "partialling out", approach = "fd_exact", n_folds = 5, n_rep = 1, seed = 0,
-                    splits = None, treatment_names = None))]
+                    splits = None, treatment_names = None, external_predictions = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_plpr(
     py: Python<'_>,
@@ -1035,6 +1067,7 @@ fn fit_plpr(
     seed: u64,
     splits: Option<PySplits>,
     treatment_names: Option<Vec<String>>,
+    external_predictions: Option<PyExternal<'_>>,
 ) -> PyResult<PyDmlResult> {
     let score = match score {
         "partialling out" => PlrScore::PartiallingOut,
@@ -1066,6 +1099,9 @@ fn fit_plpr(
     .map_err(to_py_err)?;
     if let Some(names) = treatment_names {
         panel = panel.with_treatment_names(names).map_err(to_py_err)?;
+    }
+    if let Some(e) = external_from(external_predictions) {
+        panel = panel.with_external_predictions(e);
     }
     let mut model = Plpr::from_boxed(
         to_regressor(ml_l)?,
@@ -1392,7 +1428,7 @@ pub(crate) fn did_score(score: &str) -> PyResult<DidScore> {
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g, ml_m = None, t = None, score = "observational",
                     in_sample_normalization = true, clipping_threshold = 1e-2, calibration = None, n_folds = 5,
-                    n_rep = 1, seed = 0, splits = None, treatment_names = None, cluster = None))]
+                    n_rep = 1, seed = 0, splits = None, treatment_names = None, cluster = None, external_predictions = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_did(
     py: Python<'_>,
@@ -1412,11 +1448,13 @@ fn fit_did(
     splits: Option<PySplits>,
     treatment_names: Option<Vec<String>>,
     cluster: Option<PyReadonlyArray2<'_, i64>>,
+    external_predictions: Option<PyExternal<'_>>,
 ) -> PyResult<PyDmlResult> {
     let score = did_score(score)?;
     let ml_m = ml_m.map(to_classifier).transpose()?;
     let cross_section = t.is_some();
     let data = build_data(y, d, x, None, t, treatment_names, cluster)?;
+    let data = attach_external(data, external_predictions);
     if cross_section {
         let model = DidCs::from_boxed(to_regressor(ml_g)?, ml_m)
             .score(score)

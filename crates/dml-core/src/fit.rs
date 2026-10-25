@@ -112,6 +112,8 @@ fn fit_model_impl<M: LinearScoreModel + ?Sized>(
                 t: data.time(),
                 s: data.selection(),
                 rep: r,
+                treatment: j,
+                external: data.external_predictions(),
             };
             let est = model.estimate_score(&input, folds)?;
             let mut sol = est.score.solve()?;
@@ -141,6 +143,13 @@ fn fit_model_impl<M: LinearScoreModel + ?Sized>(
                 .slice_mut(ndarray::s![.., j, r])
                 .assign(&est.score.psi_b);
             for target in &est.targets {
+                // External predictions have no target to evaluate against.
+                if data
+                    .external_predictions()
+                    .is_some_and(|e| e.contains(j, &target.name))
+                {
+                    continue;
+                }
                 let Some((_, pred)) = est.predictions.iter().find(|(nm, _)| *nm == target.name)
                 else {
                     continue;

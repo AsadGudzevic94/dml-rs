@@ -1,11 +1,11 @@
 //! DML models with linear scores: [`Plr`], [`Irm`], [`Pliv`], and the
 //! [`LinearScoreModel`] trait for adding your own.
 
-use ndarray::{Array1, ArrayView1, ArrayView2};
+use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 
 use crate::crossfit::Fold;
 use crate::data::DmlData;
-use crate::error::Result;
+use crate::error::{DmlError, Result};
 use crate::score::LinearScore;
 use crate::sensitivity::SensitivityParts;
 
@@ -55,6 +55,117 @@ pub struct ScoreInput<'a> {
     pub s: Option<ArrayView1<'a, f64>>,
     /// Index of the sample-splitting repetition being estimated.
     pub rep: usize,
+    /// Index of the treatment being estimated.
+    pub treatment: usize,
+    /// User-supplied nuisance predictions ([`DmlData::with_external_predictions`]).
+    pub external: Option<&'a ExternalPredictions>,
+}
+
+impl ScoreInput<'_> {
+    /// The user-supplied out-of-fold predictions of learner `name` for this
+    /// treatment and repetition if there are any, else `fit()`.
+    pub fn predictions_or(
+        &self,
+        name: &str,
+        fit: impl FnOnce() -> Result<Array1<f64>>,
+    ) -> Result<Array1<f64>> {
+        external_or(self.external_ref(), self.y.len(), name, fit)
+    }
+
+    pub(crate) fn external_ref(&self) -> Option<ExternalRef<'_>> {
+        self.external.map(|preds| ExternalRef {
+            preds,
+            treatment: self.treatment,
+            rep: self.rep,
+        })
+    }
+}
+
+/// External predictions of one treatment and repetition.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ExternalRef<'a> {
+    pub preds: &'a ExternalPredictions,
+    pub treatment: usize,
+    pub rep: usize,
+}
+
+/// External predictions of learner `name` (`n` rows) if supplied, else `fit()`.
+pub(crate) fn external_or(
+    ext: Option<ExternalRef<'_>>,
+    n: usize,
+    name: &str,
+    fit: impl FnOnce() -> Result<Array1<f64>>,
+) -> Result<Array1<f64>> {
+    match ext.and_then(|e| e.preds.get(e.treatment, name).map(|p| (p, e.rep))) {
+        Some((p, rep)) => {
+            if p.nrows() != n || rep >= p.ncols() {
+                return Err(DmlError::DimensionMismatch(format!(
+                    "external predictions for {name} have shape {:?}; expected ({n}, n_rep)",
+                    p.dim()
+                )));
+            }
+            Ok(p.column(rep).to_owned())
+        }
+        None => fit(),
+    }
+}
+
+/// Out-of-fold nuisance predictions supplied by the user, as DoubleML's
+/// `external_predictions`: per treatment and learner name (e.g. `"ml_l"`,
+/// `"ml_m"`), one column per sample-splitting repetition. Learners with
+/// external predictions are not fitted, and have no out-of-sample loss.
+#[derive(Debug, Clone, Default)]
+pub struct ExternalPredictions {
+    preds: Vec<(usize, String, Array2<f64>)>,
+}
+
+impl ExternalPredictions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Predictions of learner `name` for treatment `treatment` (0 for a single
+    /// treatment), shape `(n_obs, n_rep)`.
+    pub fn with(
+        mut self,
+        treatment: usize,
+        name: impl Into<String>,
+        predictions: Array2<f64>,
+    ) -> Self {
+        let name = name.into();
+        self.preds
+            .retain(|(t, n, _)| !(*t == treatment && *n == name));
+        self.preds.push((treatment, name, predictions));
+        self
+    }
+
+    /// One repetition: predictions as a vector.
+    pub fn with_vector(
+        self,
+        treatment: usize,
+        name: impl Into<String>,
+        predictions: Array1<f64>,
+    ) -> Self {
+        let n = predictions.len();
+        self.with(
+            treatment,
+            name,
+            predictions
+                .into_shape_with_order((n, 1))
+                .expect("1-D to (n, 1)"),
+        )
+    }
+
+    pub(crate) fn get(&self, treatment: usize, name: &str) -> Option<&Array2<f64>> {
+        self.preds
+            .iter()
+            .find(|(t, n, _)| *t == treatment && n == name)
+            .map(|(_, _, p)| p)
+    }
+
+    pub(crate) fn contains(&self, treatment: usize, name: &str) -> bool {
+        self.get(treatment, name).is_some()
+    }
 }
 
 /// Ingredients for best-linear-predictor inference on effect heterogeneity

@@ -24,6 +24,7 @@ pub struct DmlData {
     z: Option<Array2<f64>>,
     t: Option<Array1<f64>>,
     s: Option<Array1<f64>>,
+    external: Option<crate::model::ExternalPredictions>,
     clusters: Option<Vec<Array1<i64>>>,
     treatment_names: Vec<String>,
 }
@@ -77,6 +78,7 @@ impl DmlData {
             z: None,
             t: None,
             s: None,
+            external: None,
             clusters: None,
             treatment_names,
         })
@@ -188,8 +190,10 @@ impl DmlData {
             )));
         }
         let keep: Vec<usize> = (0..p).filter(|c| !drop.contains(c)).collect();
+        // External predictions belong to the full covariate set.
         Ok(Self {
             x: self.x.select(Axis(1), &keep),
+            external: None,
             ..self.clone()
         })
     }
@@ -261,6 +265,20 @@ impl DmlData {
     /// The 0/1 time-period indicator, if attached.
     pub fn time(&self) -> Option<ArrayView1<'_, f64>> {
         self.t.as_ref().map(|t| t.view())
+    }
+
+    /// Use user-supplied out-of-fold predictions for some nuisance learners
+    /// instead of fitting them (DoubleML's `external_predictions`).
+    pub fn with_external_predictions(
+        mut self,
+        external: crate::model::ExternalPredictions,
+    ) -> Self {
+        self.external = Some(external);
+        self
+    }
+
+    pub fn external_predictions(&self) -> Option<&crate::model::ExternalPredictions> {
+        self.external.as_ref()
     }
 
     /// The 0/1 selection indicator, if attached.
