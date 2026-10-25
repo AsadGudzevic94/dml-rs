@@ -32,6 +32,7 @@ from ._dml_rs import (
     LogisticRegression,
     LogisticRegressionCV,
     Ols,
+    QteResult,
     RandomForestClassifier,
     RandomForestRegressor,
     __version__,
@@ -43,12 +44,31 @@ from ._dml_rs import (
     fit_irm,
     fit_pliv,
     fit_plr,
+    fit_qte,
+    fit_quantile,
     fit_staggered_did,
 )
 from ._blp import BLP
 from ._cate import DRLearner, RLearner, SLearner, TLearner, XLearner
 from ._policy import PolicyTree
-from ._models import APO, APOS, DID, DIDCS, IIVM, IRM, PLIV, PLR, CausalContrast, DIDAggregation, StaggeredDID
+from ._models import (
+    APO,
+    APOS,
+    CVAR,
+    DID,
+    DIDCS,
+    IIVM,
+    IRM,
+    LPQ,
+    PLIV,
+    PLR,
+    PQ,
+    QTE,
+    CausalContrast,
+    DIDAggregation,
+    PotentialQuantiles,
+    StaggeredDID,
+)
 
 __all__ = [
     "PLR",
@@ -62,6 +82,11 @@ __all__ = [
     "APO",
     "APOS",
     "CausalContrast",
+    "PQ",
+    "LPQ",
+    "CVAR",
+    "QTE",
+    "PotentialQuantiles",
     "PolicyTree",
     "SLearner",
     "TLearner",
@@ -80,6 +105,7 @@ __all__ = [
     "GradientBoostingClassifier",
     "DmlResult",
     "AposResult",
+    "QteResult",
     "Bootstrap",
     "Blp",
     "CateResult",
@@ -92,5 +118,7 @@ __all__ = [
     "fit_plr",
     "fit_irm",
     "fit_pliv",
+    "fit_quantile",
+    "fit_qte",
     "__version__",
 ]

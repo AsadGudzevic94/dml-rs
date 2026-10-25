@@ -21,6 +21,7 @@ losses.
 | `plr_boot_bayes`, `plr_boot_wild`, `plr_multi_rep3_boot` | Bootstrap methods, multiple treatments, joint intervals, Romano–Wolf |
 | `irm_ate`, `irm_atte`, `irm_ate_normalized`, `irm_cate_gate` | IRM (ATE / ATTE, normalised IPW), BLP and GATE |
 | `apo_*`, `apos_rep2` | Average potential outcomes, causal contrasts and their sensitivity bounds |
+| `pq_*`, `lpq_t1`, `cvar_*`, `qte_rep2` | Potential, local potential and CVaR quantiles for both treatment levels, with and without normalised weights, and quantile treatment effects |
 | `pliv_ols`, `iivm_late_rep2`, `iivm_no_always_takers` | PLIV and IIVM, including one-sided non-compliance |
 | `did_panel_*`, `did_cs_*` | Two-period DiD for panels and cross-sections, all score and normalisation variants |
 | `staggered_*`, `staggered_cs_*` | Staggered DiD: every ATT(g, t) and all aggregations |
@@ -34,7 +35,7 @@ learners themselves), and the type stubs are checked against the compiled extens
 ## Statistical tests
 
 Monte-Carlo tests simulate data with a known effect and check that confidence intervals reach
-their nominal coverage: PLR, IRM (ATE and ATTE), PLIV, IIVM, DiD, joint bootstrap bands, and
+their nominal coverage: PLR, IRM (ATE and ATTE), PLIV, IIVM, DiD, quantile and CVaR effects, joint bootstrap bands, and
 clustered data (where iid intervals cover about 75% of the time and cluster-robust ones about 95%).
 
 ## Known differences
@@ -58,6 +59,15 @@ These are deliberate, documented, and covered by tests:
   (`tol=1e-4`) the coordinate descent may stop at slightly different points, depending on
   floating-point rounding (as scikit-learn does across platforms); both are within the tolerance.
   With a tighter tolerance the two agree to numerical precision.
+- **Quantile models need bit-identical propensities for exact agreement.** The preliminary
+  estimate minimises the absolute value of a step function with Brent's method (as DoubleML), and
+  that search reacts to differences in the last bit of the propensity scores. With identical
+  learners (for example the same scikit-learn estimator in Python) dml-rs and DoubleML agree to
+  `1e-9`. With learners that differ by rounding, such as the built-in `LogisticRegression` against
+  scikit-learn's, the search occasionally ends at a neighbouring point: in 57 potential-quantile
+  fits on simulated data, 54 agreed to `1e-9` and the other three differed by at most 0.08
+  standard errors. The Rust parity fixtures therefore use class-share propensities, which are exact
+  on both sides.
 - **`LogisticRegressionCV`** solves each fit to the exact optimum with Newton's method;
   scikit-learn's default L-BFGS solver stops earlier, so its probabilities can differ by about
   `1e-3` at default settings.

@@ -1,7 +1,9 @@
 //! Monte-Carlo checks for IRM, PLIV and the bootstrap on DGPs with a known
 //! effect, where the nuisance learners are correctly specified.
 
-use dml_core::{Apos, BootstrapMethod, DmlData, Irm, IrmScore, LogisticRegression, Ols, Pliv, Plr};
+use dml_core::{
+    Apos, BootstrapMethod, DmlData, Irm, IrmScore, LogisticRegression, Ols, Pliv, Plr, Qte,
+};
 use ndarray::{Array1, Array2};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -609,5 +611,52 @@ fn plr_cate_recovers_a_linear_effect_function() {
             blp.coef()[j],
             blp.se()[j]
         );
+    }
+}
+
+/// Location shift: Y = X₁ + δ·D + ε with confounded D, so every quantile (and
+/// CVaR) of Y(1) is that of Y(0) plus δ = 1.
+fn location_shift_data(n: usize, seed: u64) -> DmlData {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let x = normal_matrix(&mut rng, n, 3);
+    let (mut d, mut y) = (Array1::zeros(n), Array1::zeros(n));
+    for i in 0..n {
+        let p = 1.0 / (1.0 + (-(0.7 * x[[i, 0]])).exp());
+        d[i] = f64::from(rng.gen::<f64>() < p);
+        y[i] = x[[i, 0]] + 0.5 * x[[i, 1]] + d[i] + std_normal(&mut rng);
+    }
+    DmlData::new(y, d, x).unwrap()
+}
+
+#[test]
+fn quantile_and_cvar_effects_cover_a_location_shift() {
+    let reps = 60;
+    let quantiles = vec![0.25, 0.5, 0.75];
+    let (mut qte_cov, mut cvar_cov) = (vec![0usize; 3], vec![0usize; 3]);
+    for r in 0..reps {
+        let data = location_shift_data(1500, 9000 + r);
+        let qte = Qte::pq(
+            LogisticRegression::default(),
+            LogisticRegression::default(),
+            quantiles.clone(),
+        )
+        .seed(r)
+        .fit(&data)
+        .unwrap();
+        let cvar = Qte::cvar(Ols::new(), LogisticRegression::default(), quantiles.clone())
+            .seed(r)
+            .fit(&data)
+            .unwrap();
+        let (ci_q, ci_c) = (
+            qte.effects().confint(0.95).unwrap(),
+            cvar.effects().confint(0.95).unwrap(),
+        );
+        for j in 0..3 {
+            qte_cov[j] += usize::from(covers(&ci_q, j, 1.0));
+            cvar_cov[j] += usize::from(covers(&ci_c, j, 1.0));
+        }
+    }
+    for c in qte_cov.iter().chain(&cvar_cov) {
+        assert!(*c as f64 / reps as f64 >= 0.85, "coverage {c}/{reps}");
     }
 }

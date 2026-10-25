@@ -13,6 +13,7 @@ use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 use super::{
     dml_model_api, CateSignal, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput,
 };
+use crate::compat::np_mean;
 use crate::crossfit::{cross_fit_predict_proba, cross_fit_predict_subset, Fold, SampleSplitting};
 use crate::data::DmlData;
 use crate::error::{DmlError, Result};
@@ -175,14 +176,15 @@ impl Irm {
 /// DoubleML's `_normalize_ipw`: rescale `m̂` so that `mean(D/m̂)` and
 /// `mean((1−D)/(1−m̂))` both become one.
 pub(crate) fn normalize_propensity(m: &Array1<f64>, d: &Array1<f64>) -> Array1<f64> {
-    let n = m.len() as f64;
-    let mean1 = d.iter().zip(m).map(|(&di, &mi)| di / mi).sum::<f64>() / n;
-    let mean0 = d
+    // NumPy's pairwise means, so that the quantile models (whose preliminary
+    // estimate is sensitive to the last bit) reproduce DoubleML exactly.
+    let ratio1: Vec<f64> = d.iter().zip(m).map(|(&di, &mi)| di / mi).collect();
+    let ratio0: Vec<f64> = d
         .iter()
         .zip(m)
         .map(|(&di, &mi)| (1.0 - di) / (1.0 - mi))
-        .sum::<f64>()
-        / n;
+        .collect();
+    let (mean1, mean0) = (np_mean(&ratio1), np_mean(&ratio0));
     d.iter()
         .zip(m)
         .map(|(&di, &mi)| di * mi * mean1 + (1.0 - di) * (1.0 - (1.0 - mi) * mean0))

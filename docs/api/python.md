@@ -9,6 +9,11 @@ All classes are available from the top-level package, e.g. `dml_rs.PLR`.
 ::: dml_rs.APO
 ::: dml_rs.APOS
 ::: dml_rs.CausalContrast
+::: dml_rs.QTE
+::: dml_rs.PotentialQuantiles
+::: dml_rs.PQ
+::: dml_rs.LPQ
+::: dml_rs.CVAR
 ::: dml_rs.PLIV
 ::: dml_rs.IIVM
 ::: dml_rs.DID

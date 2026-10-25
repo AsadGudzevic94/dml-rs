@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Quantile models, as DoubleML: potential quantiles (`Pq` / `PQ`), local potential quantiles of
+  the compliers with a binary instrument (`Lpq` / `LPQ`), conditional value at risk (`Cvar` /
+  `CVAR`), and quantile treatment effects at several quantiles with joint inference (`Qte` /
+  `QTE`, scores PQ, LPQ and CVaR; `QTE.potential` gives the potential quantiles). Includes
+  DoubleML's nested preliminary estimate, the start value carried across repetitions, and the
+  kernel density standard errors. Default sample splits are stratified by treatment (and
+  instrument). Seven parity fixtures; the Python tests match DoubleML to `1e-9` with scikit-learn
+  learners.
+
+### Changed
+- IRM, APO and IIVM with `normalize_ipw=True` compute the normalising means with NumPy's pairwise
+  summation, so they agree with DoubleML to the last bit (previously within about `1e-15`).
+
 ## [0.10.0] - 2026-10-25
 
 ### Added

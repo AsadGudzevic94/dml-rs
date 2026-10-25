@@ -51,6 +51,7 @@ tested for numerical agreement with the reference [DoubleML](https://docs.double
 | Partially linear regression | Effect of a continuous or binary treatment (partialling-out or IV-type score) | `Plr` | `PLR` |
 | Interactive regression model | ATE and ATTE of a binary treatment | `Irm` | `IRM` |
 | Multi-valued treatments | Average potential outcomes of each level and contrasts between levels | `Apo`, `Apos` | `APO`, `APOS` |
+| Quantile effects | Quantile and CVaR treatment effects; potential quantiles, compliers' (local) quantiles | `Qte`, `Pq`, `Lpq`, `Cvar` | `QTE`, `PQ`, `LPQ`, `CVAR` |
 | Partially linear IV regression | Effect of an endogenous treatment with an instrument | `Pliv` | `PLIV` |
 | Interactive IV model | Local average treatment effect (LATE) with a binary instrument | `Iivm` | `IIVM` |
 | Difference-in-differences | ATT for panel data and repeated cross-sections | `Did`, `DidCs` | `DID`, `DIDCS` |

@@ -29,7 +29,8 @@ default = ["parallel"]
 parallel = ["dep:rayon"]
 
 [dev-dependencies]
-serde_json.workspace = true
+# Correctly rounded float parsing, so fixtures replay bit for bit.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 criterion.workspace = true
 
 [[bench]]

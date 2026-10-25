@@ -762,12 +762,8 @@ class APO(_DMLEstimator):
         return blp_from(self._check_fitted().gate(_as_2d(groups, "groups")), groups, "group_")
 
 
-class CausalContrast(_DMLEstimator):
-    """Contrasts between average potential outcomes, from `APOS.causal_contrast`.
-
-    Offers the fitted-model API (``summary``, ``confint``, ``bootstrap``, ``p_adjust``,
-    ``sensitivity_analysis``); there is nothing to refit.
-    """
+class _ResultView(_DMLEstimator):
+    """The fitted-model API over an existing result; there is nothing to refit."""
 
     def __init__(self, result: Any) -> None:
         self._store(result)
@@ -775,6 +771,14 @@ class CausalContrast(_DMLEstimator):
     @classmethod
     def _get_param_names(cls) -> list[str]:
         return []
+
+
+class CausalContrast(_ResultView):
+    """Contrasts between average potential outcomes, from `APOS.causal_contrast`.
+
+    Offers the fitted-model API (``summary``, ``confint``, ``bootstrap``, ``p_adjust``,
+    ``sensitivity_analysis``); there is nothing to refit.
+    """
 
 
 class APOS(_DMLEstimator):
@@ -835,3 +839,167 @@ class APOS(_DMLEstimator):
         self._check_fitted()
         refs = [float(v) for v in np.atleast_1d(np.asarray(reference_levels, dtype=np.float64))]
         return CausalContrast(self._apos.causal_contrast(refs))
+
+
+class _QuantileBase(_DMLEstimator):
+    _score: str = "PQ"
+
+    def __init__(
+        self,
+        ml_g: Any,
+        ml_m: Any,
+        treatment: int = 1,
+        quantile: float = 0.5,
+        clipping_threshold: float = 1e-2,
+        normalize_ipw: bool = True,
+        n_folds: int = 5,
+        n_rep: int = 1,
+        random_state: int = 0,
+    ) -> None:
+        self.ml_g = ml_g
+        self.ml_m = ml_m
+        self.treatment = treatment
+        self.quantile = quantile
+        self.clipping_threshold = clipping_threshold
+        self.normalize_ipw = normalize_ipw
+        self.n_folds = n_folds
+        self.n_rep = n_rep
+        self.random_state = random_state
+
+    def _fit(self, X, y, d, z, folds):
+        result = _dml_rs.fit_quantile(
+            _as_1d(y, "y"), _as_2d(_as_1d(d, "d"), "d"), _as_2d(X, "X"), self.ml_g, self.ml_m,
+            score=self._score, treatment=int(self.treatment), quantile=float(self.quantile),
+            z=None if z is None else _as_1d(z, "z"), clipping_threshold=self.clipping_threshold,
+            normalize_ipw=self.normalize_ipw, n_folds=self.n_folds, n_rep=self.n_rep,
+            seed=self.random_state, splits=_splits(folds),
+        )
+        return self._store(result)
+
+
+class PQ(_QuantileBase):
+    """Potential quantile ``q`` with ``P(Y(d) <= q) = quantile`` for a binary treatment, as
+    DoubleML's ``DoubleMLPQ``.
+
+    Default sample splits are stratified by the treatment. Each fold runs a nested split for a
+    preliminary inverse-probability-weighted estimate, at which the conditional distribution
+    function is learned; the score is then solved with Brent's method and the standard error
+    uses a kernel density estimate.
+
+    Parameters
+    ----------
+    ml_g : classifier for ``P(Y <= q | D = d, X)`` with ``predict_proba``.
+    ml_m : classifier for the propensity ``P(D = 1 | X)``.
+    treatment : the treatment level ``d`` (0 or 1).
+    quantile : the quantile level in ``(0, 1)``.
+    clipping_threshold : propensities are clipped to ``[t, 1 - t]``.
+    normalize_ipw : normalise the inverse-probability weights (default True, as DoubleML).
+    """
+
+    _score = "PQ"
+
+    def fit(self, X: ArrayLike, y: ArrayLike, d: ArrayLike, folds: Optional[Folds] = None) -> Self:
+        return self._fit(X, y, d, None, folds)
+
+
+class LPQ(_QuantileBase):
+    """Local potential quantile of the compliers, with a binary instrument ``z``, as DoubleML's
+    ``DoubleMLLPQ``. Default sample splits are stratified by treatment and instrument. Other
+    parameters as `PQ`.
+
+    Parameters
+    ----------
+    ml_g : classifier for ``P(Y <= q, D = d | Z = z, X)``.
+    ml_m : classifier for the instrument propensity ``P(Z = 1 | X)``.
+    """
+
+    _score = "LPQ"
+
+    def fit(self, X: ArrayLike, y: ArrayLike, d: ArrayLike, z: ArrayLike, folds: Optional[Folds] = None) -> Self:
+        return self._fit(X, y, d, z, folds)
+
+
+class CVAR(_QuantileBase):
+    """Conditional value at risk ``E[Y(d) | Y(d) >= q]`` above the potential quantile ``q``, as
+    DoubleML's ``DoubleMLCVAR``. Other parameters as `PQ`.
+
+    Parameters
+    ----------
+    ml_g : regressor for ``E[max(q, (Y - quantile * q) / (1 - quantile)) | D = d, X]``.
+    ml_m : classifier for the propensity ``P(D = 1 | X)``.
+    """
+
+    _score = "CVaR"
+
+    def fit(self, X: ArrayLike, y: ArrayLike, d: ArrayLike, folds: Optional[Folds] = None) -> Self:
+        return self._fit(X, y, d, None, folds)
+
+
+class PotentialQuantiles(_ResultView):
+    """Potential quantiles (or CVaRs) of both treatment levels, from `QTE.potential`, ordered
+    ``q1 (d=0), q1 (d=1), q2 (d=0), ...`` and with joint inference."""
+
+
+class QTE(_DMLEstimator):
+    """Quantile treatment effects ``q(Y(1)) - q(Y(0))`` at several quantiles, as DoubleML's
+    ``DoubleMLQTE``. ``score`` is ``"PQ"`` (quantiles), ``"LPQ"`` (compliers' quantiles, needs
+    ``z``) or ``"CVaR"`` (effects on the conditional value at risk).
+
+    Both potential quantiles are fitted on the same sample splits at every quantile, so the effects
+    have joint inference (`bootstrap`, ``confint(joint=True)``). Other parameters as `PQ`.
+
+    Parameters
+    ----------
+    ml_g : classifier (``"PQ"``, ``"LPQ"``) or regressor (``"CVaR"``), as in `PQ`, `LPQ`, `CVAR`.
+    ml_m : propensity classifier (default: ``ml_g``, which must then be a classifier).
+    quantiles : the quantile levels.
+    """
+
+    def __init__(
+        self,
+        ml_g: Any,
+        ml_m: Any = None,
+        quantiles: Union[float, Sequence[float]] = 0.5,
+        score: Literal["PQ", "LPQ", "CVaR"] = "PQ",
+        clipping_threshold: float = 1e-2,
+        normalize_ipw: bool = True,
+        n_folds: int = 5,
+        n_rep: int = 1,
+        random_state: int = 0,
+    ) -> None:
+        self.ml_g = ml_g
+        self.ml_m = ml_m
+        self.quantiles = quantiles
+        self.score = score
+        self.clipping_threshold = clipping_threshold
+        self.normalize_ipw = normalize_ipw
+        self.n_folds = n_folds
+        self.n_rep = n_rep
+        self.random_state = random_state
+
+    def fit(
+        self,
+        X: ArrayLike,
+        y: ArrayLike,
+        d: ArrayLike,
+        z: Optional[ArrayLike] = None,
+        folds: Optional[Folds] = None,
+    ) -> Self:
+        if self.ml_m is None and self.score == "CVaR":
+            raise ValueError("score 'CVaR' needs a propensity classifier ml_m")
+        quantiles = [float(q) for q in np.atleast_1d(np.asarray(self.quantiles, dtype=np.float64))]
+        self._qte = _dml_rs.fit_qte(
+            _as_1d(y, "y"), _as_2d(_as_1d(d, "d"), "d"), _as_2d(X, "X"), self.ml_g,
+            self.ml_g if self.ml_m is None else self.ml_m, quantiles, score=self.score,
+            z=None if z is None else _as_1d(z, "z"), clipping_threshold=self.clipping_threshold,
+            normalize_ipw=self.normalize_ipw, n_folds=self.n_folds, n_rep=self.n_rep,
+            seed=self.random_state, splits=_splits(folds),
+        )
+        self.quantiles_ = np.asarray(self._qte.quantiles)
+        return self._store(self._qte.effects)
+
+    @property
+    def potential(self) -> PotentialQuantiles:
+        """The potential quantiles (or CVaRs) of treatment 0 and 1 at every quantile."""
+        self._check_fitted()
+        return PotentialQuantiles(self._qte.potential)

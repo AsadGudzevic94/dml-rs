@@ -3,8 +3,8 @@
 //! `fit_*` functions below.
 
 use dml_core::{
-    Apo, Apos, AposFit, BootstrapMethod, Did, DidCs, DidScore, DmlData, DmlFit, Fold, Iivm, Irm,
-    IrmScore, PAdjust, Pliv, Plr, PlrScore,
+    Apo, Apos, AposFit, BootstrapMethod, Cvar, Did, DidCs, DidScore, DmlData, DmlFit, Fold, Iivm,
+    Irm, IrmScore, Lpq, PAdjust, Pliv, Plr, PlrScore, Pq, Qte, QteFit,
 };
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -692,8 +692,6 @@ fn fit_apo(
     run_model!(py, model, data, splits)
 }
 
-/// Average potential outcomes of several treatment levels, fitted on shared
-/// sample splits (returned by `fit_apos`).
 /// A fitted policy tree (returned by `DmlResult.policy_tree`).
 #[pyclass(name = "PolicyTree", module = "dml_rs", frozen)]
 pub struct PyPolicyTree {
@@ -732,6 +730,8 @@ impl PyPolicyTree {
     }
 }
 
+/// Average potential outcomes of several treatment levels, fitted on shared
+/// sample splits (returned by `fit_apos`).
 #[pyclass(name = "AposResult", module = "dml_rs", frozen)]
 pub struct PyAposResult {
     inner: AposFit,
@@ -802,6 +802,151 @@ fn fit_apos(
         .map_err(to_py_err)
 }
 
+/// Potential quantile (`"PQ"`), local potential quantile (`"LPQ"`, needs `z`)
+/// or conditional value at risk (`"CVaR"`) of one treatment level.
+#[pyfunction]
+#[pyo3(signature = (y, d, x, ml_g, ml_m, score = "PQ", treatment = 1, quantile = 0.5, z = None,
+                    clipping_threshold = 1e-2, normalize_ipw = true, n_folds = 5, n_rep = 1,
+                    seed = 0, splits = None))]
+#[allow(clippy::too_many_arguments)]
+fn fit_quantile(
+    py: Python<'_>,
+    y: PyReadonlyArray1<'_, f64>,
+    d: PyReadonlyArray2<'_, f64>,
+    x: PyReadonlyArray2<'_, f64>,
+    ml_g: &Bound<'_, PyAny>,
+    ml_m: &Bound<'_, PyAny>,
+    score: &str,
+    treatment: u8,
+    quantile: f64,
+    z: Option<PyReadonlyArray1<'_, f64>>,
+    clipping_threshold: f64,
+    normalize_ipw: bool,
+    n_folds: usize,
+    n_rep: usize,
+    seed: u64,
+    splits: Option<PySplits>,
+) -> PyResult<PyDmlResult> {
+    let data = build_data(y, d, x, z, None, None, None)?;
+    let ml_m = to_classifier(ml_m)?;
+    // A macro rather than a function: `Pq`, `Lpq` and `Cvar` are different
+    // types that share these builder methods by name only.
+    macro_rules! configure {
+        ($model:expr) => {
+            $model
+                .treatment(treatment)
+                .quantile(quantile)
+                .clipping_threshold(clipping_threshold)
+                .normalize_ipw(normalize_ipw)
+                .n_folds(n_folds)
+                .n_rep(n_rep)
+                .seed(seed)
+        };
+    }
+    match score {
+        "PQ" => run_model!(
+            py,
+            configure!(Pq::from_boxed(to_classifier(ml_g)?, ml_m)),
+            data,
+            splits
+        ),
+        "LPQ" => run_model!(
+            py,
+            configure!(Lpq::from_boxed(to_classifier(ml_g)?, ml_m)),
+            data,
+            splits
+        ),
+        "CVaR" => run_model!(
+            py,
+            configure!(Cvar::from_boxed(to_regressor(ml_g)?, ml_m)),
+            data,
+            splits
+        ),
+        other => Err(PyValueError::new_err(format!(
+            "unknown quantile score {other:?} (use 'PQ', 'LPQ' or 'CVaR')"
+        ))),
+    }
+}
+
+/// Treatment effects on quantiles or CVaRs (returned by `fit_qte`).
+#[pyclass(name = "QteResult", module = "dml_rs", frozen)]
+pub struct PyQteResult {
+    inner: QteFit,
+}
+
+#[pymethods]
+impl PyQteResult {
+    #[getter]
+    fn quantiles(&self) -> Vec<f64> {
+        self.inner.quantiles().to_vec()
+    }
+
+    /// The effect at every quantile, with joint inference.
+    #[getter]
+    fn effects(&self) -> PyDmlResult {
+        PyDmlResult::from_fit(self.inner.effects().clone())
+    }
+
+    /// Potential quantiles of treatment 0 and 1, ordered `q1 (d=0), q1 (d=1), q2 (d=0), ...`.
+    #[getter]
+    fn potential(&self) -> PyDmlResult {
+        PyDmlResult::from_fit(self.inner.potential().clone())
+    }
+}
+
+/// Quantile (`"PQ"`), local quantile (`"LPQ"`, needs `z`) or CVaR (`"CVaR"`)
+/// treatment effects at several quantiles, on shared sample splits.
+#[pyfunction]
+#[pyo3(signature = (y, d, x, ml_g, ml_m, quantiles, score = "PQ", z = None,
+                    clipping_threshold = 1e-2, normalize_ipw = true, n_folds = 5, n_rep = 1,
+                    seed = 0, splits = None))]
+#[allow(clippy::too_many_arguments)]
+fn fit_qte(
+    py: Python<'_>,
+    y: PyReadonlyArray1<'_, f64>,
+    d: PyReadonlyArray2<'_, f64>,
+    x: PyReadonlyArray2<'_, f64>,
+    ml_g: &Bound<'_, PyAny>,
+    ml_m: &Bound<'_, PyAny>,
+    quantiles: Vec<f64>,
+    score: &str,
+    z: Option<PyReadonlyArray1<'_, f64>>,
+    clipping_threshold: f64,
+    normalize_ipw: bool,
+    n_folds: usize,
+    n_rep: usize,
+    seed: u64,
+    splits: Option<PySplits>,
+) -> PyResult<PyQteResult> {
+    let data = build_data(y, d, x, z, None, None, None)?;
+    let (g_classifier, g_regressor) = if score == "CVaR" {
+        (None, Some(to_regressor(ml_g)?))
+    } else {
+        (Some(to_classifier(ml_g)?), None)
+    };
+    let model = Qte::from_boxed(
+        score,
+        g_classifier,
+        g_regressor,
+        to_classifier(ml_m)?,
+        quantiles,
+    )
+    .map_err(to_py_err)?
+    .clipping_threshold(clipping_threshold)
+    .normalize_ipw(normalize_ipw)
+    .n_folds(n_folds)
+    .n_rep(n_rep)
+    .seed(seed);
+    let result = match splits {
+        Some(s) => {
+            let s = to_splits(s);
+            py.detach(|| model.fit_with_folds(&data, &s))
+        }
+        None => py.detach(|| model.fit(&data)),
+    };
+    result.map(|inner| PyQteResult { inner }).map_err(to_py_err)
+}
+
 pub(crate) fn did_score(score: &str) -> PyResult<DidScore> {
     match score {
         "observational" => Ok(DidScore::Observational),
@@ -866,10 +1011,10 @@ fn fit_did(
 mod dml_rs_native {
     #[pymodule_export]
     use super::{
-        fit_apo, fit_apos, fit_cate, fit_did, fit_iivm, fit_irm, fit_pliv, fit_plr,
-        fit_staggered_did, PyAposResult, PyBlp, PyBootstrap, PyCateResult, PyDmlResult,
-        PyGradientBoostingClassifier, PyGradientBoostingRegressor, PyLasso, PyLassoCV,
-        PyLogisticRegression, PyLogisticRegressionCV, PyOls, PyPolicyTree,
+        fit_apo, fit_apos, fit_cate, fit_did, fit_iivm, fit_irm, fit_pliv, fit_plr, fit_qte,
+        fit_quantile, fit_staggered_did, PyAposResult, PyBlp, PyBootstrap, PyCateResult,
+        PyDmlResult, PyGradientBoostingClassifier, PyGradientBoostingRegressor, PyLasso, PyLassoCV,
+        PyLogisticRegression, PyLogisticRegressionCV, PyOls, PyPolicyTree, PyQteResult,
         PyRandomForestClassifier, PyRandomForestRegressor, PySensitivityBenchmark,
         PySensitivityResult, PyStaggeredResult,
     };

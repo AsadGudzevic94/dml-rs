@@ -110,6 +110,56 @@ the elements of the two levels (as DoubleML). Default sample splits are stratifi
     let effects = fit.causal_contrast(&[0.0])?;
     ```
 
+## Quantile effects (PQ, LPQ, CVAR, QTE)
+
+Effects on the whole outcome distribution of a binary treatment, not only its mean. The potential
+quantile $\theta_\tau(d)$ of $Y(d)$ at level $\tau$ solves
+
+$$
+E\left[ g_0(\theta, X) + \frac{1\{D = d\}}{m_d(X)} \big( 1\{Y \le \theta\} - g_0(\theta, X) \big) \right] = \tau,
+$$
+
+with $g_0(\theta, X) = P(Y \le \theta \mid D = d, X)$ and the propensity
+$m_d(X) = P(D = d \mid X)$. `ml_g` is a classifier for the event
+$Y \le \theta$, `ml_m` a propensity classifier. As in DoubleML (Kallus, Mao and Uehara, 2024), each
+fold first computes a preliminary inverse-probability-weighted estimate on a nested split, learns
+$g_0$ at that point, and then solves the score; the standard error uses a kernel density estimate
+of the score's slope.
+
+- `PQ`: potential quantiles $\theta_\tau(d)$.
+- `LPQ`: local potential quantiles of the compliers, with a binary instrument $Z$
+  (`ml_m` is then the instrument propensity).
+- `CVAR`: the conditional value at risk $E[Y(d) \mid Y(d) \ge \theta_\tau(d)]$, the mean of the
+  upper tail; `ml_g` is a regressor.
+- `QTE`: the effects $\theta_\tau(1) - \theta_\tau(0)$ at several quantiles (`score="PQ"`, `"LPQ"`
+  or `"CVaR"`), with both potential quantiles fitted on the same sample splits and joint
+  inference across quantiles.
+
+Inverse-probability weights are normalised by default (`normalize_ipw=True`, as DoubleML), and
+default sample splits are stratified by the treatment (and instrument).
+
+=== "Python"
+
+    ```python
+    from sklearn.linear_model import LogisticRegression
+
+    model = dml_rs.QTE(LogisticRegression(), quantiles=[0.25, 0.5, 0.75]).fit(X, y, d)
+    model.summary                     # effect at each quantile
+    model.bootstrap().confint(joint=True)
+    model.potential.summary           # "0.25 (d=0)", "0.25 (d=1)", ...
+
+    dml_rs.PQ(ml_g, ml_m, treatment=1, quantile=0.9).fit(X, y, d)
+    dml_rs.CVAR(ml_g_regressor, ml_m, quantile=0.9).fit(X, y, d)
+    ```
+
+=== "Rust"
+
+    ```rust
+    let fit = Qte::pq(ml_g, ml_m, vec![0.25, 0.5, 0.75]).fit(&data)?;
+    let effects = fit.effects();      // a DmlFit: confint, bootstrap, ...
+    let q90 = Pq::new(ml_g, ml_m).treatment(1).quantile(0.9).fit(&data)?;
+    ```
+
 ## Partially linear IV regression (PLIV)
 
 $$

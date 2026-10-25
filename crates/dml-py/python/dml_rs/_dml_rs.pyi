@@ -20,6 +20,8 @@ __all__ = [
     "fit_irm",
     "fit_pliv",
     "fit_plr",
+    "fit_qte",
+    "fit_quantile",
     "fit_staggered_did",
     "AposResult",
     "Blp",
@@ -34,6 +36,7 @@ __all__ = [
     "LogisticRegressionCV",
     "Ols",
     "PolicyTree",
+    "QteResult",
     "RandomForestClassifier",
     "RandomForestRegressor",
     "SensitivityBenchmark",
@@ -214,6 +217,19 @@ class AposResult:
         """One estimate per treatment level."""
     def causal_contrast(self, reference_levels: Sequence[float]) -> DmlResult:
         """Effects of each level against each reference level (``"d vs d_ref"``)."""
+
+@final
+class QteResult:
+    """Treatment effects on quantiles or CVaRs at several quantiles."""
+
+    @property
+    def quantiles(self) -> list[float]: ...
+    @property
+    def effects(self) -> DmlResult:
+        """The effect at every quantile, with joint inference."""
+    @property
+    def potential(self) -> DmlResult:
+        """Potential quantiles of treatment 0 and 1, ordered ``q1 (d=0), q1 (d=1), q2 (d=0), ...``."""
 
 @final
 class StaggeredResult:
@@ -504,6 +520,39 @@ def fit_apos(
     weights: Optional[NDArray[np.float64]] = None,
     weights_bar: Optional[NDArray[np.float64]] = None,
 ) -> AposResult: ...
+def fit_quantile(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    ml_g: Any,
+    ml_m: Any,
+    score: Literal["PQ", "LPQ", "CVaR"] = "PQ",
+    treatment: int = 1,
+    quantile: float = 0.5,
+    z: Optional[NDArray[np.float64]] = None,
+    clipping_threshold: float = 1e-2,
+    normalize_ipw: bool = True,
+    n_folds: int = 5,
+    n_rep: int = 1,
+    seed: int = 0,
+    splits: Optional[_Splits] = None,
+) -> DmlResult: ...
+def fit_qte(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    ml_g: Any,
+    ml_m: Any,
+    quantiles: Sequence[float],
+    score: Literal["PQ", "LPQ", "CVaR"] = "PQ",
+    z: Optional[NDArray[np.float64]] = None,
+    clipping_threshold: float = 1e-2,
+    normalize_ipw: bool = True,
+    n_folds: int = 5,
+    n_rep: int = 1,
+    seed: int = 0,
+    splits: Optional[_Splits] = None,
+) -> QteResult: ...
 def fit_did(
     y: NDArray[np.float64],
     d: NDArray[np.float64],

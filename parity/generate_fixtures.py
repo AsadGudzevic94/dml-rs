@@ -22,6 +22,7 @@ from doubleml.did.datasets import make_did_CS2021, make_did_cs_CS2021, make_did_
 from doubleml.irm.datasets import make_iivm_data, make_irm_data, make_irm_data_discrete_treatments
 from doubleml.plm.datasets import make_pliv_CHS2015, make_pliv_multiway_cluster_CKMS2021, make_plr_CCDDHNR2018
 from doubleml.utils._estimation import _draw_weights
+from sklearn.dummy import DummyClassifier
 from sklearn.linear_model import Lasso, LassoCV, LinearRegression, LogisticRegression, LogisticRegressionCV, Ridge
 from sklearn.model_selection import KFold
 
@@ -29,6 +30,7 @@ warnings.filterwarnings("ignore")
 OUT = Path(__file__).resolve().parents[1] / "crates" / "dml-core" / "tests" / "fixtures"
 
 OLS = {"kind": "ols"}
+PRIOR = {"kind": "prior"}
 LOGIT = {"kind": "logit", "c": 1.0}
 
 
@@ -42,6 +44,9 @@ def learner(spec):
         return Lasso(alpha=spec["alpha"], tol=1e-14, max_iter=1_000_000)
     if kind == "logit":
         return LogisticRegression(C=spec["c"], solver="newton-cholesky", tol=1e-14, max_iter=1000)
+    if kind == "prior":
+        # Class shares (count / n): exact on both sides, for routines that are sensitive to the last bit.
+        return DummyClassifier(strategy="prior")
     if kind == "lasso_cv":
         return LassoCV(tol=1e-14, max_iter=1_000_000)
     if kind == "logit_cv":
@@ -71,6 +76,9 @@ def fit_case(name, model_kind, data, arrays, learners, options, n_folds=5, n_rep
         "did": dml.DoubleMLDID,
         "did_cs": dml.DoubleMLDIDCS,
         "apo": dml.DoubleMLAPO,
+        "pq": dml.DoubleMLPQ,
+        "lpq": dml.DoubleMLLPQ,
+        "cvar": dml.DoubleMLCVAR,
     }[model_kind]
     model = cls(data, **kwargs, n_folds=n_folds, n_rep=n_rep, draw_sample_splitting=False, **options)
     model.set_sample_splitting(reps)
@@ -475,6 +483,53 @@ def apos(name, seed, levels, n_rep=2, normalize_ipw=False):
     }
 
 
+def quantile_case(name, seed, kind, treatment, quantile, normalize_ipw=True, n_rep=1):
+    if kind == "lpq":
+        np.random.seed(seed)
+        x, y, d, z = make_iivm_data(n_obs=800, dim_x=5, theta=0.5, alpha_x=1.0, return_type="array")
+        arrays = {"x": x, "y": y, "d": d, "z": z}
+        data = dml.DoubleMLData.from_arrays(x, y, d, z=z)
+    else:
+        np.random.seed(seed)
+        x, y, d = make_irm_data(n_obs=600, dim_x=5, theta=0.5, return_type="array")
+        arrays = {"x": x, "y": y, "d": d}
+        data = dml.DoubleMLData.from_arrays(x, y, d)
+    learners = {"ml_g": OLS if kind == "cvar" else LOGIT, "ml_m": PRIOR}
+    options = {"treatment": treatment, "quantile": quantile, "normalize_ipw": normalize_ipw}
+    return fit_case(name, kind, data, arrays, learners, options, n_rep=n_rep, seed=seed)
+
+
+def qte_case(name, seed, quantiles, n_rep=2):
+    np.random.seed(seed)
+    x, y, d = make_irm_data(n_obs=600, dim_x=5, theta=0.5, return_type="array")
+    data = dml.DoubleMLData.from_arrays(x, y, d)
+    reps = draw_folds(len(y), 5, n_rep, seed)
+    model = dml.DoubleMLQTE(data, learner(LOGIT), learner(PRIOR), quantiles=quantiles, n_folds=5, n_rep=n_rep,
+                            draw_sample_splitting=False)
+    model.set_sample_splitting(reps)
+    model.fit()
+    fw = model.framework
+    expected = {
+        "coef": np.asarray(model.coef).tolist(),
+        "effects": {
+            "coef": np.asarray(fw.thetas).tolist(), "se": np.asarray(fw.ses).tolist(),
+            "all_coef": np.asarray(fw.all_thetas).tolist(), "all_se": np.asarray(fw.all_ses).tolist(),
+            "ci95": model.confint(level=0.95).to_numpy().tolist(),
+        },
+        "potential": [
+            {"coef": [float(m0.coef[0]), float(m1.coef[0])], "se": [float(m0.se[0]), float(m1.se[0])]}
+            for m0, m1 in zip(model.modellist_0, model.modellist_1)
+        ],
+    }
+    return {
+        "name": name, "model": "qte", "options": {"quantiles": list(quantiles)},
+        "learners": {"ml_g": LOGIT, "ml_m": PRIOR},
+        "x": x.tolist(), "y": y.tolist(), "d": d.tolist(),
+        "folds": [[{"train": tr.tolist(), "test": te.tolist()} for tr, te in rep] for rep in reps],
+        "expected": expected, "_model": model,
+    }
+
+
 def irm_cate(name, seed):
     case = irm(name, seed, "ATE", n_rep=2)
     model = case["_model"]
@@ -534,6 +589,13 @@ CASES = [
     lambda: staggered("staggered_notyet_experimental_rep2", 72, "not_yet_treated", "experimental", False, n_rep=2),
     lambda: staggered("staggered_universal_anticipation", 73, "never_treated", "observational", True,
                       gt_setting="universal", anticipation=1),
+    lambda: quantile_case("pq_t1_rep2", 61, "pq", 1, 0.5, n_rep=2),
+    lambda: quantile_case("pq_t0_q25", 62, "pq", 0, 0.25),
+    lambda: quantile_case("pq_t1_q75_nonorm", 63, "pq", 1, 0.75, normalize_ipw=False),
+    lambda: quantile_case("cvar_t1", 64, "cvar", 1, 0.5),
+    lambda: quantile_case("cvar_t0_q25", 65, "cvar", 0, 0.25),
+    lambda: quantile_case("lpq_t1", 66, "lpq", 1, 0.5),
+    lambda: qte_case("qte_rep2", 67, [0.25, 0.5, 0.75]),
     lambda: apo("apo_level1_rep2", 31, 1, n_rep=2),
     lambda: apo("apo_level0_normalized", 32, 0, normalize_ipw=True),
     lambda: apos("apos_rep2", 33, [0, 1, 2]),

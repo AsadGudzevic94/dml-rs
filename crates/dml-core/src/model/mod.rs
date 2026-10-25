@@ -15,6 +15,7 @@ mod iivm;
 pub(crate) mod irm;
 mod pliv;
 mod plr;
+mod quantile;
 
 pub use apo::{Apo, Apos, AposFit};
 pub use did::{Did, DidCs, DidScore};
@@ -22,6 +23,7 @@ pub use iivm::Iivm;
 pub use irm::{Irm, IrmScore};
 pub use pliv::Pliv;
 pub use plr::{Plr, PlrScore};
+pub use quantile::{Cvar, Lpq, Pq, Qte, QteFit};
 
 /// The data a model sees when estimating the effect of one treatment.
 ///

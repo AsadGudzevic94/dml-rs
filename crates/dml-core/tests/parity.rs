@@ -5,7 +5,8 @@ mod common;
 
 use common::{assert_all_close, assert_close, to_matrix, to_vec, Fixture};
 use dml_core::{
-    Apo, Apos, Did, DidCs, DidScore, DmlFit, Iivm, Irm, IrmScore, PAdjust, Pliv, Plr, PlrScore,
+    Apo, Apos, Cvar, Did, DidCs, DidScore, DmlFit, Iivm, Irm, IrmScore, Lpq, PAdjust, Pliv, Plr,
+    PlrScore, Pq, Qte,
 };
 use ndarray::Array2;
 
@@ -73,6 +74,28 @@ fn fit_fixture_on(fx: &Fixture, data: &dml_core::DmlData) -> DmlFit {
             )
             .subgroups(flag("always_takers"), flag("never_takers"))
             .fit_with_folds(&data, &folds)
+        }
+        kind @ ("pq" | "lpq" | "cvar") => {
+            let t = fx.0["options"]["treatment"].as_u64().unwrap() as u8;
+            let q = fx.0["options"]["quantile"].as_f64().unwrap();
+            let norm = fx.option_bool("normalize_ipw");
+            match kind {
+                "pq" => Pq::from_boxed(fx.classifier("ml_g"), fx.classifier("ml_m"))
+                    .treatment(t)
+                    .quantile(q)
+                    .normalize_ipw(norm)
+                    .fit_with_folds(&data, &folds),
+                "lpq" => Lpq::from_boxed(fx.classifier("ml_g"), fx.classifier("ml_m"))
+                    .treatment(t)
+                    .quantile(q)
+                    .normalize_ipw(norm)
+                    .fit_with_folds(&data, &folds),
+                _ => Cvar::from_boxed(fx.regressor("ml_g"), fx.classifier("ml_m"))
+                    .treatment(t)
+                    .quantile(q)
+                    .normalize_ipw(norm)
+                    .fit_with_folds(&data, &folds),
+            }
         }
         "apo" => {
             let apo = Apo::from_boxed(
@@ -444,6 +467,113 @@ fn bootstrap_is_rejected_for_clustered_fits() {
     assert!(fit
         .bootstrap(dml_core::BootstrapMethod::Normal, 10, 1)
         .is_err());
+}
+
+#[test]
+fn pq_repeated_splits() {
+    check("pq_t1_rep2", TOL_ITERATIVE);
+}
+
+#[test]
+fn pq_treatment_zero() {
+    check("pq_t0_q25", TOL_ITERATIVE);
+}
+
+#[test]
+fn pq_without_normalization() {
+    check("pq_t1_q75_nonorm", TOL_ITERATIVE);
+}
+
+#[test]
+fn cvar_treated() {
+    check("cvar_t1", TOL_ITERATIVE);
+}
+
+#[test]
+fn cvar_treatment_zero() {
+    check("cvar_t0_q25", TOL_ITERATIVE);
+}
+
+#[test]
+fn lpq_with_instrument() {
+    check("lpq_t1", TOL_ITERATIVE);
+}
+
+#[test]
+fn qte_repeated_splits() {
+    let fx = Fixture::load("qte_rep2");
+    let quantiles = to_vec(&fx.0["options"]["quantiles"]).to_vec();
+    let fit = Qte::from_boxed(
+        "PQ",
+        Some(fx.classifier("ml_g")),
+        None,
+        fx.classifier("ml_m"),
+        quantiles,
+    )
+    .unwrap()
+    .fit_with_folds(&fx.data(), &fx.folds())
+    .unwrap();
+    let e = fx.expected("effects");
+    let effects = fit.effects();
+    let (all_coef, all_se) = (to_matrix(&e["all_coef"]), to_matrix(&e["all_se"]));
+    for j in 0..effects.n_treat() {
+        for r in 0..effects.n_rep() {
+            assert_close(
+                &format!("qte all_coef[{j},{r}]"),
+                effects.all_coef()[[j, r]],
+                all_coef[[j, r]],
+                TOL_ITERATIVE,
+            );
+            assert_close(
+                &format!("qte all_se[{j},{r}]"),
+                effects.all_se()[[j, r]],
+                all_se[[j, r]],
+                TOL_ITERATIVE,
+            );
+        }
+    }
+    assert_all_close(
+        "qte coef",
+        &effects.coef().to_owned(),
+        &to_vec(&e["coef"]),
+        TOL_ITERATIVE,
+    );
+    assert_all_close(
+        "qte se",
+        &effects.se().to_owned(),
+        &to_vec(&e["se"]),
+        TOL_ITERATIVE,
+    );
+    assert_matrix_close(
+        "qte ci95",
+        &effects.confint(0.95).unwrap(),
+        &to_matrix(&e["ci95"]),
+        TOL_ITERATIVE,
+    );
+    let potential = fit.potential();
+    for (i, p) in fx
+        .expected("potential")
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
+        let (coef, se) = (to_vec(&p["coef"]), to_vec(&p["se"]));
+        for t in 0..2 {
+            assert_close(
+                &format!("potential q{i} d{t} coef"),
+                potential.coef()[2 * i + t],
+                coef[t],
+                TOL_ITERATIVE,
+            );
+            assert_close(
+                &format!("potential q{i} d{t} se"),
+                potential.se()[2 * i + t],
+                se[t],
+                TOL_ITERATIVE,
+            );
+        }
+    }
 }
 
 #[test]

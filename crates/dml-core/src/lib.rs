@@ -65,6 +65,7 @@ pub mod blp;
 pub mod bootstrap;
 pub mod cate;
 pub mod cluster;
+mod compat;
 pub mod crossfit;
 pub mod data;
 pub mod error;
@@ -95,8 +96,9 @@ pub use learner::{
     RandomForestRegressor, Regressor,
 };
 pub use model::{
-    Apo, Apos, AposFit, CateSignal, Did, DidCs, DidScore, Iivm, Irm, IrmScore, LinearScoreModel,
-    LossKind, NuisanceTarget, Pliv, Plr, PlrScore, ScoreEstimate, ScoreInput,
+    Apo, Apos, AposFit, CateSignal, Cvar, Did, DidCs, DidScore, Iivm, Irm, IrmScore,
+    LinearScoreModel, LossKind, Lpq, NuisanceTarget, Pliv, Plr, PlrScore, Pq, Qte, QteFit,
+    ScoreEstimate, ScoreInput,
 };
 pub use policy::PolicyTree;
 pub use score::LinearScore;

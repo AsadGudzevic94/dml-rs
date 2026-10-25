@@ -121,6 +121,7 @@ impl Fixture {
         let spec = &self.0["learners"][nuisance];
         match spec["kind"].as_str().expect("learner kind") {
             "logit" => Box::new(LogisticRegression::new(spec["c"].as_f64().expect("c"))),
+            "prior" => Box::new(PriorClassifier(f64::NAN)),
             "logit_cv" => Box::new(LogisticRegressionCV::new().scoring(
                 match spec["scoring"].as_str().expect("scoring") {
                     "neg_log_loss" => CvScoring::LogLoss,
@@ -162,6 +163,31 @@ impl Fixture {
             Some(c) => data.with_two_way_clusters(ids(&c[0]), ids(&c[1])).unwrap(),
             None => data,
         }
+    }
+}
+
+/// scikit-learn's `DummyClassifier(strategy="prior")`: the share of class 1,
+/// `count / n`, exact on both sides.
+#[derive(Clone)]
+pub struct PriorClassifier(f64);
+
+impl Classifier for PriorClassifier {
+    fn fit(
+        &mut self,
+        _x: ndarray::ArrayView2<'_, f64>,
+        y: ndarray::ArrayView1<'_, f64>,
+    ) -> dml_core::Result<()> {
+        let ones = y.iter().filter(|&&v| v == 1.0).count();
+        self.0 = ones as f64 / y.len() as f64;
+        Ok(())
+    }
+
+    fn predict_proba(&self, x: ndarray::ArrayView2<'_, f64>) -> dml_core::Result<Array1<f64>> {
+        Ok(Array1::from_elem(x.nrows(), self.0))
+    }
+
+    fn fresh(&self) -> Box<dyn Classifier> {
+        Box::new(PriorClassifier(f64::NAN))
     }
 }
 
