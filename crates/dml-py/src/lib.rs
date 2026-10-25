@@ -307,11 +307,26 @@ impl PyDmlResult {
         })
     }
 
-    /// GATEs for mutually exclusive 0/1 group dummies (IRM with the ATE score).
+    /// GATEs for mutually exclusive 0/1 group dummies (PLR, IRM with the ATE score, APO).
     fn gate(&self, groups: PyReadonlyArray2<'_, f64>) -> PyResult<PyBlp> {
         Ok(PyBlp {
             blp: self.fit.gate(groups.as_array()).map_err(to_py_err)?,
         })
+    }
+
+    /// Policy tree on the treatment-effect signal (IRM with the ATE score).
+    #[pyo3(signature = (features, depth = 2, min_samples_leaf = 8, ccp_alpha = 0.01))]
+    fn policy_tree(
+        &self,
+        features: PyReadonlyArray2<'_, f64>,
+        depth: usize,
+        min_samples_leaf: usize,
+        ccp_alpha: f64,
+    ) -> PyResult<PyPolicyTree> {
+        self.fit
+            .policy_tree(features.as_array(), depth, min_samples_leaf, ccp_alpha)
+            .map(|tree| PyPolicyTree { tree })
+            .map_err(to_py_err)
     }
 
     fn __str__(&self) -> String {
@@ -450,6 +465,22 @@ impl PyBootstrap {
     }
 }
 
+/// Apply DoubleML-style `weights` (and optional per-repetition `weights_bar`).
+macro_rules! with_weights {
+    ($model:expr, $weights:expr, $weights_bar:expr) => {
+        match ($weights, $weights_bar) {
+            (Some(w), Some(b)) => {
+                $model.weights_with_bar(w.as_array().to_owned(), b.as_array().to_owned())
+            }
+            (Some(w), None) => $model.weights(w.as_array().to_owned()),
+            (None, None) => $model,
+            (None, Some(_)) => {
+                return Err(PyValueError::new_err("weights_bar requires weights"));
+            }
+        }
+    };
+}
+
 /// Run a configured model with the GIL released (so rayon worker threads can
 /// call back into Python learners), on explicit or seeded splits.
 macro_rules! run_model {
@@ -511,7 +542,7 @@ fn fit_plr(
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g, ml_m, score = "ATE", clipping_threshold = 1e-2,
                     normalize_ipw = false, n_folds = 5, n_rep = 1, seed = 0, splits = None,
-                    treatment_names = None, cluster = None))]
+                    treatment_names = None, cluster = None, weights = None, weights_bar = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_irm(
     py: Python<'_>,
@@ -529,6 +560,8 @@ fn fit_irm(
     splits: Option<PySplits>,
     treatment_names: Option<Vec<String>>,
     cluster: Option<PyReadonlyArray2<'_, i64>>,
+    weights: Option<PyReadonlyArray1<'_, f64>>,
+    weights_bar: Option<PyReadonlyArray2<'_, f64>>,
 ) -> PyResult<PyDmlResult> {
     let score = match score {
         "ATE" => IrmScore::Ate,
@@ -547,6 +580,7 @@ fn fit_irm(
         .n_folds(n_folds)
         .n_rep(n_rep)
         .seed(seed);
+    let model = with_weights!(model, weights, weights_bar);
     run_model!(py, model, data, splits)
 }
 
@@ -626,7 +660,7 @@ fn fit_iivm(
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g, ml_m, treatment_level, clipping_threshold = 1e-2,
                     normalize_ipw = false, n_folds = 5, n_rep = 1, seed = 0, splits = None,
-                    treatment_names = None, cluster = None))]
+                    treatment_names = None, cluster = None, weights = None, weights_bar = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_apo(
     py: Python<'_>,
@@ -644,6 +678,8 @@ fn fit_apo(
     splits: Option<PySplits>,
     treatment_names: Option<Vec<String>>,
     cluster: Option<PyReadonlyArray2<'_, i64>>,
+    weights: Option<PyReadonlyArray1<'_, f64>>,
+    weights_bar: Option<PyReadonlyArray2<'_, f64>>,
 ) -> PyResult<PyDmlResult> {
     let data = build_data(y, d, x, None, None, treatment_names, cluster)?;
     let model = Apo::from_boxed(to_regressor(ml_g)?, to_classifier(ml_m)?, treatment_level)
@@ -652,11 +688,50 @@ fn fit_apo(
         .n_folds(n_folds)
         .n_rep(n_rep)
         .seed(seed);
+    let model = with_weights!(model, weights, weights_bar);
     run_model!(py, model, data, splits)
 }
 
 /// Average potential outcomes of several treatment levels, fitted on shared
 /// sample splits (returned by `fit_apos`).
+/// A fitted policy tree (returned by `DmlResult.policy_tree`).
+#[pyclass(name = "PolicyTree", module = "dml_rs", frozen)]
+pub struct PyPolicyTree {
+    tree: dml_core::PolicyTree,
+}
+
+#[pymethods]
+impl PyPolicyTree {
+    /// Recommended treatment (1) or not (0) for each row of `features`.
+    fn predict<'py>(
+        &self,
+        py: Python<'py>,
+        features: PyReadonlyArray2<'py, f64>,
+    ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        Ok(self
+            .tree
+            .predict(features.as_array())
+            .map_err(to_py_err)?
+            .into_pyarray(py))
+    }
+
+    /// The decision rules as text.
+    #[pyo3(signature = (feature_names = None))]
+    fn export_text(&self, feature_names: Option<Vec<String>>) -> String {
+        self.tree.export_text(feature_names.as_deref())
+    }
+
+    #[getter]
+    fn n_leaves(&self) -> usize {
+        self.tree.n_leaves()
+    }
+
+    #[getter]
+    fn depth(&self) -> usize {
+        self.tree.depth()
+    }
+}
+
 #[pyclass(name = "AposResult", module = "dml_rs", frozen)]
 pub struct PyAposResult {
     inner: AposFit,
@@ -687,7 +762,7 @@ impl PyAposResult {
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g, ml_m, treatment_levels, clipping_threshold = 1e-2,
                     normalize_ipw = false, n_folds = 5, n_rep = 1, seed = 0, splits = None,
-                    cluster = None))]
+                    cluster = None, weights = None, weights_bar = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_apos(
     py: Python<'_>,
@@ -704,6 +779,8 @@ fn fit_apos(
     seed: u64,
     splits: Option<PySplits>,
     cluster: Option<PyReadonlyArray2<'_, i64>>,
+    weights: Option<PyReadonlyArray1<'_, f64>>,
+    weights_bar: Option<PyReadonlyArray2<'_, f64>>,
 ) -> PyResult<PyAposResult> {
     let data = build_data(y, d, x, None, None, None, cluster)?;
     let model = Apos::from_boxed(to_regressor(ml_g)?, to_classifier(ml_m)?, treatment_levels)
@@ -712,6 +789,7 @@ fn fit_apos(
         .n_folds(n_folds)
         .n_rep(n_rep)
         .seed(seed);
+    let model = with_weights!(model, weights, weights_bar);
     let result = match splits {
         Some(s) => {
             let s = to_splits(s);
@@ -791,8 +869,9 @@ mod dml_rs_native {
         fit_apo, fit_apos, fit_cate, fit_did, fit_iivm, fit_irm, fit_pliv, fit_plr,
         fit_staggered_did, PyAposResult, PyBlp, PyBootstrap, PyCateResult, PyDmlResult,
         PyGradientBoostingClassifier, PyGradientBoostingRegressor, PyLasso, PyLassoCV,
-        PyLogisticRegression, PyLogisticRegressionCV, PyOls, PyRandomForestClassifier,
-        PyRandomForestRegressor, PySensitivityBenchmark, PySensitivityResult, PyStaggeredResult,
+        PyLogisticRegression, PyLogisticRegressionCV, PyOls, PyPolicyTree,
+        PyRandomForestClassifier, PyRandomForestRegressor, PySensitivityBenchmark,
+        PySensitivityResult, PyStaggeredResult,
     };
 
     #[pymodule_init]

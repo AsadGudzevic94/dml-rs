@@ -72,6 +72,7 @@ pub mod fit;
 pub mod learner;
 pub(crate) mod linalg;
 pub mod model;
+pub mod policy;
 pub mod score;
 pub mod sensitivity;
 pub mod staggered;
@@ -94,9 +95,10 @@ pub use learner::{
     RandomForestRegressor, Regressor,
 };
 pub use model::{
-    Apo, Apos, AposFit, Did, DidCs, DidScore, Iivm, Irm, IrmScore, LinearScoreModel, LossKind,
-    NuisanceTarget, Pliv, Plr, PlrScore, ScoreEstimate, ScoreInput,
+    Apo, Apos, AposFit, CateSignal, Did, DidCs, DidScore, Iivm, Irm, IrmScore, LinearScoreModel,
+    LossKind, NuisanceTarget, Pliv, Plr, PlrScore, ScoreEstimate, ScoreInput,
 };
+pub use policy::PolicyTree;
 pub use score::LinearScore;
 pub use sensitivity::{
     Nu2Parts, SensitivityBenchmark, SensitivityParams, SensitivityParts, SensitivityResult,

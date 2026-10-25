@@ -12,8 +12,10 @@
 
 use ndarray::{concatenate, Array1, Array2, Axis};
 
-use super::irm::normalize_propensity;
-use super::{dml_model_api, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput};
+use super::irm::{normalize_propensity, ScoreWeights};
+use super::{
+    dml_model_api, CateSignal, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput,
+};
 use crate::cluster::ClusterFold;
 use crate::crossfit::{cross_fit_predict_proba, cross_fit_predict_subset, Fold, SampleSplitting};
 use crate::data::DmlData;
@@ -36,6 +38,7 @@ pub struct Apo {
     treatment_level: f64,
     clipping_threshold: f64,
     normalize_ipw: bool,
+    weights: Option<ScoreWeights>,
     splitting: SampleSplitting,
 }
 
@@ -59,6 +62,7 @@ impl Apo {
             treatment_level,
             clipping_threshold: 1e-2,
             normalize_ipw: false,
+            weights: None,
             splitting: SampleSplitting::default(),
         }
     }
@@ -72,6 +76,26 @@ impl Apo {
     /// Normalise the inverse-probability weights, as DoubleML's `normalize_ipw=True`.
     pub fn normalize_ipw(mut self, normalize: bool) -> Self {
         self.normalize_ipw = normalize;
+        self
+    }
+
+    /// Weighted average potential outcome, as DoubleML's `weights`:
+    /// `E[w·g(d, X)] / E[w]` (e.g. `w = 1{X ∈ G}` for a subgroup).
+    pub fn weights(mut self, weights: Array1<f64>) -> Self {
+        self.weights = Some(ScoreWeights {
+            weights,
+            weights_bar: None,
+        });
+        self
+    }
+
+    /// Weights with separate `weights_bar` for the inverse-probability
+    /// correction, one column per repetition (DoubleML's dict form).
+    pub fn weights_with_bar(mut self, weights: Array1<f64>, weights_bar: Array2<f64>) -> Self {
+        self.weights = Some(ScoreWeights {
+            weights,
+            weights_bar: Some(weights_bar),
+        });
         self
     }
 
@@ -115,6 +139,9 @@ impl LinearScoreModel for Apo {
             ));
         }
         check_clipping(self.clipping_threshold)?;
+        if let Some(w) = &self.weights {
+            w.check(data.n_obs())?;
+        }
         let d = data.treatment(0);
         let at_level = d.iter().filter(|&&v| v == self.treatment_level).count();
         if at_level == 0 || at_level == d.len() {
@@ -131,7 +158,7 @@ impl LinearScoreModel for Apo {
     }
 
     fn estimate_score(&self, input: &ScoreInput<'_>, folds: &[Fold]) -> Result<ScoreEstimate> {
-        let ScoreInput { y, d, x, .. } = *input;
+        let ScoreInput { y, d, x, rep, .. } = *input;
         let level = self.treatment_level;
         let at_level: Vec<bool> = d.iter().map(|&v| v == level).collect();
         let others: Vec<bool> = at_level.iter().map(|t| !t).collect();
@@ -151,16 +178,17 @@ impl LinearScoreModel for Apo {
             m.clone()
         };
 
-        let psi_b = &g1 + &(&treated * &(&y - &g1) / &m_adj);
-        let psi_a = Array1::from_elem(d.len(), -1.0);
+        let (w, w_bar) = ScoreWeights::ate(self.weights.as_ref(), d.len(), rep)?;
+        let psi_b = &w * &g1 + &(&w_bar * &treated * &(&y - &g1) / &m_adj);
+        let psi_a = -(&w / w.mean().expect("n > 0"));
 
         // Sensitivity: outcome residual y − ĝ(D, X), Riesz representer
         // 1{D = d} / m_d(X) and m(W, α) = 1 / m_d(X).
         let outcome_residual = &y - &(&treated * &g1) - &(&(1.0 - &treated) * &g0);
-        let riesz = &treated / &m_adj;
-        let nu2 = 2.0 / &m_adj - &riesz.mapv(|a| a * a);
+        let riesz = &w_bar * &treated / &m_adj;
+        let nu2 = 2.0 * &w * &w_bar / &m_adj - &riesz.mapv(|a| a * a);
         Ok(ScoreEstimate::new(
-            LinearScore::new(psi_a, psi_b)?,
+            LinearScore::new(psi_a, psi_b.clone())?,
             vec![("ml_g_d_lvl0", g0), ("ml_g_d_lvl1", g1), ("ml_m", m)],
         )
         .with_sensitivity(SensitivityParts {
@@ -173,7 +201,14 @@ impl LinearScoreModel for Apo {
             NuisanceTarget::regression("ml_g_d_lvl0", y.to_owned()).only_where(|i| !at_level[i]),
             NuisanceTarget::regression("ml_g_d_lvl1", y.to_owned()).only_where(|i| at_level[i]),
             NuisanceTarget::classification("ml_m", treated.clone()),
-        ]))
+        ])
+        // Conditional APOs (DoubleML's capo / gapo): the orthogonal signal ψ_b.
+        .with_cate_signal(CateSignal {
+            signal: psi_b,
+            theta_factor: None,
+            basis_scale: None,
+            is_effect: false,
+        }))
     }
 }
 
@@ -185,6 +220,7 @@ pub struct Apos {
     treatment_levels: Vec<f64>,
     clipping_threshold: f64,
     normalize_ipw: bool,
+    weights: Option<ScoreWeights>,
     splitting: SampleSplitting,
 }
 
@@ -208,6 +244,7 @@ impl Apos {
             treatment_levels,
             clipping_threshold: 1e-2,
             normalize_ipw: false,
+            weights: None,
             splitting: SampleSplitting::default(),
         }
     }
@@ -221,6 +258,26 @@ impl Apos {
     /// Normalise the inverse-probability weights, as DoubleML's `normalize_ipw=True`.
     pub fn normalize_ipw(mut self, normalize: bool) -> Self {
         self.normalize_ipw = normalize;
+        self
+    }
+
+    /// Weighted average potential outcome, as DoubleML's `weights`:
+    /// `E[w·g(d, X)] / E[w]` (e.g. `w = 1{X ∈ G}` for a subgroup).
+    pub fn weights(mut self, weights: Array1<f64>) -> Self {
+        self.weights = Some(ScoreWeights {
+            weights,
+            weights_bar: None,
+        });
+        self
+    }
+
+    /// Weights with separate `weights_bar` for the inverse-probability
+    /// correction, one column per repetition (DoubleML's dict form).
+    pub fn weights_with_bar(mut self, weights: Array1<f64>, weights_bar: Array2<f64>) -> Self {
+        self.weights = Some(ScoreWeights {
+            weights,
+            weights_bar: Some(weights_bar),
+        });
         self
     }
 
@@ -243,9 +300,16 @@ impl Apos {
     }
 
     fn level_model(&self, level: f64) -> Apo {
-        Apo::from_boxed(self.ml_g.fresh(), self.ml_m.fresh(), level)
+        let model = Apo::from_boxed(self.ml_g.fresh(), self.ml_m.fresh(), level)
             .clipping_threshold(self.clipping_threshold)
-            .normalize_ipw(self.normalize_ipw)
+            .normalize_ipw(self.normalize_ipw);
+        match &self.weights {
+            Some(w) => Apo {
+                weights: Some(w.clone()),
+                ..model
+            },
+            None => model,
+        }
     }
 
     fn check_levels(&self, data: &DmlData) -> Result<()> {

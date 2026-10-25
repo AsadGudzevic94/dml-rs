@@ -50,12 +50,21 @@ classifier for the propensity score. Propensities are clipped to
 `[clipping_threshold, 1 - clipping_threshold]` (default `0.01`); `normalize_ipw=True` normalises the
 inverse-probability weights.
 
+`weights` target a weighted average effect, as in DoubleML: with the ATE score
+$E[w\,(g_0(1, X) - g_0(0, X))] / E[w]$, for example $w = 1\{X \in G\}$ for the effect in a
+subgroup; with the ATTE score, 0/1 weights select a subgroup of the treated. A dict with
+`weights` and `weights_bar` (one column per repetition) sets the inverse-probability weights
+separately.
+
 === "Python"
 
     ```python
     model = dml_rs.IRM(ml_g, ml_m, score="ATE").fit(X, y, d)
-    model.gate(groups)    # group average treatment effects
-    model.cate(basis)     # best linear predictor of the CATE
+    model.gate(groups)              # group average treatment effects
+    model.cate(basis)               # best linear predictor of the CATE
+    model.policy_tree(features)     # who should be treated?
+
+    subgroup = dml_rs.IRM(ml_g, ml_m, weights=(age > 50).astype(float)).fit(X, y, d)
     ```
 
 === "Rust"
@@ -63,6 +72,7 @@ inverse-probability weights.
     ```rust
     let fit = Irm::new(ml_g, ml_m).score(IrmScore::Ate).fit(&data)?;
     let gate = fit.gate(groups.view())?;
+    let policy = fit.policy_tree(features.view(), 2, 8, 0.01)?;
     ```
 
 ## Multi-valued treatments (APO, APOS)
@@ -198,8 +208,15 @@ units; `anticipation_periods` shifts the reference period. Works with panels and
 
 ## Heterogeneous effects
 
-- **Best linear predictor** (`IRM.cate`) and **group average treatment effects** (`IRM.gate`,
-  `DRLearner.gate`) give inference on how the effect varies (Semenova and Chernozhukov, 2021).
+- **Best linear predictor** (`cate`) and **group average treatment effects** (`gate`) give
+  inference on how the effect varies (Semenova and Chernozhukov, 2021), for `PLR`, `IRM` (ATE
+  score) and `DRLearner`; `APO.capo` and `APO.gapo` do the same for average potential outcomes.
+  For PLR, the outcome residual is regressed on the basis scaled by the treatment residual, as in
+  DoubleML.
+- **Policy trees** (`IRM.policy_tree`) turn the estimated effects into a treatment rule: a shallow
+  decision tree classifies the sign of each unit's doubly robust effect signal, weighted by its
+  size, and is pruned by cost-complexity pruning (as DoubleML's `DoubleMLPolicyTree`; Athey and
+  Wager, 2021). `print(tree)` shows the rules, `tree.predict(features)` the recommendations.
 - **Meta-learners** estimate the conditional average treatment effect $\tau(x)$ itself:
   `SLearner`, `TLearner`, `XLearner` (Künzel et al., 2019), `RLearner` (Nie and Wager, 2021) and
   `DRLearner` (Kennedy, 2023), the last with BLP and GATE inference.

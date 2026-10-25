@@ -32,32 +32,47 @@ pub struct Blp {
 impl Blp {
     /// Regress each column of `signal` (shape `(n, n_rep)`) on `basis` (shape `(n, p)`).
     pub fn fit(signal: ArrayView2<'_, f64>, basis: ArrayView2<'_, f64>) -> Result<Self> {
+        let bases = vec![basis.to_owned(); signal.ncols()];
+        Self::fit_bases(signal, &bases)
+    }
+
+    /// BLP with a separate basis per repetition (`bases[r]` for column `r` of
+    /// `signal`), as DoubleML's `DoubleMLBLP` with a list of bases: used for
+    /// partially linear models, whose basis is scaled by each repetition's
+    /// treatment residual.
+    pub fn fit_bases(signal: ArrayView2<'_, f64>, bases: &[Array2<f64>]) -> Result<Self> {
         let (n, n_rep) = signal.dim();
-        let p = basis.ncols();
-        if basis.nrows() != n {
+        if bases.len() != n_rep {
             return Err(DmlError::DimensionMismatch(format!(
-                "basis has {} rows, signal has {n}",
-                basis.nrows()
+                "{} bases for {n_rep} repetitions",
+                bases.len()
             )));
         }
+        let p = bases.first().map_or(0, |b| b.ncols());
         if p == 0 || n_rep == 0 || n <= p {
             return Err(DmlError::InvalidArgument(
                 "BLP needs at least one basis column, one repetition and n > p".into(),
             ));
         }
-        let btb = basis.t().dot(&basis);
-        let bread = spd_inverse(&btb).map_err(|_| {
-            DmlError::InvalidArgument("basis columns are collinear (BᵀB is singular)".into())
-        })?;
         let mut all_coef = Array2::zeros((p, n_rep));
         let mut all_se = Array2::zeros((p, n_rep));
         let mut omega = Vec::with_capacity(n_rep);
-        for r in 0..n_rep {
+        for (r, basis) in bases.iter().enumerate() {
+            if basis.dim() != (n, p) {
+                return Err(DmlError::DimensionMismatch(format!(
+                    "basis {r} has shape {:?}, expected ({n}, {p})",
+                    basis.dim()
+                )));
+            }
+            let btb = basis.t().dot(basis);
+            let bread = spd_inverse(&btb).map_err(|_| {
+                DmlError::InvalidArgument("basis columns are collinear (BᵀB is singular)".into())
+            })?;
             let phi = signal.column(r);
             let beta = bread.dot(&basis.t().dot(&phi));
             let resid = &phi - &basis.dot(&beta);
             // HC0 meat: Bᵀ diag(e²) B
-            let weighted = &basis * &resid.mapv(|e| e * e).insert_axis(Axis(1));
+            let weighted = basis * &resid.mapv(|e| e * e).insert_axis(Axis(1));
             let meat = basis.t().dot(&weighted);
             let om = bread.dot(&meat).dot(&bread);
             all_se.column_mut(r).assign(&om.diag().mapv(f64::sqrt));
@@ -77,6 +92,17 @@ impl Blp {
 
     /// GATEs: BLP on mutually exclusive 0/1 group dummies.
     pub fn fit_gate(signal: ArrayView2<'_, f64>, groups: ArrayView2<'_, f64>) -> Result<Self> {
+        let bases = vec![groups.to_owned(); signal.ncols()];
+        Self::fit_gate_bases(signal, groups, &bases)
+    }
+
+    /// GATEs with a separate (scaled) basis per repetition; `groups` are the
+    /// unscaled 0/1 dummies.
+    pub(crate) fn fit_gate_bases(
+        signal: ArrayView2<'_, f64>,
+        groups: ArrayView2<'_, f64>,
+        bases: &[Array2<f64>],
+    ) -> Result<Self> {
         let valid = groups.iter().all(|&g| g == 0.0 || g == 1.0)
             && groups.rows().into_iter().all(|r| r.sum() <= 1.0);
         if !valid {
@@ -84,7 +110,7 @@ impl Blp {
                 "groups must be mutually exclusive 0/1 dummy columns".into(),
             ));
         }
-        let mut blp = Self::fit(signal, groups)?;
+        let mut blp = Self::fit_bases(signal, bases)?;
         blp.is_gate = true;
         Ok(blp)
     }

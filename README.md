@@ -55,7 +55,7 @@ tested for numerical agreement with the reference [DoubleML](https://docs.double
 | Interactive IV model | Local average treatment effect (LATE) with a binary instrument | `Iivm` | `IIVM` |
 | Difference-in-differences | ATT for panel data and repeated cross-sections | `Did`, `DidCs` | `DID`, `DIDCS` |
 | Staggered difference-in-differences | Group-time effects ATT(g, t), aggregated by cohort, period or event time | `StaggeredDid` | `StaggeredDID` |
-| Heterogeneous effects | CATE meta-learners (S, T, X, R, DR); best linear predictor and group effects (GATE) | `DrLearner`, `Blp`, … | `DRLearner`, `IRM.cate`, … |
+| Heterogeneous effects | CATE meta-learners (S, T, X, R, DR); best linear predictor and group effects (GATE) for PLR, IRM and APO; policy trees | `DrLearner`, `Blp`, `PolicyTree`, … | `DRLearner`, `PLR.cate`, `IRM.policy_tree`, … |
 
 **Inference:** standard errors and confidence intervals, multiple treatments, repeated sample
 splitting, multiplier bootstrap (normal, Bayes, wild) with simultaneous confidence bands,

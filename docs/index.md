@@ -81,7 +81,7 @@ Continue with [Getting started](getting-started.md), or browse the [examples](ex
 | Interactive IV model | Local average treatment effect (LATE) | `IIVM` | `Iivm` |
 | Difference-in-differences | ATT for panels and repeated cross-sections | `DID`, `DIDCS` | `Did`, `DidCs` |
 | Staggered difference-in-differences | Group-time effects ATT(g, t) and aggregations | `StaggeredDID` | `StaggeredDid` |
-| Heterogeneous effects | CATE meta-learners, best linear predictor, group effects | `DRLearner`, `IRM.cate`, … | `DrLearner`, `Blp`, … |
+| Heterogeneous effects | CATE meta-learners, best linear predictor, group effects, policy trees | `DRLearner`, `PLR.cate`, `IRM.policy_tree`, … | `DrLearner`, `Blp`, `PolicyTree`, … |
 
 All models share the same inference toolkit: repeated sample splitting, multiplier bootstrap with
 simultaneous confidence bands, multiple-testing adjustment, cluster-robust standard errors,

@@ -9,7 +9,8 @@ use crate::cluster::{derive_test_clusters, ClusterFold, ClusterInfo};
 use crate::crossfit::Fold;
 use crate::data::DmlData;
 use crate::error::{DmlError, Result};
-use crate::model::{LinearScoreModel, LossKind, ScoreInput};
+use crate::model::{CateSignal, LinearScoreModel, LossKind, ScoreInput};
+use crate::policy::PolicyTree;
 use crate::sensitivity::SensitivityStore;
 use crate::stats::{median, norm_ppf, norm_sf};
 
@@ -92,18 +93,24 @@ fn fit_model_impl<M: LinearScoreModel + ?Sized>(
         .mean()
         .expect("n > 0");
     let mut sensitivity = Some(SensitivityStore::new(n, k, n_rep, var_y));
+    let mut cate = Some(CateStore {
+        signal: Array3::zeros((n, k, n_rep)),
+        scale: None,
+        is_effect: true,
+    });
     let mut losses: Vec<NuisanceLoss> = Vec::new();
 
     for j in 0..k {
         let x_j = data.covariates_for(j);
-        let input = ScoreInput {
-            y: data.y(),
-            d: data.treatment(j),
-            x: x_j.view(),
-            z: data.z(),
-            t: data.time(),
-        };
         for (r, folds) in splits.iter().enumerate() {
+            let input = ScoreInput {
+                y: data.y(),
+                d: data.treatment(j),
+                x: x_j.view(),
+                z: data.z(),
+                t: data.time(),
+                rep: r,
+            };
             let est = model.estimate_score(&input, folds)?;
             let mut sol = est.score.solve()?;
             if let Some(ci) = &cluster {
@@ -158,6 +165,10 @@ fn fit_model_impl<M: LinearScoreModel + ?Sized>(
                 (Some(parts), Some(store)) => store.set(j, r, &parts.elements(sol.theta)),
                 _ => sensitivity = None,
             }
+            match (&est.cate, &mut cate) {
+                (Some(c), Some(store)) => store.set(j, r, c, sol.theta),
+                _ => cate = None,
+            }
             for (name, pred) in est.predictions {
                 let slot = match predictions.iter().position(|(nm, _)| nm == name) {
                     Some(i) => i,
@@ -191,9 +202,37 @@ fn fit_model_impl<M: LinearScoreModel + ?Sized>(
         psi_deriv,
         predictions,
         sensitivity,
+        cate,
         losses,
         cluster,
     })
+}
+
+/// Signal (and basis scale) for CATE / GATE inference, per treatment and
+/// repetition, shape `(n, k, n_rep)`.
+#[derive(Debug, Clone)]
+pub(crate) struct CateStore {
+    pub signal: Array3<f64>,
+    pub scale: Option<Array3<f64>>,
+    pub is_effect: bool,
+}
+
+impl CateStore {
+    fn set(&mut self, j: usize, r: usize, c: &CateSignal, theta: f64) {
+        let signal = match &c.theta_factor {
+            Some(f) => &c.signal - &(theta * f),
+            None => c.signal.clone(),
+        };
+        self.signal.slice_mut(ndarray::s![.., j, r]).assign(&signal);
+        self.is_effect &= c.is_effect;
+        if let Some(scale) = &c.basis_scale {
+            let dim = self.signal.dim();
+            self.scale
+                .get_or_insert_with(|| Array3::zeros(dim))
+                .slice_mut(ndarray::s![.., j, r])
+                .assign(scale);
+        }
+    }
 }
 
 /// Out-of-sample loss of one nuisance learner, per treatment and repetition.
@@ -294,6 +333,8 @@ pub struct DmlFit {
     pub(crate) predictions: Vec<(String, Array3<f64>)>,
     /// Sensitivity elements, for models that support sensitivity analysis.
     pub(crate) sensitivity: Option<SensitivityStore>,
+    /// Signal for CATE / GATE inference, for models that support it.
+    pub(crate) cate: Option<CateStore>,
     /// Out-of-sample losses of the nuisance learners.
     pub(crate) losses: Vec<NuisanceLoss>,
     /// Cluster structure, for clustered data.
@@ -413,26 +454,92 @@ impl DmlFit {
     }
 
     /// Best linear predictor of the CATE on `basis` (shape `(n, p)`, include a
-    /// constant column for an intercept), using the orthogonal signal `ψ_b`.
-    /// Valid for scores with `ψ_a = −1`, i.e. [`Irm`](crate::Irm) with the ATE score.
+    /// constant column for an intercept), with HC0 inference (Semenova and
+    /// Chernozhukov, 2021), as DoubleML's `cate`. Available for a single
+    /// treatment of [`Plr`](crate::Plr) (outcome residual on the basis scaled by
+    /// the treatment residual), [`Irm`](crate::Irm) with the ATE score and
+    /// [`Apo`](crate::Apo) (orthogonal signal on the basis).
     pub fn cate(&self, basis: ArrayView2<'_, f64>) -> Result<Blp> {
-        Blp::fit(self.orthogonal_signal()?.view(), basis)
+        let (signal, bases) = self.cate_inputs(basis)?;
+        Blp::fit_bases(signal.view(), &bases)
     }
 
     /// Group average treatment effects for mutually exclusive groups given as
-    /// 0/1 dummy columns (shape `(n, n_groups)`).
+    /// 0/1 dummy columns (shape `(n, n_groups)`), as DoubleML's `gate`.
     pub fn gate(&self, groups: ArrayView2<'_, f64>) -> Result<Blp> {
-        Blp::fit_gate(self.orthogonal_signal()?.view(), groups)
+        let (signal, bases) = self.cate_inputs(groups)?;
+        Blp::fit_gate_bases(signal.view(), groups, &bases)
     }
 
-    fn orthogonal_signal(&self) -> Result<Array2<f64>> {
-        if self.n_treat() != 1 || self.psi_a.iter().any(|&a| a != -1.0) {
+    /// Policy tree recommending treatment where the estimated effect is
+    /// positive, as DoubleML's `policy_tree` (for [`Irm`](crate::Irm) with the
+    /// ATE score, one treatment and one repetition). DoubleML's defaults:
+    /// `depth = 2`, `min_samples_leaf = 8`, `ccp_alpha = 0.01`.
+    pub fn policy_tree(
+        &self,
+        features: ArrayView2<'_, f64>,
+        depth: usize,
+        min_samples_leaf: usize,
+        ccp_alpha: f64,
+    ) -> Result<PolicyTree> {
+        let store = self.cate.as_ref().filter(|c| c.is_effect).ok_or_else(|| {
+            DmlError::InvalidArgument(format!(
+                "policy trees need a treatment-effect signal (IRM with the ATE score), not {}",
+                self.model
+            ))
+        })?;
+        if self.n_treat() != 1 || self.n_rep() != 1 {
             return Err(DmlError::InvalidArgument(
-                "CATE / GATE need a single treatment and a score with psi_a = -1 (IRM with the ATE score)"
-                    .into(),
+                "policy trees need a single treatment and one repetition (as DoubleML)".into(),
             ));
         }
-        Ok(self.psi_b.index_axis(Axis(1), 0).to_owned())
+        if features.nrows() != self.n_obs {
+            return Err(DmlError::DimensionMismatch(format!(
+                "features have {} rows, the data {}",
+                features.nrows(),
+                self.n_obs
+            )));
+        }
+        PolicyTree::fit(
+            store.signal.slice(ndarray::s![.., 0, 0]),
+            features,
+            depth,
+            min_samples_leaf,
+            ccp_alpha,
+        )
+    }
+
+    /// The signal of every repetition and the matching (scaled) bases.
+    fn cate_inputs(&self, basis: ArrayView2<'_, f64>) -> Result<(Array2<f64>, Vec<Array2<f64>>)> {
+        let store = self.cate.as_ref().ok_or_else(|| {
+            DmlError::InvalidArgument(format!(
+                "CATE / GATE are not available for {} (PLR, IRM with the ATE score and APO support them)",
+                self.model
+            ))
+        })?;
+        if self.n_treat() != 1 {
+            return Err(DmlError::InvalidArgument(
+                "CATE / GATE need a single treatment".into(),
+            ));
+        }
+        if basis.nrows() != self.n_obs {
+            return Err(DmlError::DimensionMismatch(format!(
+                "basis has {} rows, the data {}",
+                basis.nrows(),
+                self.n_obs
+            )));
+        }
+        let signal = store.signal.index_axis(Axis(1), 0).to_owned();
+        let bases = (0..self.n_rep())
+            .map(|r| match &store.scale {
+                Some(scale) => {
+                    let s = scale.slice(ndarray::s![.., 0, r]);
+                    &basis * &s.insert_axis(Axis(1))
+                }
+                None => basis.to_owned(),
+            })
+            .collect();
+        Ok((signal, bases))
     }
 
     /// Out-of-sample loss of a nuisance learner, shape `(n_treat, n_rep)`:
@@ -547,6 +654,7 @@ impl DmlFit {
             psi_deriv,
             predictions,
             sensitivity: None,
+            cate: None,
             losses: Vec::new(),
             cluster: None,
         }
@@ -608,6 +716,7 @@ impl DmlFit {
             psi_deriv: Array2::ones((n_comb, n_rep)),
             predictions: Vec::new(),
             sensitivity: None,
+            cate: None,
             losses: Vec::new(),
             cluster: self.cluster.clone(),
         }
@@ -705,6 +814,30 @@ impl DmlFit {
         }
         let stores: Option<Vec<&SensitivityStore>> =
             fits.iter().map(|f| f.sensitivity.as_ref()).collect();
+        // CATE signals stack if every fit has one and all or none scale the basis.
+        let cates: Option<Vec<&CateStore>> = fits.iter().map(|f| f.cate.as_ref()).collect();
+        let cate_store = cates.and_then(|c| {
+            let views: Vec<_> = c.iter().map(|s| s.signal.view()).collect();
+            let signal = ndarray::concatenate(Axis(1), &views).ok()?;
+            let scales: Option<Vec<_>> = c
+                .iter()
+                .map(|s| s.scale.as_ref().map(|a| a.view()))
+                .collect();
+            let is_effect = c.iter().all(|s| s.is_effect);
+            match scales {
+                Some(v) => Some(CateStore {
+                    signal,
+                    scale: Some(ndarray::concatenate(Axis(1), &v).ok()?),
+                    is_effect,
+                }),
+                None if c.iter().all(|s| s.scale.is_none()) => Some(CateStore {
+                    signal,
+                    scale: None,
+                    is_effect,
+                }),
+                None => None,
+            }
+        });
         let names: Vec<&str> = fits.iter().map(|f| f.model.as_str()).collect();
         Ok(DmlFit {
             model: if names.iter().all(|m| *m == names[0]) {
@@ -728,6 +861,7 @@ impl DmlFit {
             psi_deriv: cat2(|f| &f.psi_deriv),
             predictions,
             sensitivity: stores.map(|s| SensitivityStore::concat(&s)),
+            cate: cate_store,
             losses,
             cluster: first.cluster.clone(),
         })

@@ -33,6 +33,7 @@ __all__ = [
     "LogisticRegression",
     "LogisticRegressionCV",
     "Ols",
+    "PolicyTree",
     "RandomForestClassifier",
     "RandomForestRegressor",
     "SensitivityBenchmark",
@@ -108,6 +109,9 @@ class DmlResult:
     def sensitivity_benchmark(self, short: DmlResult) -> SensitivityBenchmark: ...
     def cate(self, basis: NDArray[np.float64]) -> Blp: ...
     def gate(self, groups: NDArray[np.float64]) -> Blp: ...
+    def policy_tree(
+        self, features: NDArray[np.float64], depth: int = 2, min_samples_leaf: int = 8, ccp_alpha: float = 0.01
+    ) -> PolicyTree: ...
 
 @final
 class Bootstrap:
@@ -187,6 +191,17 @@ class CateResult:
     def effect(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
     def blp(self, basis: NDArray[np.float64]) -> Blp: ...
     def gate(self, groups: NDArray[np.float64]) -> Blp: ...
+
+@final
+class PolicyTree:
+    """A fitted policy tree: treatment recommendations from the estimated effects."""
+
+    def predict(self, features: NDArray[np.float64]) -> NDArray[np.float64]: ...
+    def export_text(self, feature_names: Optional[list[str]] = None) -> str: ...
+    @property
+    def n_leaves(self) -> int: ...
+    @property
+    def depth(self) -> int: ...
 
 @final
 class AposResult:
@@ -417,6 +432,8 @@ def fit_irm(
     splits: Optional[_Splits] = None,
     treatment_names: Optional[list[str]] = None,
     cluster: Optional[NDArray[np.int64]] = None,
+    weights: Optional[NDArray[np.float64]] = None,
+    weights_bar: Optional[NDArray[np.float64]] = None,
 ) -> DmlResult: ...
 def fit_pliv(
     y: NDArray[np.float64],
@@ -467,6 +484,8 @@ def fit_apo(
     splits: Optional[_Splits] = None,
     treatment_names: Optional[list[str]] = None,
     cluster: Optional[NDArray[np.int64]] = None,
+    weights: Optional[NDArray[np.float64]] = None,
+    weights_bar: Optional[NDArray[np.float64]] = None,
 ) -> DmlResult: ...
 def fit_apos(
     y: NDArray[np.float64],
@@ -482,6 +501,8 @@ def fit_apos(
     seed: int = 0,
     splits: Optional[_Splits] = None,
     cluster: Optional[NDArray[np.int64]] = None,
+    weights: Optional[NDArray[np.float64]] = None,
+    weights_bar: Optional[NDArray[np.float64]] = None,
 ) -> AposResult: ...
 def fit_did(
     y: NDArray[np.float64],

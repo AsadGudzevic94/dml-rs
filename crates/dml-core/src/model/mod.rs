@@ -38,6 +38,24 @@ pub struct ScoreInput<'a> {
     pub z: Option<ArrayView1<'a, f64>>,
     /// 0/1 time-period indicator (repeated cross-sections).
     pub t: Option<ArrayView1<'a, f64>>,
+    /// Index of the sample-splitting repetition being estimated.
+    pub rep: usize,
+}
+
+/// Ingredients for best-linear-predictor inference on effect heterogeneity
+/// ([`DmlFit::cate`](crate::DmlFit::cate), [`DmlFit::gate`](crate::DmlFit::gate)):
+/// the BLP regresses `signal − θ·theta_factor` on the basis, with every row of
+/// the basis multiplied by `basis_scale` if given (partially linear models,
+/// where the signal is the outcome residual and the scale the treatment
+/// residual).
+#[derive(Debug, Clone)]
+pub struct CateSignal {
+    pub signal: Array1<f64>,
+    pub theta_factor: Option<Array1<f64>>,
+    pub basis_scale: Option<Array1<f64>>,
+    /// The signal is a (doubly robust) signal of each unit's treatment effect,
+    /// so a policy tree may be fitted on it ([`DmlFit::policy_tree`](crate::DmlFit::policy_tree)).
+    pub is_effect: bool,
 }
 
 /// Score elements plus the cross-fitted nuisance predictions behind them.
@@ -55,6 +73,8 @@ pub struct ScoreEstimate {
     pub sensitivity: Option<SensitivityParts>,
     /// What each nuisance learner predicts, for out-of-sample diagnostics.
     pub targets: Vec<NuisanceTarget>,
+    /// Signal for CATE / GATE inference, if the model supports it.
+    pub cate: Option<CateSignal>,
 }
 
 /// Loss used to evaluate a nuisance learner out of sample.
@@ -137,7 +157,14 @@ impl ScoreEstimate {
             predictions,
             sensitivity: None,
             targets: Vec::new(),
+            cate: None,
         }
+    }
+
+    /// Attach the signal for CATE / GATE inference.
+    pub fn with_cate_signal(mut self, cate: CateSignal) -> Self {
+        self.cate = Some(cate);
+        self
     }
 
     /// Attach the nuisance targets used for learner diagnostics.

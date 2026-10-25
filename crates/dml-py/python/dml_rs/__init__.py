@@ -47,6 +47,7 @@ from ._dml_rs import (
 )
 from ._blp import BLP
 from ._cate import DRLearner, RLearner, SLearner, TLearner, XLearner
+from ._policy import PolicyTree
 from ._models import APO, APOS, DID, DIDCS, IIVM, IRM, PLIV, PLR, CausalContrast, DIDAggregation, StaggeredDID
 
 __all__ = [
@@ -61,6 +62,7 @@ __all__ = [
     "APO",
     "APOS",
     "CausalContrast",
+    "PolicyTree",
     "SLearner",
     "TLearner",
     "XLearner",

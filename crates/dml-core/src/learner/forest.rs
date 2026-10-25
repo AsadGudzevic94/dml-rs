@@ -52,7 +52,7 @@ impl MaxFeatures {
 
 /// Growth limits of one CART tree (shared with gradient boosting).
 #[derive(Debug, Clone, Copy)]
-pub(super) struct TreeParams {
+pub(crate) struct TreeParams {
     pub max_depth: Option<usize>,
     pub min_samples_split: usize,
     pub min_samples_leaf: usize,
@@ -60,7 +60,7 @@ pub(super) struct TreeParams {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(super) enum Node {
+pub(crate) enum Node {
     Leaf {
         value: f64,
     },
@@ -73,7 +73,7 @@ pub(super) enum Node {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct Tree {
+pub(crate) struct Tree {
     pub nodes: Vec<Node>,
 }
 
@@ -86,7 +86,7 @@ impl Tree {
     }
 
     /// Index of the leaf node that `row` falls into.
-    pub(super) fn leaf_index(&self, row: ArrayView1<'_, f64>) -> usize {
+    pub(crate) fn leaf_index(&self, row: ArrayView1<'_, f64>) -> usize {
         let mut i = 0;
         loop {
             match self.nodes[i] {
@@ -113,7 +113,7 @@ impl Tree {
 ///
 /// Two lifetimes: `'x` for the caller's feature matrix and `'b` for the
 /// per-tree buffers, which live much shorter.
-pub(super) struct TreeBuilder<'x, 'b> {
+pub(crate) struct TreeBuilder<'x, 'b> {
     pub x: ArrayView2<'x, f64>,
     pub y: &'b [f64],
     pub w: &'b [f64],
@@ -131,7 +131,7 @@ struct Best {
 }
 
 impl TreeBuilder<'_, '_> {
-    pub(super) fn grow(mut self, rows: Vec<usize>) -> (Tree, Vec<f64>) {
+    pub(crate) fn grow(mut self, rows: Vec<usize>) -> (Tree, Vec<f64>) {
         let mut nodes = vec![Node::Leaf { value: 0.0 }];
         // Explicit stack instead of recursion: deep trees cannot overflow.
         let mut stack = vec![(0usize, rows, 0usize)];

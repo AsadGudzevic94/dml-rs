@@ -581,3 +581,33 @@ fn clustered_apos_contrasts_are_cluster_robust() {
         "iid coverage = {iid_cov} should be too low"
     );
 }
+
+#[test]
+fn plr_cate_recovers_a_linear_effect_function() {
+    // Effect θ(x) = 0.5 + 0.5·x₁: the BLP on (1, x₁) should recover both coefficients.
+    let n = 4000;
+    let mut rng = ChaCha8Rng::seed_from_u64(77);
+    let x = normal_matrix(&mut rng, n, 3);
+    let (mut d, mut y) = (Array1::zeros(n), Array1::zeros(n));
+    for i in 0..n {
+        d[i] = x[[i, 0]] + 0.5 * x[[i, 1]] + std_normal(&mut rng);
+        y[i] = (0.5 + 0.5 * x[[i, 0]]) * d[i] + x[[i, 1]] - x[[i, 2]] + std_normal(&mut rng);
+    }
+    let basis = Array2::from_shape_fn((n, 2), |(i, j)| if j == 0 { 1.0 } else { x[[i, 0]] });
+    let data = DmlData::new(y, d, x).unwrap();
+    let blp = Plr::new(Ols::new(), Ols::new())
+        .n_rep(2)
+        .fit(&data)
+        .unwrap()
+        .cate(basis.view())
+        .unwrap();
+    for (j, truth) in [0.5, 0.5].into_iter().enumerate() {
+        let z = (blp.coef()[j] - truth) / blp.se()[j];
+        assert!(
+            z.abs() < 3.0,
+            "coef {j}: {} (se {})",
+            blp.coef()[j],
+            blp.se()[j]
+        );
+    }
+}

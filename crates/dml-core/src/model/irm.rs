@@ -8,9 +8,11 @@
 //! Targets the average treatment effect (ATE) or the average treatment effect
 //! on the treated (ATTE) with the doubly robust (AIPW) score.
 
-use ndarray::{Array1, ArrayView1, ArrayView2};
+use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 
-use super::{dml_model_api, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput};
+use super::{
+    dml_model_api, CateSignal, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput,
+};
 use crate::crossfit::{cross_fit_predict_proba, cross_fit_predict_subset, Fold, SampleSplitting};
 use crate::data::DmlData;
 use crate::error::{DmlError, Result};
@@ -37,7 +39,77 @@ pub struct Irm {
     score: IrmScore,
     clipping_threshold: f64,
     normalize_ipw: bool,
+    weights: Option<ScoreWeights>,
     splitting: SampleSplitting,
+}
+
+/// Observation weights for weighted average effects (DoubleML's `weights`):
+/// `weights` enter the target, `weights_bar` (one column per repetition; by
+/// default equal to `weights`) the inverse-probability correction.
+#[derive(Debug, Clone)]
+pub(crate) struct ScoreWeights {
+    pub weights: Array1<f64>,
+    pub weights_bar: Option<Array2<f64>>,
+}
+
+impl ScoreWeights {
+    pub(crate) fn check(&self, n: usize) -> Result<()> {
+        let ok = |w: &mut dyn Iterator<Item = f64>| {
+            let (mut sum, mut all_ok) = (0.0, true);
+            for v in w {
+                all_ok &= v.is_finite() && v >= 0.0;
+                sum += v;
+            }
+            all_ok && sum > 0.0
+        };
+        if self.weights.len() != n {
+            return Err(DmlError::DimensionMismatch(format!(
+                "weights have length {}, the data {n} rows",
+                self.weights.len()
+            )));
+        }
+        if !ok(&mut self.weights.iter().copied()) {
+            return Err(DmlError::InvalidArgument(
+                "weights must be finite, non-negative and not all zero".into(),
+            ));
+        }
+        if let Some(bar) = &self.weights_bar {
+            if bar.nrows() != n || bar.ncols() == 0 {
+                return Err(DmlError::DimensionMismatch(format!(
+                    "weights_bar must have shape ({n}, n_rep), got {:?}",
+                    bar.dim()
+                )));
+            }
+            if !ok(&mut bar.iter().copied()) {
+                return Err(DmlError::InvalidArgument(
+                    "weights_bar must be finite, non-negative and not all zero".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// `(weights, weights_bar)` of repetition `rep` for an ATE-type score.
+    pub(crate) fn ate(
+        weights: Option<&ScoreWeights>,
+        n: usize,
+        rep: usize,
+    ) -> Result<(Array1<f64>, Array1<f64>)> {
+        let Some(w) = weights else {
+            return Ok((Array1::ones(n), Array1::ones(n)));
+        };
+        let bar = match &w.weights_bar {
+            None => w.weights.clone(),
+            Some(bar) if rep < bar.ncols() => bar.column(rep).to_owned(),
+            Some(bar) => {
+                return Err(DmlError::DimensionMismatch(format!(
+                    "weights_bar has {} columns, one per repetition is needed (repetition {rep})",
+                    bar.ncols()
+                )))
+            }
+        };
+        Ok((w.weights.clone(), bar))
+    }
 }
 
 impl Irm {
@@ -52,8 +124,31 @@ impl Irm {
             score: IrmScore::default(),
             clipping_threshold: 1e-2,
             normalize_ipw: false,
+            weights: None,
             splitting: SampleSplitting::default(),
         }
+    }
+
+    /// Weighted average effect, as DoubleML's `weights`: with the ATE score
+    /// `E[w·(g(1, X) − g(0, X))] / E[w]` (e.g. `w = 1{X ∈ G}` for the effect in
+    /// a subgroup); with the ATTE score `w` must be 0/1 and selects the
+    /// subgroup of the treated.
+    pub fn weights(mut self, weights: Array1<f64>) -> Self {
+        self.weights = Some(ScoreWeights {
+            weights,
+            weights_bar: None,
+        });
+        self
+    }
+
+    /// ATE weights with separate `weights_bar` for the inverse-probability
+    /// correction, one column per repetition (DoubleML's dict form).
+    pub fn weights_with_bar(mut self, weights: Array1<f64>, weights_bar: Array2<f64>) -> Self {
+        self.weights = Some(ScoreWeights {
+            weights,
+            weights_bar: Some(weights_bar),
+        });
+        self
     }
 
     pub fn score(mut self, score: IrmScore) -> Self {
@@ -113,11 +208,21 @@ impl LinearScoreModel for Irm {
                 "clipping_threshold must be in (0, 0.5)".into(),
             ));
         }
+        if let Some(w) = &self.weights {
+            w.check(data.n_obs())?;
+            if self.score == IrmScore::Atte
+                && (w.weights_bar.is_some() || w.weights.iter().any(|&v| v != 0.0 && v != 1.0))
+            {
+                return Err(DmlError::InvalidArgument(
+                    "with the ATTE score, weights must be 0/1 (without weights_bar)".into(),
+                ));
+            }
+        }
         Ok(())
     }
 
     fn estimate_score(&self, input: &ScoreInput<'_>, folds: &[Fold]) -> Result<ScoreEstimate> {
-        let ScoreInput { y, d, x, .. } = *input;
+        let ScoreInput { y, d, x, rep, .. } = *input;
         let (g0, g1, m) = irm_nuisances(
             self.ml_g.as_ref(),
             self.ml_m.as_ref(),
@@ -137,10 +242,16 @@ impl LinearScoreModel for Irm {
 
         let n = d.len();
         let (weights, weights_bar) = match self.score {
-            IrmScore::Ate => (Array1::ones(n), Array1::ones(n)),
+            IrmScore::Ate => ScoreWeights::ate(self.weights.as_ref(), n, rep)?,
             IrmScore::Atte => {
-                let p = d.mean().expect("n > 0");
-                (&d / p, &m_adj / p)
+                // The treated in the subgroup selected by the (0/1) weights.
+                let w = self
+                    .weights
+                    .as_ref()
+                    .map_or_else(|| Array1::ones(n), |w| w.weights.clone());
+                let subgroup = &w * &d;
+                let p = subgroup.mean().expect("n > 0");
+                (&subgroup / p, &m_adj * &w / p)
             }
         };
         let psi_b = &weights * &(&g1 - &g0) + &weights_bar * &ipw;
@@ -152,8 +263,8 @@ impl LinearScoreModel for Irm {
         let m_alpha = &weights * &weights_bar * &(1.0 / &m_adj + 1.0 / &(1.0 - &m_adj));
         let riesz = &weights_bar * &(&d / &m_adj - &(1.0 - &d) / &(1.0 - &m_adj));
         let nu2 = 2.0 * &m_alpha - &riesz.mapv(|a| a * a);
-        Ok(ScoreEstimate::new(
-            LinearScore::new(psi_a, psi_b)?,
+        let estimate = ScoreEstimate::new(
+            LinearScore::new(psi_a, psi_b.clone())?,
             vec![("ml_g0", g0), ("ml_g1", g1), ("ml_m", m)],
         )
         .with_sensitivity(SensitivityParts {
@@ -166,7 +277,17 @@ impl LinearScoreModel for Irm {
             NuisanceTarget::regression("ml_g0", y.to_owned()).only_where(|i| d[i] == 0.0),
             NuisanceTarget::regression("ml_g1", y.to_owned()).only_where(|i| d[i] == 1.0),
             NuisanceTarget::classification("ml_m", d.clone()),
-        ]))
+        ]);
+        // CATE / GATE: the orthogonal signal ψ_b (ATE score only, as DoubleML).
+        Ok(match self.score {
+            IrmScore::Ate => estimate.with_cate_signal(CateSignal {
+                signal: psi_b,
+                theta_factor: None,
+                basis_scale: None,
+                is_effect: true,
+            }),
+            IrmScore::Atte => estimate,
+        })
     }
 }
 

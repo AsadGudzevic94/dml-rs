@@ -24,6 +24,7 @@ All classes are available from the top-level package, e.g. `dml_rs.PLR`.
 ::: dml_rs.XLearner
 ::: dml_rs.RLearner
 ::: dml_rs.DRLearner
+::: dml_rs.PolicyTree
 
 ## Learners
 

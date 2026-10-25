@@ -7,7 +7,9 @@
 
 use ndarray::Array1;
 
-use super::{dml_model_api, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput};
+use super::{
+    dml_model_api, CateSignal, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput,
+};
 use crate::crossfit::{cross_fit_predict, Fold, SampleSplitting};
 use crate::error::{DmlError, Result};
 use crate::learner::Regressor;
@@ -107,7 +109,14 @@ impl LinearScoreModel for Plr {
                 .with_targets(vec![
                     NuisanceTarget::regression("ml_l", y.to_owned()),
                     NuisanceTarget::regression("ml_m", d.to_owned()),
-                ]))
+                ])
+                // CATE: regress y − ℓ̂ on the basis scaled by d − m̂ (as DoubleML).
+                .with_cate_signal(CateSignal {
+                    signal: u,
+                    theta_factor: None,
+                    basis_scale: Some(v),
+                    is_effect: false,
+                }))
             }
             PlrScore::IvType => {
                 let theta_init = u.dot(&v) / v.dot(&v);
@@ -129,6 +138,13 @@ impl LinearScoreModel for Plr {
                     riesz: Array1::zeros(v.len()),
                     nu2: Nu2Parts::InverseMeanSquare(v.clone()),
                 };
+                // CATE: regress y − ĝ − θ·m̂ on the basis scaled by d − m̂ (as DoubleML).
+                let cate = CateSignal {
+                    signal: resid_g.clone(),
+                    theta_factor: Some(m_hat.clone()),
+                    basis_scale: Some(v.clone()),
+                    is_effect: false,
+                };
                 Ok(ScoreEstimate::new(
                     LinearScore::new(-(&v * &d), &v * &resid_g)?,
                     vec![("ml_l", l_hat), ("ml_m", m_hat), ("ml_g", g_hat)],
@@ -138,7 +154,8 @@ impl LinearScoreModel for Plr {
                     NuisanceTarget::regression("ml_l", y.to_owned()),
                     NuisanceTarget::regression("ml_m", d.to_owned()),
                     NuisanceTarget::regression("ml_g", target),
-                ]))
+                ])
+                .with_cate_signal(cate))
             }
         }
     }

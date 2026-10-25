@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from . import _dml_rs
 from ._blp import BLP, blp_from
+from ._policy import PolicyTree
 from ._validation import _as_1d, _as_2d, _as_clusters
 
 
@@ -26,6 +27,32 @@ def _treatment_names(d):
         return [str(c) for c in columns]
     name = getattr(d, "name", None)  # pandas Series
     return [str(name)] if name is not None else None
+
+
+def _weights_args(weights: Any) -> dict[str, Any]:
+    """DoubleML's ``weights``: an array, or a dict with ``weights`` and ``weights_bar`` (n, n_rep)."""
+    if weights is None:
+        return {"weights": None, "weights_bar": None}
+    if isinstance(weights, dict):
+        if set(weights) != {"weights", "weights_bar"}:
+            raise ValueError("a weights dict must have the keys 'weights' and 'weights_bar'")
+        bar = np.ascontiguousarray(weights["weights_bar"], dtype=np.float64)
+        if bar.ndim == 1:
+            bar = bar.reshape(-1, 1)
+        return {"weights": _as_1d(weights["weights"], "weights"), "weights_bar": bar}
+    return {"weights": _as_1d(weights, "weights"), "weights_bar": None}
+
+
+class _HeterogeneityMixin:
+    """``cate`` and ``gate`` (best linear predictor inference on effect heterogeneity)."""
+
+    def cate(self, basis: ArrayLike) -> BLP:
+        """Best linear predictor of the CATE on ``basis``, as DoubleML's ``cate``."""
+        return blp_from(self._check_fitted().cate(_as_2d(basis, "basis")), basis, "b")  # type: ignore[attr-defined]
+
+    def gate(self, groups: ArrayLike) -> BLP:
+        """Group average treatment effects for mutually exclusive 0/1 group dummies, as DoubleML's ``gate``."""
+        return blp_from(self._check_fitted().gate(_as_2d(groups, "groups")), groups, "group_")  # type: ignore[attr-defined]
 
 
 def _rmse(y_true, y_pred):
@@ -245,7 +272,7 @@ class _DMLEstimator(_Params):
         return str(self.result_) if hasattr(self, "result_") else repr(self)
 
 
-class PLR(_DMLEstimator):
+class PLR(_HeterogeneityMixin, _DMLEstimator):
     """Partially linear regression ``Y = θ·D + g(X) + ε``.
 
     Parameters
@@ -304,7 +331,7 @@ class PLR(_DMLEstimator):
         return self._store(result)
 
 
-class IRM(_DMLEstimator):
+class IRM(_HeterogeneityMixin, _DMLEstimator):
     """Interactive regression model for a binary treatment (ATE or ATTE).
 
     Parameters
@@ -314,6 +341,9 @@ class IRM(_DMLEstimator):
     score : ``"ATE"`` or ``"ATTE"``.
     clipping_threshold : propensities are clipped to ``[t, 1 - t]``.
     normalize_ipw : normalise the inverse-probability weights.
+    weights : weighted average effect, as DoubleML: an array ``w`` (ATE score: ``E[w (g1 - g0)] /
+        E[w]``; ATTE score: 0/1 weights selecting a subgroup of the treated) or a dict with
+        ``weights`` and ``weights_bar`` of shape ``(n, n_rep)`` (ATE score).
     """
 
     def __init__(
@@ -326,6 +356,7 @@ class IRM(_DMLEstimator):
         n_folds: int = 5,
         n_rep: int = 1,
         random_state: int = 0,
+        weights: Any = None,
     ) -> None:
         self.ml_g = ml_g
         self.ml_m = ml_m
@@ -335,6 +366,7 @@ class IRM(_DMLEstimator):
         self.n_folds = n_folds
         self.n_rep = n_rep
         self.random_state = random_state
+        self.weights = weights
 
     def fit(
         self,
@@ -350,16 +382,18 @@ class IRM(_DMLEstimator):
             score=self.score, clipping_threshold=self.clipping_threshold, normalize_ipw=self.normalize_ipw,
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
+            **_weights_args(self.weights),
         )
         return self._store(result)
 
-    def cate(self, basis: ArrayLike) -> BLP:
-        """Best linear predictor of the CATE on ``basis`` (ATE score), as DoubleML's ``cate``."""
-        return blp_from(self._check_fitted().cate(_as_2d(basis, "basis")), basis, "b")
-
-    def gate(self, groups: ArrayLike) -> BLP:
-        """Group average treatment effects for 0/1 group dummies (ATE score), as DoubleML's ``gate``."""
-        return blp_from(self._check_fitted().gate(_as_2d(groups, "groups")), groups, "group_")
+    def policy_tree(
+        self, features: ArrayLike, depth: int = 2, min_samples_leaf: int = 8, ccp_alpha: float = 0.01
+    ) -> PolicyTree:
+        """Policy tree recommending treatment where the estimated effect is positive (ATE score, one
+        repetition), as DoubleML's ``policy_tree``: a decision tree of the sign of the orthogonal
+        signal weighted by its size, pruned with cost-complexity ``ccp_alpha``."""
+        native = self._check_fitted().policy_tree(_as_2d(features, "features"), depth, min_samples_leaf, ccp_alpha)
+        return PolicyTree(native, features)
 
 
 class IIVM(_DMLEstimator):
@@ -689,7 +723,9 @@ class APO(_DMLEstimator):
         n_folds: int = 5,
         n_rep: int = 1,
         random_state: int = 0,
+        weights: Any = None,
     ) -> None:
+        self.weights = weights
         self.ml_g = ml_g
         self.ml_m = ml_m
         self.treatment_level = treatment_level
@@ -713,8 +749,17 @@ class APO(_DMLEstimator):
             float(self.treatment_level), clipping_threshold=self.clipping_threshold,
             normalize_ipw=self.normalize_ipw, n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
+            **_weights_args(self.weights),
         )
         return self._store(result)
+
+    def capo(self, basis: ArrayLike) -> BLP:
+        """Best linear predictor of the conditional average potential outcome, as DoubleML's ``capo``."""
+        return blp_from(self._check_fitted().cate(_as_2d(basis, "basis")), basis, "b")
+
+    def gapo(self, groups: ArrayLike) -> BLP:
+        """Group average potential outcomes for 0/1 group dummies, as DoubleML's ``gapo``."""
+        return blp_from(self._check_fitted().gate(_as_2d(groups, "groups")), groups, "group_")
 
 
 class CausalContrast(_DMLEstimator):
@@ -750,7 +795,9 @@ class APOS(_DMLEstimator):
         n_folds: int = 5,
         n_rep: int = 1,
         random_state: int = 0,
+        weights: Any = None,
     ) -> None:
+        self.weights = weights
         self.ml_g = ml_g
         self.ml_m = ml_m
         self.treatment_levels = treatment_levels
@@ -774,6 +821,7 @@ class APOS(_DMLEstimator):
             _as_1d(y, "y"), _as_2d(_as_1d(d, "d"), "d"), _as_2d(X, "X"), self.ml_g, self.ml_m, levels,
             clipping_threshold=self.clipping_threshold, normalize_ipw=self.normalize_ipw, n_folds=self.n_folds,
             n_rep=self.n_rep, seed=self.random_state, splits=_splits(folds), cluster=_as_clusters(cluster),
+            **_weights_args(self.weights),
         )
         return self._store(self._apos.levels)
 

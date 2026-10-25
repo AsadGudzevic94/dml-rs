@@ -48,5 +48,7 @@ GitHub's "Cite this repository" button provides the same information from
   heterogeneous treatment effects using machine learning. *PNAS*, 116(10), 4156–4165.
 - Nie, X., & Wager, S. (2021). Quasi-oracle estimation of heterogeneous treatment effects.
   *Biometrika*, 108(2), 299–319.
+- Athey, S., & Wager, S. (2021). Policy learning with observational data. *Econometrica*, 89(1),
+  133–161.
 - Kennedy, E. H. (2023). Towards optimal doubly robust estimation of heterogeneous causal effects.
   *Electronic Journal of Statistics*, 17(2), 3008–3049.

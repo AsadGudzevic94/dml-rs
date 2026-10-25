@@ -7,6 +7,19 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- CATE / GATE for PLR, as DoubleML's `DoubleMLPLR.cate` / `gate` (both scores: the outcome
+  residual on the basis scaled by each repetition's treatment residual), and conditional average
+  potential outcomes for APO (`capo` / `gapo`). Models declare their signal through the new
+  `CateSignal` (`ScoreEstimate::with_cate_signal`); `Blp::fit_bases` takes one basis per
+  repetition.
+- `weights` for IRM and APO, as DoubleML: weighted average effects (e.g. the effect in a subgroup),
+  0/1 subgroup weights with the ATTE score, and separate per-repetition `weights_bar`. Python:
+  `IRM(weights=...)` / `APO(weights=...)` with an array or DoubleML's dict form.
+- Policy trees, as DoubleML's `DoubleMLPolicyTree`: `DmlFit::policy_tree` / `IRM.policy_tree` fit a
+  shallow decision tree to the sign of the doubly robust effect signal, weighted by its size, with
+  scikit-learn's growth rules and minimal cost-complexity pruning (same pruning order), and give
+  treatment recommendations and the rules as text. Python: `dml_rs.PolicyTree`.
+- `ScoreInput::rep`, the index of the repetition being estimated.
 - Multi-valued treatments, as DoubleML's `DoubleMLAPO` and `DoubleMLAPOS`: `Apo` estimates the
   average potential outcome `E[Y(d)]` of one treatment level with the doubly robust score;
   `Apos` fits several levels on shared sample splits, and `AposFit::causal_contrast` gives the
