@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-25
+
 ### Added
 - CATE / GATE for PLR, as DoubleML's `DoubleMLPLR.cate` / `gate` (both scores: the outcome
   residual on the basis scaled by each repetition's treatment residual), and conditional average
@@ -43,6 +45,13 @@ All notable changes to this project are documented here. The format follows
   (mypy, pyright) check calls, e.g. invalid `score` or `scoring` values. CI checks the stubs
   against the compiled extension with `mypy.stubtest` and type-checks the package.
 
+### Changed
+- Linear combinations of clustered fits (APOS contrasts) keep the cluster structure and use the
+  cluster-robust variance of the combined score; DoubleML's framework arithmetic ignores the
+  correlation within clusters there.
+- `LinearScoreModel` has an optional `strata` method: models can stratify their default sample
+  splits (used by `Apo`).
+
 ## [0.9.0] - 2026-10-24
 
 ### Added
@@ -62,11 +71,6 @@ All notable changes to this project are documented here. The format follows
   `irm_ate_lasso_cv_logit_cv`) and `parity/bench_cv.py`.
 
 ### Changed
-- Linear combinations of clustered fits (APOS contrasts) keep the cluster structure and use the
-  cluster-robust variance of the combined score; DoubleML's framework arithmetic ignores the
-  correlation within clusters there.
-- `LinearScoreModel` has an optional `strata` method: models can stratify their default sample
-  splits (used by `Apo`).
 - `Lasso` now follows scikit-learn's coordinate descent exactly: the stopping rule is
   scikit-learn's (after a sweep in which no coefficient moves by more than `tol · max|w|`, the
   duality gap must be at most `tol · ‖y − ȳ‖² / n`), the default `tol` is scikit-learn's `1e-4`
@@ -218,7 +222,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.6.0...v0.7.0
