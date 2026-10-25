@@ -9,7 +9,8 @@ use crate::error::{DmlError, Result};
 /// - `y`: outcome, length `n`
 /// - `d`: one or more treatments, shape `(n, k)` (continuous or 0/1)
 /// - `x`: covariates / confounders, shape `(n, p)`
-/// - `z`: optional instrument, length `n` (for [`Pliv`](crate::Pliv) and, binary, [`Iivm`](crate::Iivm))
+/// - `z`: optional instrument(s), length `n` (for [`Pliv`](crate::Pliv), which also takes several,
+///   and, binary, [`Iivm`](crate::Iivm))
 /// - `t`: optional 0/1 time-period indicator (for repeated cross-sections, [`DidCs`](crate::DidCs))
 /// - `s`: optional 0/1 selection indicator, 1 where the outcome is observed (for [`Ssm`](crate::Ssm))
 ///
@@ -20,7 +21,7 @@ pub struct DmlData {
     y: Array1<f64>,
     d: Array2<f64>,
     x: Array2<f64>,
-    z: Option<Array1<f64>>,
+    z: Option<Array2<f64>>,
     t: Option<Array1<f64>>,
     s: Option<Array1<f64>>,
     clusters: Option<Vec<Array1<i64>>>,
@@ -82,13 +83,25 @@ impl DmlData {
     }
 
     /// Attach an instrument `z` (required by [`Pliv`](crate::Pliv)).
-    pub fn with_instrument(mut self, z: Array1<f64>) -> Result<Self> {
-        if z.len() != self.n_obs() {
+    pub fn with_instrument(self, z: Array1<f64>) -> Result<Self> {
+        let n = z.len();
+        self.with_instruments(z.into_shape_with_order((n, 1)).expect("1-D to (n, 1)"))
+    }
+
+    /// Attach several instruments, one per column ([`Pliv`](crate::Pliv)
+    /// combines them; the other instrumental models need exactly one).
+    pub fn with_instruments(mut self, z: Array2<f64>) -> Result<Self> {
+        if z.nrows() != self.n_obs() {
             return Err(DmlError::DimensionMismatch(format!(
                 "z has {} rows, expected {}",
-                z.len(),
+                z.nrows(),
                 self.n_obs()
             )));
+        }
+        if z.ncols() == 0 {
+            return Err(DmlError::InvalidArgument(
+                "need at least one instrument".into(),
+            ));
         }
         if !all_finite(z.iter()) {
             return Err(DmlError::InvalidArgument(
@@ -228,8 +241,21 @@ impl DmlData {
         self.x.view()
     }
 
+    /// The instrument, if exactly one is attached.
     pub fn z(&self) -> Option<ArrayView1<'_, f64>> {
+        self.z
+            .as_ref()
+            .filter(|z| z.ncols() == 1)
+            .map(|z| z.column(0))
+    }
+
+    /// All instruments, one per column.
+    pub fn instruments(&self) -> Option<ArrayView2<'_, f64>> {
         self.z.as_ref().map(|z| z.view())
+    }
+
+    pub fn n_instruments(&self) -> usize {
+        self.z.as_ref().map_or(0, |z| z.ncols())
     }
 
     /// The 0/1 time-period indicator, if attached.
@@ -313,6 +339,20 @@ mod tests {
             array![[5.0, 1.0, 100.0], [6.0, 2.0, 200.0]]
         );
         assert!(matches!(data.covariates_for(0), Cow::Owned(_)));
+    }
+
+    #[test]
+    fn several_instruments() {
+        let data = DmlData::new(array![1.0, 2.0], array![0.0, 1.0], array![[1.0], [2.0]]).unwrap();
+        let two = data
+            .clone()
+            .with_instruments(array![[1.0, 0.5], [0.0, 2.0]])
+            .unwrap();
+        assert_eq!(two.n_instruments(), 2);
+        assert!(two.z().is_none());
+        assert_eq!(two.instruments().unwrap().dim(), (2, 2));
+        let one = data.with_instrument(array![1.0, 0.0]).unwrap();
+        assert_eq!(one.z().unwrap().to_vec(), vec![1.0, 0.0]);
     }
 
     #[test]

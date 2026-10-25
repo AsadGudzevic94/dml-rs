@@ -103,6 +103,11 @@ fn check_data(data: &DmlData, instrument: bool) -> Result<()> {
             "quantile models do not support clustered data".into(),
         ));
     }
+    if instrument && data.n_instruments() > 1 {
+        return Err(DmlError::InvalidArgument(
+            "LPQ needs exactly one instrument".into(),
+        ));
+    }
     match (instrument, data.z()) {
         (true, None) => Err(DmlError::InvalidArgument(
             "LPQ needs a binary instrument (DmlData::with_instrument)".into(),

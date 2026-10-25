@@ -662,13 +662,23 @@ class StaggeredDID(_DMLEstimator):
 
 
 class PLIV(_DMLEstimator):
-    """Partially linear IV regression with one instrument ``z``.
+    """Partially linear IV regression with one or several instruments ``z`` (one column each), as
+    DoubleML's ``DoubleMLPLIV``.
+
+    With ``partial="X"`` (default) ``X`` is partialled out of ``Y``, ``D`` and every instrument;
+    several instruments are combined by projecting the treatment residual on the instrument
+    residuals (two-stage least squares). ``partial="Z"`` uses ``E[D | X, Z]`` (``ml_r``) as
+    instrument, and ``partial="XZ"`` partials out both (DoubleML's ``_partialZ`` / ``_partialXZ``).
 
     Parameters
     ----------
-    ml_l : regressor for ``E[Y | X]``.
-    ml_m : regressor for ``E[Z | X]``.
-    ml_r : regressor for ``E[D | X]``.
+    ml_l : regressor for ``E[Y | X]`` (not used with ``partial="Z"``).
+    ml_m : regressor for ``E[Z | X]``; with ``partial="XZ"`` for ``E[D | X, Z]`` (not used with ``"Z"``).
+    ml_r : regressor for ``E[D | X]``; with ``partial="Z"`` for ``E[D | X, Z]``; with ``"XZ"`` for
+        the projection of ``ml_m``'s in-sample predictions on ``X``.
+    ml_g : regressor for ``E[Y - θD | X]``, used by ``score="IV-type"`` (default: a copy of ``ml_l``).
+    score : ``"partialling out"`` or ``"IV-type"`` (one instrument, ``partial="X"``).
+    partial : ``"X"``, ``"Z"`` or ``"XZ"``.
     """
 
     def __init__(
@@ -676,6 +686,9 @@ class PLIV(_DMLEstimator):
         ml_l: Any,
         ml_m: Any,
         ml_r: Any,
+        ml_g: Any = None,
+        score: Literal["partialling out", "IV-type"] = "partialling out",
+        partial: Literal["X", "Z", "XZ"] = "X",
         n_folds: int = 5,
         n_rep: int = 1,
         random_state: int = 0,
@@ -683,6 +696,9 @@ class PLIV(_DMLEstimator):
         self.ml_l = ml_l
         self.ml_m = ml_m
         self.ml_r = ml_r
+        self.ml_g = ml_g
+        self.score = score
+        self.partial = partial
         self.n_folds = n_folds
         self.n_rep = n_rep
         self.random_state = random_state
@@ -697,7 +713,8 @@ class PLIV(_DMLEstimator):
         cluster: Optional[ArrayLike] = None,
     ) -> Self:
         result = _dml_rs.fit_pliv(
-            _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), _as_1d(z, "z"), self.ml_l, self.ml_m, self.ml_r,
+            _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), _as_2d(z, "z"), self.ml_l, self.ml_m, self.ml_r,
+            ml_g=self.ml_g, score=self.score, partial=self.partial,
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
         )

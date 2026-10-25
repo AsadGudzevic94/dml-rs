@@ -592,7 +592,7 @@ impl StaggeredDid {
                     psi_b[[obs, i, r]] = est.score.psi_b[pos];
                 }
                 for (name, pred) in est.predictions {
-                    let slot = match predictions.iter().position(|(nm, _)| nm == name) {
+                    let slot = match predictions.iter().position(|(nm, _)| *nm == name) {
                         Some(s) => s,
                         None => {
                             predictions.push((

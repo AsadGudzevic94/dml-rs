@@ -6,8 +6,8 @@ mod common;
 use common::{assert_all_close, assert_close, to_matrix, to_vec, Fixture};
 use dml_core::{
     Apo, Apos, Cvar, Did, DidCs, DidScore, DmlFit, Iivm, Irm, IrmScore, Lplr, LplrScore, Lpq,
-    PAdjust, PanelApproach, Pliv, Plpr, Plr, PlrScore, Pq, Qte, Ssm, SsmScore, StaticPanel,
-    TreatmentLearner,
+    PAdjust, PanelApproach, Pliv, PlivScore, PlivVariant, Plpr, Plr, PlrScore, Pq, Qte, Ssm,
+    SsmScore, StaticPanel, TreatmentLearner,
 };
 use ndarray::{Array1, Array2};
 
@@ -57,14 +57,23 @@ fn fit_fixture_on(fx: &Fixture, data: &dml_core::DmlData) -> DmlFit {
                 .normalize_ipw(fx.option_bool("normalize_ipw"));
             fit!(irm)
         }
-        "pliv" => {
-            let pliv = Pliv::from_boxed(
+        kind @ ("pliv" | "pliv_partial_xz") => {
+            let mut pliv = Pliv::from_boxed(
                 fx.regressor("ml_l"),
                 fx.regressor("ml_m"),
                 fx.regressor("ml_r"),
             );
+            if kind == "pliv_partial_xz" {
+                pliv = pliv.variant(PlivVariant::PartialXZ);
+            }
+            if fx.option_str("score") == "IV-type" {
+                pliv = pliv
+                    .score(PlivScore::IvType)
+                    .ml_g_boxed(fx.regressor("ml_g"));
+            }
             fit!(pliv)
         }
+        "pliv_partial_z" => fit!(Pliv::partial_z_boxed(fx.regressor("ml_r"))),
         "iivm" => {
             let sub = &fx.0["options"]["subgroups"];
             let flag = |k: &str| sub[k].as_bool().unwrap_or(true);
@@ -653,6 +662,19 @@ fn qte_repeated_splits() {
             );
         }
     }
+}
+
+#[test]
+fn pliv_ivtype_and_several_instruments() {
+    check("pliv_ivtype", TOL);
+    check("pliv_two_instruments_rep2", TOL);
+    check("pliv_three_instruments", TOL);
+}
+
+#[test]
+fn pliv_partial_z_and_xz() {
+    check("pliv_partial_z", TOL);
+    check("pliv_partial_xz", TOL);
 }
 
 #[test]

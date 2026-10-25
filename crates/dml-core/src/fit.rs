@@ -108,6 +108,7 @@ fn fit_model_impl<M: LinearScoreModel + ?Sized>(
                 d: data.treatment(j),
                 x: x_j.view(),
                 z: data.z(),
+                instruments: data.instruments(),
                 t: data.time(),
                 s: data.selection(),
                 rep: r,
@@ -171,7 +172,7 @@ fn fit_model_impl<M: LinearScoreModel + ?Sized>(
                 _ => cate = None,
             }
             for (name, pred) in est.predictions {
-                let slot = match predictions.iter().position(|(nm, _)| nm == name) {
+                let slot = match predictions.iter().position(|(nm, _)| *nm == name) {
                     Some(i) => i,
                     None => {
                         predictions

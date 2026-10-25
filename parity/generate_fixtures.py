@@ -72,6 +72,8 @@ def fit_case(name, model_kind, data, arrays, learners, options, n_folds=5, n_rep
         "plr": dml.DoubleMLPLR,
         "irm": dml.DoubleMLIRM,
         "pliv": dml.DoubleMLPLIV,
+        "pliv_partial_z": dml.DoubleMLPLIV._partialZ,
+        "pliv_partial_xz": dml.DoubleMLPLIV._partialXZ,
         "iivm": dml.DoubleMLIIVM,
         "did": dml.DoubleMLDID,
         "did_cs": dml.DoubleMLDIDCS,
@@ -99,7 +101,9 @@ def fit_case(name, model_kind, data, arrays, learners, options, n_folds=5, n_rep
             k: np.transpose(v, (2, 1, 0)).tolist() for k, v in model.predictions.items() if v is not None
         },
         # nuisance_loss[learner] has shape (n_rep, n_coefs): RMSE or log loss
-        "nuisance_loss": {k: np.asarray(v).tolist() for k, v in model.nuisance_loss.items()},
+        # Learners without targets (e.g. fold-specific ones) have no loss.
+        "nuisance_loss": {k: np.asarray(v).tolist() for k, v in model.nuisance_loss.items()
+                          if not np.all(np.isnan(v))},
         "p_bonferroni": model.p_adjust("bonferroni")["pval"].tolist(),
         "p_holm": model.p_adjust("holm")["pval"].tolist(),
     }
@@ -711,13 +715,17 @@ def irm_cate(name, seed):
     return case
 
 
-def pliv(name, seed, n_rep=1):
+def pliv(name, seed, n_rep=1, score="partialling out", dim_z=1, kind="pliv"):
     np.random.seed(seed)
-    x, y, d, z = make_pliv_CHS2015(n_obs=500, alpha=1.0, dim_x=20, dim_z=1, return_type="array")
-    z = np.asarray(z).reshape(-1)
+    x, y, d, z = make_pliv_CHS2015(n_obs=500, alpha=1.0, dim_x=20, dim_z=dim_z, return_type="array")
+    z = np.asarray(z).reshape(-1) if dim_z == 1 else np.asarray(z)
     data = dml.DoubleMLData.from_arrays(x, y, d, z=z)
-    return fit_case(name, "pliv", data, {"x": x, "y": y, "d": d, "z": z},
-                    {"ml_l": OLS, "ml_m": OLS, "ml_r": OLS}, {"score": "partialling out"}, n_rep=n_rep, seed=seed)
+    learners = {"pliv": {"ml_l": OLS, "ml_m": OLS, "ml_r": OLS}, "pliv_partial_z": {"ml_r": OLS},
+                "pliv_partial_xz": {"ml_l": OLS, "ml_m": OLS, "ml_r": OLS}}[kind]
+    if score == "IV-type":
+        learners["ml_g"] = OLS
+    return fit_case(name, kind, data, {"x": x, "y": y, "d": d, "z": z}, learners, {"score": score},
+                    n_rep=n_rep, seed=seed)
 
 
 CASES = [
@@ -735,6 +743,11 @@ CASES = [
     lambda: irm("irm_atte", 22, "ATTE"),
     lambda: irm("irm_ate_normalized", 23, "ATE", normalize_ipw=True),
     lambda: pliv("pliv_ols", 31, n_rep=2),
+    lambda: pliv("pliv_ivtype", 32, score="IV-type"),
+    lambda: pliv("pliv_two_instruments_rep2", 33, dim_z=2, n_rep=2),
+    lambda: pliv("pliv_three_instruments", 34, dim_z=3),
+    lambda: pliv("pliv_partial_z", 35, dim_z=2, kind="pliv_partial_z"),
+    lambda: pliv("pliv_partial_xz", 36, dim_z=2, kind="pliv_partial_xz"),
     lambda: irm_cate("irm_cate_gate", 41),
     lambda: iivm("iivm_late_rep2", 51, n_rep=2),
     lambda: iivm("iivm_no_always_takers", 52, subgroups={"always_takers": False, "never_takers": True}),

@@ -4,8 +4,8 @@
 
 use dml_core::{
     Apo, Apos, AposFit, BootstrapMethod, Cvar, Did, DidCs, DidScore, DmlData, DmlFit, Fold, Iivm,
-    Irm, IrmScore, Lplr, LplrScore, Lpq, PAdjust, PanelApproach, Pliv, Plpr, Plr, PlrScore, Pq,
-    Qte, QteFit, Ssm, SsmScore, StaticPanel, TreatmentLearner,
+    Irm, IrmScore, Lplr, LplrScore, Lpq, PAdjust, PanelApproach, Pliv, PlivScore, PlivVariant,
+    Plpr, Plr, PlrScore, Pq, Qte, QteFit, Ssm, SsmScore, StaticPanel, TreatmentLearner,
 };
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -585,19 +585,36 @@ fn fit_irm(
     run_model!(py, model, data, splits)
 }
 
+/// A learner the chosen PLIV variant needs.
+fn required<'a, 'py>(
+    learner: Option<&'a Bound<'py, PyAny>>,
+    partial: &str,
+    name: &str,
+) -> PyResult<&'a Bound<'py, PyAny>> {
+    learner
+        .ok_or_else(|| PyValueError::new_err(format!("PLIV with partial={partial:?} needs {name}")))
+}
+
+/// Partially linear IV regression; `z` has one column per instrument.
+/// `partial` is `"X"` (default), `"Z"` (only `ml_r`, learning `E[D | X, Z]`)
+/// or `"XZ"`.
 #[pyfunction]
-#[pyo3(signature = (y, d, x, z, ml_l, ml_m, ml_r, n_folds = 5, n_rep = 1, seed = 0,
-                    splits = None, treatment_names = None, cluster = None))]
+#[pyo3(signature = (y, d, x, z, ml_l, ml_m, ml_r, ml_g = None, score = "partialling out",
+                    partial = "X", n_folds = 5, n_rep = 1, seed = 0, splits = None,
+                    treatment_names = None, cluster = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_pliv(
     py: Python<'_>,
     y: PyReadonlyArray1<'_, f64>,
     d: PyReadonlyArray2<'_, f64>,
     x: PyReadonlyArray2<'_, f64>,
-    z: PyReadonlyArray1<'_, f64>,
-    ml_l: &Bound<'_, PyAny>,
-    ml_m: &Bound<'_, PyAny>,
+    z: PyReadonlyArray2<'_, f64>,
+    ml_l: Option<&Bound<'_, PyAny>>,
+    ml_m: Option<&Bound<'_, PyAny>>,
     ml_r: &Bound<'_, PyAny>,
+    ml_g: Option<&Bound<'_, PyAny>>,
+    score: &str,
+    partial: &str,
     n_folds: usize,
     n_rep: usize,
     seed: u64,
@@ -605,15 +622,43 @@ fn fit_pliv(
     treatment_names: Option<Vec<String>>,
     cluster: Option<PyReadonlyArray2<'_, i64>>,
 ) -> PyResult<PyDmlResult> {
-    let data = build_data(y, d, x, Some(z), None, treatment_names, cluster)?;
-    let model = Pliv::from_boxed(
-        to_regressor(ml_l)?,
-        to_regressor(ml_m)?,
-        to_regressor(ml_r)?,
-    )
+    let score = match score {
+        "partialling out" => PlivScore::PartiallingOut,
+        "IV-type" => PlivScore::IvType,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown PLIV score {other:?}"
+            )))
+        }
+    };
+    let data = build_data(y, d, x, None, None, treatment_names, cluster)?
+        .with_instruments(z.as_array().to_owned())
+        .map_err(to_py_err)?;
+    let mut model = match partial {
+        "X" | "XZ" => Pliv::from_boxed(
+            to_regressor(required(ml_l, partial, "ml_l")?)?,
+            to_regressor(required(ml_m, partial, "ml_m")?)?,
+            to_regressor(ml_r)?,
+        )
+        .variant(if partial == "X" {
+            PlivVariant::PartialX
+        } else {
+            PlivVariant::PartialXZ
+        }),
+        "Z" => Pliv::partial_z_boxed(to_regressor(ml_r)?),
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown partial {other:?} (use 'X', 'Z' or 'XZ')"
+            )))
+        }
+    }
+    .score(score)
     .n_folds(n_folds)
     .n_rep(n_rep)
     .seed(seed);
+    if let Some(g) = ml_g {
+        model = model.ml_g_boxed(to_regressor(g)?);
+    }
     run_model!(py, model, data, splits)
 }
 

@@ -164,6 +164,7 @@ impl Fixture {
         }
         .unwrap();
         let data = match self.0.get("z") {
+            Some(z) if z[0].is_array() => data.with_instruments(to_matrix(z)).unwrap(),
             Some(z) => data.with_instrument(to_vec(z)).unwrap(),
             None => data,
         };

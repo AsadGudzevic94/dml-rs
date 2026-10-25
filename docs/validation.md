@@ -26,7 +26,7 @@ losses.
 | `apo_*`, `apos_rep2` | Average potential outcomes, causal contrasts and their sensitivity bounds |
 | `pq_*`, `lpq_t1`, `cvar_*`, `qte_rep2` | Potential, local potential and CVaR quantiles for both treatment levels, with and without normalised weights, and quantile treatment effects |
 | `ssm_*` | Sample selection, missing at random and nonignorable, with and without normalised weights |
-| `pliv_ols`, `iivm_late_rep2`, `iivm_no_always_takers` | PLIV and IIVM, including one-sided non-compliance |
+| `pliv_ols`, `pliv_ivtype`, `pliv_*_instruments*`, `pliv_partial_z`, `pliv_partial_xz`, `iivm_late_rep2`, `iivm_no_always_takers` | PLIV and IIVM, including one-sided non-compliance |
 | `did_panel_*`, `did_cs_*` | Two-period DiD for panels and cross-sections, all score and normalisation variants |
 | `staggered_*`, `staggered_cs_*` | Staggered DiD: every ATT(g, t) and all aggregations |
 | `plr_cluster_*`, `irm_cluster_one_way`, `pliv_cluster_two_way` | One-way and two-way clustering |

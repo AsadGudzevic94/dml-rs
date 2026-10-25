@@ -98,9 +98,9 @@ pub use learner::{
 };
 pub use model::{
     Apo, Apos, AposFit, CateSignal, Cvar, Did, DidCs, DidScore, FirstStage, Iivm, Irm, IrmScore,
-    LinearScoreModel, LossKind, Lplr, LplrScore, Lpq, NuisanceTarget, PanelApproach, Pliv, Plpr,
-    Plr, PlrScore, Pq, Qte, QteFit, RdFlex, RdFlexFit, RdKernel, ScoreEstimate, ScoreInput, Ssm,
-    SsmScore, StaticPanel, TreatmentLearner,
+    LinearScoreModel, LossKind, Lplr, LplrScore, Lpq, Name, NuisanceTarget, PanelApproach, Pliv,
+    PlivScore, PlivVariant, Plpr, Plr, PlrScore, Pq, Qte, QteFit, RdFlex, RdFlexFit, RdKernel,
+    ScoreEstimate, ScoreInput, Ssm, SsmScore, StaticPanel, TreatmentLearner,
 };
 pub use policy::PolicyTree;
 pub use score::LinearScore;

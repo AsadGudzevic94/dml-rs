@@ -27,7 +27,7 @@ pub use did::{Did, DidCs, DidScore};
 pub use iivm::Iivm;
 pub use irm::{Irm, IrmScore};
 pub use lplr::{Lplr, LplrScore, TreatmentLearner};
-pub use pliv::Pliv;
+pub use pliv::{Pliv, PlivScore, PlivVariant};
 pub use plpr::{PanelApproach, Plpr, StaticPanel};
 pub use plr::{Plr, PlrScore};
 pub use quantile::{Cvar, Lpq, Pq, Qte, QteFit};
@@ -47,6 +47,8 @@ pub struct ScoreInput<'a> {
     /// Covariates, including any other treatments.
     pub x: ArrayView2<'a, f64>,
     pub z: Option<ArrayView1<'a, f64>>,
+    /// All instruments (several for [`Pliv`]).
+    pub instruments: Option<ArrayView2<'a, f64>>,
     /// 0/1 time-period indicator (repeated cross-sections).
     pub t: Option<ArrayView1<'a, f64>>,
     /// 0/1 selection indicator (sample selection models).
@@ -80,7 +82,7 @@ pub struct CateSignal {
 pub struct ScoreEstimate {
     pub score: LinearScore,
     /// `(name, out-of-fold predictions)` — e.g. `("ml_l", ℓ̂)`.
-    pub predictions: Vec<(&'static str, Array1<f64>)>,
+    pub predictions: Vec<(Name, Array1<f64>)>,
     /// Ingredients for [sensitivity analysis](crate::sensitivity), if the
     /// model supports it.
     pub sensitivity: Option<SensitivityParts>,
@@ -89,6 +91,10 @@ pub struct ScoreEstimate {
     /// Signal for CATE / GATE inference, if the model supports it.
     pub cate: Option<CateSignal>,
 }
+
+/// Name of a nuisance learner: a `&'static str` literal or an owned `String`
+/// (`Cow` holds either without copying literals).
+pub type Name = std::borrow::Cow<'static, str>;
 
 /// Loss used to evaluate a nuisance learner out of sample.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,23 +109,23 @@ pub enum LossKind {
 /// nuisance does not apply (e.g. `g₀` on treated rows).
 #[derive(Debug, Clone)]
 pub struct NuisanceTarget {
-    pub name: &'static str,
+    pub name: Name,
     pub target: Array1<f64>,
     pub kind: LossKind,
 }
 
 impl NuisanceTarget {
-    pub fn regression(name: &'static str, target: Array1<f64>) -> Self {
+    pub fn regression(name: impl Into<Name>, target: Array1<f64>) -> Self {
         Self {
-            name,
+            name: name.into(),
             target,
             kind: LossKind::Rmse,
         }
     }
 
-    pub fn classification(name: &'static str, target: Array1<f64>) -> Self {
+    pub fn classification(name: impl Into<Name>, target: Array1<f64>) -> Self {
         Self {
-            name,
+            name: name.into(),
             target,
             kind: LossKind::LogLoss,
         }
@@ -164,10 +170,15 @@ impl NuisanceTarget {
 }
 
 impl ScoreEstimate {
-    pub fn new(score: LinearScore, predictions: Vec<(&'static str, Array1<f64>)>) -> Self {
+    /// `predictions` pairs a name (a literal such as `"ml_l"`, or a
+    /// `String`) with the out-of-fold predictions.
+    pub fn new<N: Into<Name>>(score: LinearScore, predictions: Vec<(N, Array1<f64>)>) -> Self {
         Self {
             score,
-            predictions,
+            predictions: predictions
+                .into_iter()
+                .map(|(n, p)| (n.into(), p))
+                .collect(),
             sensitivity: None,
             targets: Vec::new(),
             cate: None,

@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- PLIV with several instruments (`DmlData::with_instruments`; residualised instruments combined by
+  two-stage least squares), the IV-type score for one instrument (`PlivScore`, `ml_g`), and
+  DoubleML's partial Z and partial XZ variants (`PlivVariant`, `Pliv::partial_z`,
+  `Pliv::partial_xz`; Python `PLIV(partial=...)`). Five parity fixtures; the Python tests match
+  DoubleML to `1e-9`.
+
+### Changed
+- Nuisance names in `ScoreEstimate::predictions` and `NuisanceTarget::name` are `Name`
+  (`Cow<'static, str>`), so models can name learners at run time (e.g. `ml_m_z2`). The
+  constructors accept string literals as before.
+- `DmlData::z` returns the instrument only when exactly one is attached; `instruments` returns all.
+  IIVM, LPQ and SSM reject several instruments with a clear error.
+
 ## [0.12.0] - 2026-10-25
 
 ### Added

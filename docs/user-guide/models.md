@@ -281,22 +281,35 @@ observations is ignored but must be finite (e.g. 0).
 ## Partially linear IV regression (PLIV)
 
 $$
-Y = \theta D + g_0(X) + \varepsilon, \qquad Z = m_0(X) + V, \qquad E[\varepsilon \mid Z, X] = 0 .
+Y = \theta D + g_0(X) + \varepsilon, \qquad E[\varepsilon \mid Z, X] = 0 .
 $$
 
-For an endogenous treatment with an instrument $Z$. Nuisances: `ml_l` for $E[Y \mid X]$, `ml_m` for
-$E[Z \mid X]$, `ml_r` for $E[D \mid X]$.
+For an endogenous treatment with one or several instruments $Z$ (one column each). Three variants,
+as DoubleML:
+
+| Variant | Nuisances | Option |
+|---|---|---|
+| Partial X (default) | `ml_l` for $E[Y \mid X]$, `ml_m` for $E[Z \mid X]$ (one fit per instrument), `ml_r` for $E[D \mid X]$; several instruments are combined by projecting the treatment residual on the instrument residuals (two-stage least squares) | `partial="X"` |
+| Partial Z | `ml_r` for $E[D \mid X, Z]$, used as the instrument | `partial="Z"` |
+| Partial XZ | `ml_l` for $E[Y \mid X]$, `ml_m` for $E[D \mid X, Z]$, `ml_r` for the projection of its in-sample predictions on $X$ | `partial="XZ"` |
+
+With one instrument and the partial X variant, `score="IV-type"` is available too (`ml_g` learns
+$E[Y - \theta D \mid X]$; default: a copy of `ml_l`).
 
 === "Python"
 
     ```python
-    dml_rs.PLIV(ml_l, ml_m, ml_r).fit(X, y, d, z)
+    dml_rs.PLIV(ml_l, ml_m, ml_r).fit(X, y, d, z)        # z may have several columns
+    dml_rs.PLIV(ml_l, ml_m, ml_r, ml_g=ml_g, score="IV-type").fit(X, y, d, z)
+    dml_rs.PLIV(None, None, ml_r, partial="Z").fit(X, y, d, z)
     ```
 
 === "Rust"
 
     ```rust
-    Pliv::new(ml_l, ml_m, ml_r).fit(&data.with_instrument(z)?)?;
+    Pliv::new(ml_l, ml_m, ml_r).fit(&data.with_instruments(z)?)?;
+    Pliv::new(ml_l, ml_m, ml_r).score(PlivScore::IvType).ml_g(ml_g).fit(&data.with_instrument(z1)?)?;
+    Pliv::partial_z(ml_r).fit(&data.with_instruments(z)?)?;
     ```
 
 ## Interactive IV model (IIVM)

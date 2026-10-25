@@ -108,6 +108,11 @@ impl LinearScoreModel for Iivm {
                 "IIVM requires exactly one binary (0/1) treatment".into(),
             ));
         }
+        if data.n_instruments() > 1 {
+            return Err(DmlError::InvalidArgument(
+                "IIVM needs exactly one instrument".into(),
+            ));
+        }
         match data.z() {
             Some(z) if is_binary(z) => {}
             _ => {

@@ -202,6 +202,11 @@ impl LinearScoreModel for Ssm {
                 "SSM needs a selection indicator (DmlData::with_selection_indicator)".into(),
             ));
         }
+        if data.n_instruments() > 1 {
+            return Err(DmlError::InvalidArgument(
+                "SSM needs exactly one instrument".into(),
+            ));
+        }
         if self.score == SsmScore::Nonignorable && data.z().is_none() {
             return Err(DmlError::InvalidArgument(
                 "the nonignorable score needs an instrument for selection (DmlData::with_instrument)"
