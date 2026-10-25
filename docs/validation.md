@@ -85,7 +85,8 @@ These are deliberate, documented, and covered by tests:
   `sensitivity_plot` (to `1e-9`), with rows indexed by `cf_d`. DoubleML 0.11 hands that grid to
   plotly as `z` with `x = cf_d` and `y = cf_y`, but plotly reads the rows of `z` along `y`, so its
   contours are drawn transposed; `sensitivity_plot` draws them with `cf_d` on the x axis as labelled.
-  The bound is not symmetric in `cf_y` and `cf_d`, so the two pictures differ slightly.
+  The bound is not symmetric in `cf_y` and `cf_d`, so the two pictures differ slightly (reported as
+  [DoubleML #414](https://github.com/DoubleML/doubleml-for-py/issues/414)).
 - **`LogisticRegressionCV`** solves each fit to the exact optimum with Newton's method;
   scikit-learn's default L-BFGS solver stops earlier, so its probabilities can differ by about
   `1e-3` at default settings.
