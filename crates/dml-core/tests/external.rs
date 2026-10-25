@@ -4,7 +4,7 @@
 
 use dml_core::{
     Apo, Did, DidCs, DidScore, DmlData, DmlFit, ExternalPredictions, Iivm, Irm, IrmScore,
-    LogisticRegression, Ols, Pliv, PlivScore, Plr, PlrScore,
+    LogisticRegression, Lplr, Lpq, Ols, Pliv, PlivScore, Plr, PlrScore, Pq,
 };
 use ndarray::{Array1, Array2};
 use rand::{Rng, SeedableRng};
@@ -162,6 +162,105 @@ fn external_predictions_reproduce_every_linear_model() {
         )
         .unwrap();
     assert_same(&fit, &refit);
+}
+
+#[test]
+fn external_predictions_for_quantile_models() {
+    let (y, d, x, z, _) = data(400, 3);
+    let base = DmlData::new(y, d, x).unwrap();
+    let pq = Pq::new(LogisticRegression::default(), LogisticRegression::default()).n_rep(2);
+    let fit = pq.fit(&base).unwrap();
+
+    // Only ml_g supplied: the preliminary estimate and ml_m are unchanged.
+    let refit = pq
+        .fit(
+            &base
+                .clone()
+                .with_external_predictions(all_external(&fit, &["ml_g"])),
+        )
+        .unwrap();
+    assert_same(&fit, &refit);
+    assert!(refit.nuisance_loss("ml_g").is_none() && refit.nuisance_loss("ml_m").is_some());
+
+    // Both supplied: no preliminary estimate, so the root search starts
+    // elsewhere and may stop at another point of the flat score.
+    let refit = pq
+        .fit(
+            &base
+                .clone()
+                .with_external_predictions(all_external(&fit, &["ml_g", "ml_m"])),
+        )
+        .unwrap();
+    assert!((refit.coef()[0] - fit.coef()[0]).abs() < 0.05);
+    assert_eq!(refit.nuisance_losses().count(), 0);
+
+    // LPQ: all five nuisances or none.
+    let iv = base.clone().with_instrument(z).unwrap();
+    let lpq = Lpq::new(LogisticRegression::default(), LogisticRegression::default());
+    let fit = lpq.fit(&iv).unwrap();
+    let names = [
+        "ml_m_z",
+        "ml_m_d_z0",
+        "ml_m_d_z1",
+        "ml_g_du_z0",
+        "ml_g_du_z1",
+    ];
+    let refit = lpq
+        .fit(
+            &iv.clone()
+                .with_external_predictions(all_external(&fit, &names)),
+        )
+        .unwrap();
+    assert!((refit.coef()[0] - fit.coef()[0]).abs() < 0.05);
+    assert!(lpq
+        .fit(&iv.with_external_predictions(all_external(&fit, &names[..2])))
+        .is_err());
+}
+
+#[test]
+fn external_predictions_for_lplr_need_inner_predictions() {
+    let mut rng = ChaCha8Rng::seed_from_u64(5);
+    let n = 400;
+    let x = Array2::from_shape_fn((n, 2), |_| rng.gen::<f64>() * 2.0 - 1.0);
+    let d: Array1<f64> = (0..n).map(|i| x[[i, 0]] + rng.gen::<f64>()).collect();
+    let y: Array1<f64> = (0..n)
+        .map(|i| {
+            let p = 1.0 / (1.0 + (-(0.5 * d[i] + x[[i, 1]])).exp());
+            f64::from(rng.gen::<f64>() < p)
+        })
+        .collect();
+    let base = DmlData::new(y, d, x).unwrap();
+    let lplr = Lplr::new(LogisticRegression::default(), Ols::new(), Ols::new()).n_rep(2);
+    let fit = lplr.fit(&base).unwrap();
+    let inner = |name: &'static str| (0..5).map(move |k| format!("{name}_inner_{k}"));
+    let mut names: Vec<String> = ["ml_M", "ml_m", "ml_a", "ml_t"].map(String::from).to_vec();
+    names.extend(inner("ml_M").chain(inner("ml_a")));
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let refit = lplr
+        .fit(
+            &base
+                .clone()
+                .with_external_predictions(all_external(&fit, &names)),
+        )
+        .unwrap();
+    assert_same(&fit, &refit);
+    assert_eq!(refit.nuisance_losses().count(), 0);
+
+    // Only ml_m: the double cross-fitted learners are still fitted.
+    let refit = lplr
+        .fit(
+            &base
+                .clone()
+                .with_external_predictions(all_external(&fit, &["ml_m"])),
+        )
+        .unwrap();
+    assert_same(&fit, &refit);
+    assert!(refit.nuisance_loss("ml_m").is_none() && refit.nuisance_loss("ml_M").is_some());
+
+    // ml_M without its inner predictions is rejected.
+    assert!(lplr
+        .fit(&base.with_external_predictions(all_external(&fit, &["ml_M"])))
+        .is_err());
 }
 
 #[test]

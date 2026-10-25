@@ -96,6 +96,18 @@ pub(crate) fn external_or(
     name: &str,
     fit: impl FnOnce() -> Result<Array1<f64>>,
 ) -> Result<Array1<f64>> {
+    match external_get(ext, n, name)? {
+        Some(p) => Ok(p),
+        None => fit(),
+    }
+}
+
+/// External predictions of learner `name` (`n` rows), if supplied.
+pub(crate) fn external_get(
+    ext: Option<ExternalRef<'_>>,
+    n: usize,
+    name: &str,
+) -> Result<Option<Array1<f64>>> {
     match ext.and_then(|e| e.preds.get(e.treatment, name).map(|p| (p, e.rep))) {
         Some((p, rep)) => {
             if p.nrows() != n || rep >= p.ncols() {
@@ -104,9 +116,9 @@ pub(crate) fn external_or(
                     p.dim()
                 )));
             }
-            Ok(p.column(rep).to_owned())
+            Ok(Some(p.column(rep).to_owned()))
         }
-        None => fit(),
+        None => Ok(None),
     }
 }
 

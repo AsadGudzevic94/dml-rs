@@ -674,15 +674,53 @@ impl DmlFit {
         }
     }
 
-    /// Linear combinations `Σ_j w_cj θ_j` of this fit's estimates (one row of
-    /// `weights` per combination), with influence functions combined the same
-    /// way, so correlation between the estimates is accounted for.
-    pub(crate) fn linear_combination(
+    /// Linear combinations `Σ_j w_cj θ_j` of the estimates, one per row of
+    /// `weights` (shape `(n_combinations, n_treat)`), named `names`. The
+    /// influence functions are combined the same way, so standard errors,
+    /// intervals and the bootstrap account for the correlation between the
+    /// estimates (DoubleML's framework arithmetic); bounds for the sensitivity
+    /// analysis add up with absolute weights.
+    ///
+    /// ```
+    /// # use dml_core::{DmlData, Plr, learner::Ols};
+    /// # use ndarray::{array, Array1, Array2};
+    /// # let n = 200;
+    /// # let x = Array2::from_shape_fn((n, 1), |(i, _)| (i as f64 * 0.37).sin());
+    /// # let d = Array2::from_shape_fn((n, 2), |(i, j)| (i as f64 * (0.11 + j as f64)).cos());
+    /// # let y: Array1<f64> = (0..n).map(|i| d[[i, 0]] - d[[i, 1]] + x[[i, 0]] + (i as f64 * 1.7).sin()).collect();
+    /// # let data = DmlData::with_treatments(y, d, x).unwrap();
+    /// let fit = Plr::new(Ols::new(), Ols::new()).fit(&data).unwrap();
+    /// // θ_0 − θ_1 with a standard error that accounts for their correlation:
+    /// let diff = fit.linear_combination(array![[1.0, -1.0]].view(), vec!["d0 - d1".into()]).unwrap();
+    /// assert!((diff.coef()[0] - (fit.coef()[0] - fit.coef()[1])).abs() < 1e-12);
+    /// ```
+    pub fn linear_combination(
         &self,
-        model: String,
+        weights: ArrayView2<'_, f64>,
         names: Vec<String>,
-        weights: &Array2<f64>,
-    ) -> Self {
+    ) -> Result<DmlFit> {
+        if weights.ncols() != self.n_treat() || weights.nrows() == 0 {
+            return Err(DmlError::DimensionMismatch(format!(
+                "weights need {} columns (one per estimate) and at least one row, got {:?}",
+                self.n_treat(),
+                weights.dim()
+            )));
+        }
+        if names.len() != weights.nrows() {
+            return Err(DmlError::DimensionMismatch(format!(
+                "{} names for {} combinations",
+                names.len(),
+                weights.nrows()
+            )));
+        }
+        if !weights.iter().all(|w| w.is_finite()) {
+            return Err(DmlError::InvalidArgument("weights must be finite".into()));
+        }
+        Ok(self.combine(self.model.clone(), names, &weights.to_owned()))
+    }
+
+    /// Unchecked [`linear_combination`](Self::linear_combination) with a model name.
+    pub(crate) fn combine(&self, model: String, names: Vec<String>, weights: &Array2<f64>) -> Self {
         let (n, k, n_rep) = self.psi.dim();
         assert_eq!(weights.ncols(), k, "one weight per estimate");
         let n_comb = weights.nrows();
@@ -729,7 +767,7 @@ impl DmlFit {
             psi_b: Array3::zeros((n, n_comb, n_rep)),
             psi_deriv: Array2::ones((n_comb, n_rep)),
             predictions: Vec::new(),
-            sensitivity: None,
+            sensitivity: self.sensitivity.as_ref().map(|s| s.combine(weights)),
             cate: None,
             losses: Vec::new(),
             cluster: self.cluster.clone(),
@@ -750,9 +788,9 @@ impl DmlFit {
             .ok_or_else(|| DmlError::InvalidArgument("concat needs at least one fit".into()))?;
         let (n, n_rep) = (first.n_obs, first.n_rep());
         for f in fits {
-            if f.n_obs != n || f.n_rep() != n_rep || f.n_folds != first.n_folds {
+            if f.n_obs != n || f.n_rep() != n_rep {
                 return Err(DmlError::DimensionMismatch(
-                    "concat needs fits with the same observations, folds and repetitions".into(),
+                    "concat needs fits with the same observations and repetitions".into(),
                 ));
             }
             let same_clusters = match (&f.cluster, &first.cluster) {
@@ -879,6 +917,87 @@ impl DmlFit {
             losses,
             cluster: first.cluster.clone(),
         })
+    }
+}
+
+/// `a ± b` for every estimate: both fits must have the same number of
+/// estimates, observations and repetitions (and come from the same data).
+fn elementwise(a: &DmlFit, b: &DmlFit, sign: f64) -> Result<DmlFit> {
+    let k = a.n_treat();
+    if b.n_treat() != k {
+        return Err(DmlError::DimensionMismatch(format!(
+            "cannot combine fits with {k} and {} estimates",
+            b.n_treat()
+        )));
+    }
+    let both = DmlFit::concat(&[a.clone(), b.clone()])?;
+    let mut weights = Array2::<f64>::zeros((k, 2 * k));
+    for j in 0..k {
+        weights[[j, j]] = 1.0;
+        weights[[j, k + j]] = sign;
+    }
+    let op = if sign > 0.0 { "+" } else { "-" };
+    let names = a
+        .treatment_names
+        .iter()
+        .zip(&b.treatment_names)
+        .map(|(x, y)| {
+            if x == y {
+                x.clone()
+            } else {
+                format!("{x} {op} {y}")
+            }
+        })
+        .collect();
+    let model = if a.model == b.model {
+        a.model.clone()
+    } else {
+        format!("{} {op} {}", a.model, b.model)
+    };
+    Ok(both.combine(model, names, &weights))
+}
+
+// Operators on references (`&a + &b`), so the fits are not consumed. `+` and
+// `−` return a `Result` since the fits must be compatible.
+
+/// `&a + &b`: the sum of the estimates of two fits on the same data.
+impl std::ops::Add for &DmlFit {
+    type Output = Result<DmlFit>;
+    fn add(self, other: &DmlFit) -> Result<DmlFit> {
+        elementwise(self, other, 1.0)
+    }
+}
+
+/// `&a - &b`: the difference of the estimates of two fits on the same data.
+impl std::ops::Sub for &DmlFit {
+    type Output = Result<DmlFit>;
+    fn sub(self, other: &DmlFit) -> Result<DmlFit> {
+        elementwise(self, other, -1.0)
+    }
+}
+
+/// `&fit * c`: every estimate times the scalar `c`.
+impl std::ops::Mul<f64> for &DmlFit {
+    type Output = DmlFit;
+    fn mul(self, c: f64) -> DmlFit {
+        let weights = Array2::from_diag(&Array1::from_elem(self.n_treat(), c));
+        self.combine(self.model.clone(), self.treatment_names.clone(), &weights)
+    }
+}
+
+/// `c * &fit`.
+impl std::ops::Mul<&DmlFit> for f64 {
+    type Output = DmlFit;
+    fn mul(self, fit: &DmlFit) -> DmlFit {
+        fit * self
+    }
+}
+
+/// `-&fit`.
+impl std::ops::Neg for &DmlFit {
+    type Output = DmlFit;
+    fn neg(self) -> DmlFit {
+        self * -1.0
     }
 }
 

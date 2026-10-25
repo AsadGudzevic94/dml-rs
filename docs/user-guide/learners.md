@@ -107,7 +107,10 @@ Nuisance predictions computed elsewhere (a model trained on another system, or a
 fitted once and reused) can replace any learner, as DoubleML's `external_predictions`. They must
 be out-of-fold predictions for the same sample splits, one column per repetition. The learners
 they replace are not fitted and have no out-of-sample loss. Supported by PLR, IRM, APO, PLIV,
-IIVM, DID, DIDCS and PLPR, with DoubleML's learner names (`ml_l`, `ml_m`, `ml_g0`, ...).
+IIVM, DID, DIDCS, PLPR, PQ, LPQ and LPLR, with DoubleML's learner names (`ml_l`, `ml_m`, `ml_g0`,
+...). LPQ takes all five of its learners or none. LPLR's double cross-fitted `ml_M` and `ml_a` also
+need their inner predictions, `ml_M_inner_k` and `ml_a_inner_k` for every outer fold `k` (a fit
+reports them in `predictions_`).
 
 === "Python"
 

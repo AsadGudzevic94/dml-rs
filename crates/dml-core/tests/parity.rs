@@ -3,7 +3,10 @@
 
 mod common;
 
-use common::{assert_all_close, assert_close, to_matrix, to_vec, Fixture};
+use common::{
+    assert_all_close, assert_close, assert_matrix_close, check_framework_sensitivity, to_matrix,
+    to_vec, Fixture,
+};
 use dml_core::{
     Apo, Apos, Cvar, Did, DidCs, DidScore, DmlFit, Iivm, Irm, IrmScore, Lplr, LplrScore, Lpq,
     PAdjust, PanelApproach, Pliv, PlivScore, PlivVariant, Plpr, Plr, PlrScore, Pq, Qte, Ssm,
@@ -346,13 +349,6 @@ fn check(name: &str, tol: f64) {
             &to_vec(&boot["romano_wolf"]),
             tol,
         );
-    }
-}
-
-fn assert_matrix_close(what: &str, a: &Array2<f64>, b: &Array2<f64>, tol: f64) {
-    assert_eq!(a.dim(), b.dim(), "{what}: shape");
-    for ((idx, &x), &y) in a.indexed_iter().zip(b.iter()) {
-        assert_close(&format!("{what}{idx:?}"), x, y, tol);
     }
 }
 
@@ -779,12 +775,27 @@ fn check_framework(what: &str, fit: &DmlFit, e: &serde_json::Value, tol: f64) {
         &to_vec(&e["se"]),
         tol,
     );
-    assert_all_close(
-        &format!("{what} pval"),
-        &fit.p_value(),
-        &to_vec(&e["pval"]),
-        tol,
-    );
+    // A framework's p-value is the median of the per-repetition p-values
+    // (DoubleML's `DoubleMLFramework.pvals`; models use the aggregated t).
+    let pval: ndarray::Array1<f64> = (0..k)
+        .map(|j| {
+            let mut p: Vec<f64> = (0..n_rep)
+                .map(|r| {
+                    2.0 * dml_core::stats::norm_sf(
+                        (fit.all_coef()[[j, r]] / fit.all_se()[[j, r]]).abs(),
+                    )
+                })
+                .collect();
+            p.sort_by(f64::total_cmp);
+            let m = p.len() / 2;
+            if p.len() % 2 == 1 {
+                p[m]
+            } else {
+                (p[m - 1] + p[m]) / 2.0
+            }
+        })
+        .collect();
+    assert_all_close(&format!("{what} pval"), &pval, &to_vec(&e["pval"]), tol);
     assert_matrix_close(
         &format!("{what} ci95"),
         &fit.confint(0.95).unwrap(),
@@ -793,53 +804,55 @@ fn check_framework(what: &str, fit: &DmlFit, e: &serde_json::Value, tol: f64) {
     );
 }
 
-fn check_framework_sensitivity(what: &str, fit: &DmlFit, e: &serde_json::Value, tol: f64) {
-    let (sigma2, nu2) = fit.sensitivity_elements().expect("sensitivity elements");
-    assert_matrix_close(
-        &format!("{what} sigma2"),
-        &sigma2.to_owned(),
-        &to_matrix(&e["sigma2"]),
-        tol,
-    );
-    assert_matrix_close(
-        &format!("{what} nu2"),
-        &nu2.to_owned(),
-        &to_matrix(&e["nu2"]),
-        tol,
-    );
-    for (i, sc) in e["scenarios"].as_array().unwrap().iter().enumerate() {
-        let p = &sc["params"];
-        let params = dml_core::SensitivityParams::new()
-            .cf_y(p["cf_y"].as_f64().unwrap())
-            .cf_d(p["cf_d"].as_f64().unwrap())
-            .rho(p["rho"].as_f64().unwrap())
-            .level(p["level"].as_f64().unwrap())
-            .null_hypotheses(to_vec(&p["null_hypothesis"]).to_vec());
-        let res = fit.sensitivity_analysis(&params).unwrap();
-        for (key, ours) in [
-            ("theta_lower", &res.theta_lower),
-            ("theta_upper", &res.theta_upper),
-            ("se_lower", &res.se_lower),
-            ("se_upper", &res.se_upper),
-            ("ci_lower", &res.ci_lower),
-            ("ci_upper", &res.ci_upper),
-        ] {
-            assert_all_close(
-                &format!("{what} scenario {i} {key}"),
-                ours,
-                &to_vec(&sc[key]),
-                tol,
-            );
-        }
-        for (key, ours) in [("rv", &res.rv), ("rva", &res.rva)] {
-            for (j, (&a, &b)) in ours.iter().zip(to_vec(&sc[key]).iter()).enumerate() {
-                assert!(
-                    (a - b).abs() < TOL_RV,
-                    "{what} scenario {i} {key}[{j}]: rust {a}, doubleml {b}"
-                );
-            }
-        }
+/// DoubleMLFramework arithmetic: `+`, `−`, scalar `×` and `concat` of a PLR
+/// and an IRM fit on the same sample splits.
+#[test]
+fn framework_arithmetic() {
+    let fx = Fixture::load("framework_arithmetic_rep2");
+    let (data, folds) = (fx.data(), fx.folds());
+    let plr = Plr::from_boxed(fx.regressor("ml_l"), fx.regressor("ml_m"))
+        .fit_with_folds(&data, &folds)
+        .unwrap();
+    let irm = Irm::from_boxed(fx.regressor("ml_g"), fx.classifier("ml_m_irm"))
+        .fit_with_folds(&data, &folds)
+        .unwrap();
+    let tol = TOL_ITERATIVE;
+    let combos = [
+        ("sum", (&plr + &irm).unwrap()),
+        ("difference", (&plr - &irm).unwrap()),
+        ("scaled", 2.5 * &plr),
+        (
+            "concat",
+            DmlFit::concat(&[plr.clone(), irm.clone()]).unwrap(),
+        ),
+    ];
+    for (key, fit) in &combos {
+        let e = fx.expected(key);
+        check_framework(key, fit, e, tol);
+        check_framework_sensitivity(key, fit, &e["sensitivity"], tol);
     }
+    // DoubleML 0.11 also multiplies the standard error by a negative scalar.
+    let negated = &irm * -0.5;
+    let e = fx.expected("negated");
+    assert_all_close(
+        "negated coef",
+        &negated.coef().to_owned(),
+        &to_vec(&e["coef"]),
+        tol,
+    );
+    assert_all_close(
+        "negated se",
+        &negated.se().to_owned(),
+        &to_vec(&e["abs_se"]),
+        tol,
+    );
+    check_framework_sensitivity("negated", &negated, &e["sensitivity"], tol);
+    assert_all_close(
+        "neg",
+        &(-&irm).coef().to_owned(),
+        &(-irm.coef().to_owned()),
+        0.0,
+    );
 }
 
 #[test]

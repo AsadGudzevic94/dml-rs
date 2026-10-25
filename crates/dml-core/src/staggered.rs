@@ -16,6 +16,11 @@
 //!
 //! Works with panel data ([`PanelData`]: outcome changes per unit) and with
 //! repeated cross-sections ([`RepeatedCrossSections`]: each row observed once).
+//!
+//! The sensitivity analysis for omitted confounders covers every `ATT(g, t)`
+//! and the aggregations, as DoubleML: each effect's sensitivity elements are
+//! sub-sample means, with influence functions laid out over all units and
+//! scaled like the score.
 
 use std::fmt;
 
@@ -28,6 +33,7 @@ use crate::learner::{Classifier, Regressor};
 use crate::model::did::{cs_did_score, panel_did_score, DidSettings};
 use crate::model::DidScore;
 use crate::propensity::Calibration;
+use crate::sensitivity::{SensitivityBenchmark, SensitivityStore};
 
 /// Panel data for staggered DID: one row per unit, one column per period.
 ///
@@ -179,6 +185,15 @@ impl PanelData {
 }
 
 impl PanelData {
+    /// The same panel without the covariate columns in `drop` (for
+    /// sensitivity benchmarks).
+    pub fn without_covariates(&self, drop: &[usize]) -> Result<Self> {
+        Ok(Self {
+            x: drop_columns(&self.x, drop)?,
+            ..self.clone()
+        })
+    }
+
     /// Number of observed outcomes per unit (non-`NaN` cells).
     fn observations(&self, u: usize) -> usize {
         self.y.row(u).iter().filter(|v| !v.is_nan()).count()
@@ -258,9 +273,29 @@ impl RepeatedCrossSections {
         self.y.len()
     }
 
+    /// The same data without the covariate columns in `drop` (for
+    /// sensitivity benchmarks).
+    pub fn without_covariates(&self, drop: &[usize]) -> Result<Self> {
+        Ok(Self {
+            x: drop_columns(&self.x, drop)?,
+            ..self.clone()
+        })
+    }
+
     pub fn periods(&self) -> &[f64] {
         &self.periods
     }
+}
+
+fn drop_columns(x: &Array2<f64>, drop: &[usize]) -> Result<Array2<f64>> {
+    let p = x.ncols();
+    if drop.is_empty() || drop.iter().any(|&c| c >= p) {
+        return Err(DmlError::InvalidArgument(format!(
+            "benchmarking columns must be a non-empty subset of the {p} covariates"
+        )));
+    }
+    let keep: Vec<usize> = (0..p).filter(|c| !drop.contains(c)).collect();
+    Ok(x.select(Axis(1), &keep))
 }
 
 /// Data for [`StaggeredDid::fit`]: a panel or repeated cross-sections.
@@ -297,6 +332,18 @@ impl StaggeredInput<'_> {
             StaggeredInput::Panel(p) => p.periods(),
             StaggeredInput::CrossSections(c) => c.periods(),
         }
+    }
+
+    /// Population variance of all observed outcomes (DoubleML's `var_y` for
+    /// sensitivity benchmarks).
+    fn var_y(&self) -> f64 {
+        let values: Vec<f64> = match self {
+            StaggeredInput::Panel(p) => p.y.iter().copied().filter(|v| !v.is_nan()).collect(),
+            StaggeredInput::CrossSections(c) => c.y.to_vec(),
+        };
+        let n = values.len() as f64;
+        let mean = values.iter().sum::<f64>() / n;
+        values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n
     }
 
     fn cohort_values(&self) -> &Array1<f64> {
@@ -516,6 +563,26 @@ impl StaggeredDid {
         self.fit_impl(data.into(), Some(folds))
     }
 
+    /// Calibrate a confounding scenario against the covariates in
+    /// `benchmarking_set` (column indices): refits without them (with the same
+    /// seeded splits, so `long` must come from [`fit`](Self::fit) with the
+    /// current settings) and compares every `ATT(g, t)`, as DoubleML's
+    /// `DoubleMLDIDMulti.sensitivity_benchmark`.
+    pub fn sensitivity_benchmark<'a>(
+        &self,
+        data: impl Into<StaggeredInput<'a>>,
+        long: &StaggeredDidFit,
+        benchmarking_set: &[usize],
+    ) -> Result<SensitivityBenchmark> {
+        let short = match data.into() {
+            StaggeredInput::Panel(p) => self.fit(&p.without_covariates(benchmarking_set)?)?,
+            StaggeredInput::CrossSections(c) => {
+                self.fit(&c.without_covariates(benchmarking_set)?)?
+            }
+        };
+        long.att().sensitivity_benchmark(short.att())
+    }
+
     fn fit_impl(
         &self,
         data: StaggeredInput<'_>,
@@ -559,6 +626,7 @@ impl StaggeredDid {
         let mut psi_a = Array3::<f64>::zeros((n, k, n_rep));
         let mut psi_b = Array3::<f64>::zeros((n, k, n_rep));
         let mut predictions: Vec<(String, Array3<f64>)> = Vec::new();
+        let mut sensitivity = Some(SensitivityStore::new(n, k, n_rep, data.var_y()));
         let mut n_folds_used = self.n_folds;
 
         for (i, gt) in gts.iter().enumerate() {
@@ -602,6 +670,14 @@ impl StaggeredDid {
                     psi_a[[obs, i, r]] = est.score.psi_a[pos];
                     psi_b[[obs, i, r]] = est.score.psi_b[pos];
                 }
+                match (&est.sensitivity, &mut sensitivity) {
+                    (Some(parts), Some(store)) => store.set(
+                        i,
+                        r,
+                        &parts.elements(sol.theta).padded(&sample.positions, n),
+                    ),
+                    _ => sensitivity = None,
+                }
                 for (name, pred) in est.predictions {
                     let slot = match predictions.iter().position(|(nm, _)| *nm == name) {
                         Some(s) => s,
@@ -636,7 +712,7 @@ impl StaggeredDid {
             }
         );
         let names = gts.iter().map(GroupTime::label).collect();
-        let fit = DmlFit::from_scores(
+        let mut fit = DmlFit::from_scores(
             model,
             names,
             n_folds_used,
@@ -646,6 +722,10 @@ impl StaggeredDid {
             psi_b,
             predictions,
         );
+        if let Some(store) = &mut sensitivity {
+            store.validate();
+        }
+        fit.sensitivity = sensitivity;
         Ok(StaggeredDidFit {
             group_times: gts,
             cohorts: data.cohorts(),
@@ -953,13 +1033,13 @@ impl StaggeredDidFit {
             Aggregation::Time => "time",
             Aggregation::EventStudy => "event study",
         };
-        let effects = self.fit.linear_combination(
+        let effects = self.fit.combine(
             format!("{} — {label} aggregation", self.fit.model_name()),
             names,
             &weights,
         );
         let overall_weights = Array1::from(overall);
-        let overall_fit = effects.linear_combination(
+        let overall_fit = effects.combine(
             format!("{} — overall ({label})", self.fit.model_name()),
             vec!["overall".to_string()],
             &overall_weights.clone().insert_axis(Axis(0)),

@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Framework arithmetic, as DoubleML's `DoubleMLFramework`: `&a + &b`, `&a - &b`, `c * &fit` and
+  `-&fit` on `DmlFit` (the operator traits `Add`, `Sub`, `Mul<f64>` and `Neg`), and the public
+  `DmlFit::linear_combination(weights, names)`, all with combined scores so inference accounts for
+  the correlation between the estimates; sensitivity bounds add up with absolute weights.
+  `DmlFit::concat` no longer requires equal fold counts. Python: `Framework` (`model.framework`,
+  `+`, `-`, `*`, `linear_combination`), `dml_rs.concat`, and `CausalContrast` and
+  `PotentialQuantiles` are frameworks. A parity fixture and Python tests match DoubleML to `1e-9`.
+- Sensitivity analysis for staggered DiD (panels and repeated cross-sections), as DoubleML's
+  `DoubleMLDIDMulti`: every ATT(g, t), the aggregations (Python
+  `aggregate(...).aggregated_frameworks` / `overall_aggregated_framework`) and benchmarks
+  (`StaggeredDid::sensitivity_benchmark`, `PanelData::without_covariates`,
+  `RepeatedCrossSections::without_covariates`; Python `sensitivity_benchmark`). The six staggered
+  fixtures now check the bounds, robustness values and benchmarks.
+- External predictions for PQ, LPQ and LPLR. LPLR fits report the inner predictions of `ml_M` and
+  `ml_a` (`ml_M_inner_k`, `ml_a_inner_k`), which external `ml_M` / `ml_a` need too, as DoubleML.
+
 ## [0.13.0] - 2026-10-25
 
 ### Added

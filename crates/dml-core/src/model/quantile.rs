@@ -22,7 +22,10 @@ use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis};
 
 use super::irm::normalize_propensity;
 use super::nonlinear::{assemble, RepFit};
-use super::{dml_model_api, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput};
+use super::{
+    dml_model_api, external_get, ExternalRef, LinearScoreModel, NuisanceTarget, ScoreEstimate,
+    ScoreInput,
+};
 use crate::compat::{
     bracket_guess, brent_minimize, brentq, kde_at_zero, np_mean, np_quantile, stratified_kfold,
     stratified_train_test_split,
@@ -267,6 +270,24 @@ macro_rules! quantile_api {
     };
 }
 
+/// External predictions of the single treatment in repetition `rep`.
+fn external_ref(data: &DmlData, rep: usize) -> Option<ExternalRef<'_>> {
+    data.external_predictions().map(|preds| ExternalRef {
+        preds,
+        treatment: 0,
+        rep,
+    })
+}
+
+/// The learners of [`Lpq`], in the order of its external predictions.
+const LPQ_LEARNERS: [&str; 5] = [
+    "ml_m_z",
+    "ml_m_d_z0",
+    "ml_m_d_z1",
+    "ml_g_du_z0",
+    "ml_g_du_z1",
+];
+
 /// Builder methods for the sample splitting of the non-linear models.
 macro_rules! splitting_api {
     () => {
@@ -336,8 +357,8 @@ impl Pq {
         // preliminary search starts at the previous one's mean IPW estimate.
         let mut start = None;
         let mut reps = Vec::with_capacity(splits.len());
-        for folds in splits {
-            let rep = self.fit_rep(data, folds, start)?;
+        for (r, folds) in splits.iter().enumerate() {
+            let rep = self.fit_rep(data, folds, start, r)?;
             start = Some(rep.next_start);
             reps.push(rep);
         }
@@ -348,10 +369,18 @@ impl Pq {
         Ok(assemble(name, data, splits[0].len(), reps))
     }
 
-    fn fit_rep(&self, data: &DmlData, folds: &[Fold], start: Option<f64>) -> Result<RepFit> {
+    fn fit_rep(
+        &self,
+        data: &DmlData,
+        folds: &[Fold],
+        start: Option<f64>,
+        rep: usize,
+    ) -> Result<RepFit> {
         let s = self.settings;
         let (y, d, x) = (data.y(), data.treatment(0), data.x());
         let n = y.len();
+        let ext = external_ref(data, rep);
+        let (g_ext, m_ext) = (external_get(ext, n, "ml_g")?, external_get(ext, n, "ml_m")?);
         let bounds = min_max(y);
         let y_treat: Vec<f64> = (0..n)
             .filter(|&i| d[i] == s.treatment)
@@ -365,11 +394,16 @@ impl Pq {
             Array1::from_elem(n, f64::NAN),
         );
         let mut ipw_vec = Vec::with_capacity(folds.len());
-        for fold in folds {
+        // With both nuisances supplied there is no preliminary estimate (DoubleML).
+        let all_external = g_ext.is_some() && m_ext.is_some();
+        for fold in folds.iter().filter(|_| !all_external) {
             let (train1, train2, prelim) = nested_split(&fold.train, &strata, folds.len())?;
             let (d1, y1) = (take(d, &train1), take(y, &train1));
             let x1 = x.select(Axis(0), &train1);
-            let m1 = cross_fit_predict_proba(self.ml_m.as_ref(), x1.view(), d1.view(), &prelim)?;
+            let m1 = match &m_ext {
+                Some(m_ext) => take(m_ext.view(), &train1),
+                None => cross_fit_predict_proba(self.ml_m.as_ref(), x1.view(), d1.view(), &prelim)?,
+            };
             let m1 = s.adjust(&m1, &d1, true, &prelim)?;
             let mut ipw_score = |theta: f64| {
                 let terms: Vec<f64> = (0..d1.len())
@@ -384,21 +418,31 @@ impl Pq {
             ipw_vec.push(ipw);
 
             let x_test = x.select(Axis(0), &fold.test);
-            let rows: Vec<usize> = train2
-                .iter()
-                .copied()
-                .filter(|&i| d[i] == s.treatment)
-                .collect();
-            let labels: Vec<f64> = rows.iter().map(|&i| f64::from(y[i] <= ipw)).collect();
-            let g_test = fit_proba(self.ml_g.as_ref(), x, &rows, &labels, x_test.view())?;
-            let d_train: Vec<f64> = fold.train.iter().map(|&i| d[i]).collect();
-            let m_test = fit_proba(self.ml_m.as_ref(), x, &fold.train, &d_train, x_test.view())?;
-            for (k, &i) in fold.test.iter().enumerate() {
-                g[i] = g_test[k];
-                g_target[i] = f64::from(y[i] <= ipw);
-                m[i] = m_test[k];
+            if g_ext.is_none() {
+                let rows: Vec<usize> = train2
+                    .iter()
+                    .copied()
+                    .filter(|&i| d[i] == s.treatment)
+                    .collect();
+                let labels: Vec<f64> = rows.iter().map(|&i| f64::from(y[i] <= ipw)).collect();
+                let g_test = fit_proba(self.ml_g.as_ref(), x, &rows, &labels, x_test.view())?;
+                for (k, &i) in fold.test.iter().enumerate() {
+                    g[i] = g_test[k];
+                    g_target[i] = f64::from(y[i] <= ipw);
+                }
+            }
+            if m_ext.is_none() {
+                let d_train: Vec<f64> = fold.train.iter().map(|&i| d[i]).collect();
+                let m_test =
+                    fit_proba(self.ml_m.as_ref(), x, &fold.train, &d_train, x_test.view())?;
+                for (k, &i) in fold.test.iter().enumerate() {
+                    m[i] = m_test[k];
+                }
             }
         }
+        let (g_external, m_external) = (g_ext.is_some(), m_ext.is_some());
+        let g = g_ext.unwrap_or(g);
+        let m = m_ext.unwrap_or(m);
         let d_owned = d.to_owned();
         let m_clipped = s.clip(&m, &d_owned, folds)?;
         let m_adj = s.adjust(&m, &d_owned, true, folds)?;
@@ -408,7 +452,11 @@ impl Pq {
                 .map(|i| ind[i] * (f64::from(y[i] <= theta) - g[i]) / m_adj[i] + g[i] - s.quantile)
                 .collect()
         };
-        let next_start = np_mean(&ipw_vec);
+        let next_start = if all_external {
+            start
+        } else {
+            np_mean(&ipw_vec)
+        };
         let theta = solve_score(
             &mut |theta| np_mean(terms(theta).as_slice().expect("contiguous")),
             next_start,
@@ -424,11 +472,17 @@ impl Pq {
             theta,
             psi,
             jacobian,
-            targets: vec![
-                NuisanceTarget::classification("ml_g", g_target).only_where(|i| ind[i] == 1.0),
-                NuisanceTarget::classification("ml_m", d_owned),
-            ],
-            predictions: vec![("ml_g", g), ("ml_m", m_clipped)],
+            // Externally predicted learners have no out-of-sample loss.
+            targets: [
+                (!g_external).then(|| {
+                    NuisanceTarget::classification("ml_g", g_target).only_where(|i| ind[i] == 1.0)
+                }),
+                (!m_external).then(|| NuisanceTarget::classification("ml_m", d_owned)),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+            predictions: vec![("ml_g".into(), g), ("ml_m".into(), m_clipped)],
         })
     }
 }
@@ -484,8 +538,8 @@ impl Lpq {
         // preliminary search starts at the previous one's mean IPW estimate.
         let mut start = None;
         let mut reps = Vec::with_capacity(splits.len());
-        for folds in splits {
-            let rep = self.fit_rep(data, folds, start)?;
+        for (r, folds) in splits.iter().enumerate() {
+            let rep = self.fit_rep(data, folds, start, r)?;
             start = Some(rep.next_start);
             reps.push(rep);
         }
@@ -496,7 +550,13 @@ impl Lpq {
         Ok(assemble(name, data, splits[0].len(), reps))
     }
 
-    fn fit_rep(&self, data: &DmlData, folds: &[Fold], start: Option<f64>) -> Result<RepFit> {
+    fn fit_rep(
+        &self,
+        data: &DmlData,
+        folds: &[Fold],
+        start: Option<f64>,
+        rep: usize,
+    ) -> Result<RepFit> {
         let s = self.settings;
         let (y, d, x, z) = (
             data.y(),
@@ -516,8 +576,22 @@ impl Lpq {
         let nan = || Array1::from_elem(n, f64::NAN);
         let (mut m_z, mut m_d_z0, mut m_d_z1, mut g0, mut g1) = (nan(), nan(), nan(), nan(), nan());
         let (mut g0_target, mut g1_target) = (nan(), nan());
+        // DoubleML: either all five nuisances are supplied or none.
+        let ext = external_ref(data, rep);
+        let external = LPQ_LEARNERS
+            .iter()
+            .map(|&name| external_get(ext, n, name))
+            .collect::<Result<Vec<_>>>()?;
+        let n_external = external.iter().filter(|p| p.is_some()).count();
+        if n_external != 0 && n_external != LPQ_LEARNERS.len() {
+            return Err(DmlError::InvalidArgument(format!(
+                "LPQ needs external predictions for all of {} or none",
+                LPQ_LEARNERS.join(", ")
+            )));
+        }
+        let all_external = n_external == LPQ_LEARNERS.len();
         let mut ipw_vec = Vec::with_capacity(folds.len());
-        for fold in folds {
+        for fold in folds.iter().filter(|_| !all_external) {
             let (train1, train2, prelim) = nested_split(&fold.train, &strata, folds.len())?;
             let (d1, y1, z1) = (take(d, &train1), take(y, &train1), take(z, &train1));
             let x1 = x.select(Axis(0), &train1);
@@ -620,6 +694,11 @@ impl Lpq {
                 }
             }
         }
+        if all_external {
+            let mut it = external.into_iter().flatten();
+            let mut next = || it.next().expect("all five supplied");
+            (m_z, m_d_z0, m_d_z1, g0, g1) = (next(), next(), next(), next(), next());
+        }
         let z_owned = z.to_owned();
         let m_z_clipped = s.clip(&m_z, &z_owned, folds)?;
         let m_z_adj = s.adjust(&m_z, &z_owned, false, folds)?;
@@ -642,7 +721,11 @@ impl Lpq {
                 })
                 .collect()
         };
-        let next_start = np_mean(&ipw_vec);
+        let next_start = if all_external {
+            start
+        } else {
+            np_mean(&ipw_vec)
+        };
         let theta = solve_score(
             &mut |theta| np_mean(terms(theta).as_slice().expect("contiguous")),
             next_start,
@@ -664,20 +747,28 @@ impl Lpq {
             theta,
             psi,
             jacobian,
-            targets: vec![
-                NuisanceTarget::classification("ml_m_z", z_owned.clone()),
-                NuisanceTarget::classification("ml_m_d_z0", d_owned.clone())
-                    .only_where(|i| z[i] == 0.0),
-                NuisanceTarget::classification("ml_m_d_z1", d_owned).only_where(|i| z[i] == 1.0),
-                NuisanceTarget::classification("ml_g_du_z0", g0_target).only_where(|i| z[i] == 0.0),
-                NuisanceTarget::classification("ml_g_du_z1", g1_target).only_where(|i| z[i] == 1.0),
-            ],
+            // Externally predicted learners have no out-of-sample loss.
+            targets: if all_external {
+                Vec::new()
+            } else {
+                vec![
+                    NuisanceTarget::classification("ml_m_z", z_owned.clone()),
+                    NuisanceTarget::classification("ml_m_d_z0", d_owned.clone())
+                        .only_where(|i| z[i] == 0.0),
+                    NuisanceTarget::classification("ml_m_d_z1", d_owned)
+                        .only_where(|i| z[i] == 1.0),
+                    NuisanceTarget::classification("ml_g_du_z0", g0_target)
+                        .only_where(|i| z[i] == 0.0),
+                    NuisanceTarget::classification("ml_g_du_z1", g1_target)
+                        .only_where(|i| z[i] == 1.0),
+                ]
+            },
             predictions: vec![
-                ("ml_m_z", m_z_clipped),
-                ("ml_m_d_z0", m_d_z0),
-                ("ml_m_d_z1", m_d_z1),
-                ("ml_g_du_z0", g0),
-                ("ml_g_du_z1", g1),
+                ("ml_m_z".into(), m_z_clipped),
+                ("ml_m_d_z0".into(), m_d_z0),
+                ("ml_m_d_z1".into(), m_d_z1),
+                ("ml_g_du_z0".into(), g0),
+                ("ml_g_du_z1".into(), g1),
             ],
         })
     }
@@ -978,7 +1069,7 @@ impl Qte {
             weights[[i, 2 * i + 1]] = 1.0;
         }
         let effect_names = self.quantiles.iter().map(|q| q.to_string()).collect();
-        let effects = potential.linear_combination("QTE".into(), effect_names, &weights);
+        let effects = potential.combine("QTE".into(), effect_names, &weights);
         Ok(QteFit {
             quantiles: self.quantiles.clone(),
             potential,

@@ -126,6 +126,45 @@ impl PyDmlResult {
         self.fit.model_name()
     }
 
+    /// Linear combinations of the estimates, one per row of `weights`
+    /// (shape `(n_combinations, n_treat)`), with joint inference.
+    fn linear_combination(
+        &self,
+        weights: PyReadonlyArray2<'_, f64>,
+        names: Vec<String>,
+    ) -> PyResult<PyDmlResult> {
+        self.fit
+            .linear_combination(weights.as_array(), names)
+            .map(PyDmlResult::from_fit)
+            .map_err(to_py_err)
+    }
+
+    // Arithmetic as DoubleML's `DoubleMLFramework`. An operand of another
+    // type cannot be extracted, so PyO3 returns `NotImplemented` for it.
+    fn __add__(&self, other: PyRef<'_, PyDmlResult>) -> PyResult<PyDmlResult> {
+        (&self.fit + &other.fit)
+            .map(PyDmlResult::from_fit)
+            .map_err(to_py_err)
+    }
+
+    fn __sub__(&self, other: PyRef<'_, PyDmlResult>) -> PyResult<PyDmlResult> {
+        (&self.fit - &other.fit)
+            .map(PyDmlResult::from_fit)
+            .map_err(to_py_err)
+    }
+
+    fn __mul__(&self, c: f64) -> PyDmlResult {
+        PyDmlResult::from_fit(&self.fit * c)
+    }
+
+    fn __rmul__(&self, c: f64) -> PyDmlResult {
+        PyDmlResult::from_fit(c * &self.fit)
+    }
+
+    fn __neg__(&self) -> PyDmlResult {
+        PyDmlResult::from_fit(-&self.fit)
+    }
+
     #[getter]
     fn treatment_names(&self) -> Vec<String> {
         self.fit.treatment_names().to_vec()
@@ -1179,13 +1218,24 @@ fn fit_plpr(
     result.map(PyDmlResult::from_fit).map_err(to_py_err)
 }
 
+/// Stack results fitted on the same observations and sample splits into one,
+/// for joint inference (DoubleML's `concat`).
+#[pyfunction]
+fn concat(results: Vec<PyRef<'_, PyDmlResult>>) -> PyResult<PyDmlResult> {
+    let fits: Vec<DmlFit> = results.iter().map(|r| r.fit.clone()).collect();
+    DmlFit::concat(&fits)
+        .map(PyDmlResult::from_fit)
+        .map_err(to_py_err)
+}
+
 /// Logistic partially linear regression for a binary outcome. `inner_splits`
 /// (per repetition, per outer fold: `(train, test)` index lists) fixes the
 /// inner folds of the double cross-fitting; otherwise they are drawn.
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_M, ml_t, ml_m, m_classifier, ml_a = None, a_classifier = None,
                     score = "nuisance_space", n_folds = 5, n_folds_inner = 5, n_rep = 1, seed = 0,
-                    splits = None, inner_splits = None, treatment_names = None))]
+                    splits = None, inner_splits = None, treatment_names = None,
+                    external_predictions = None))]
 #[allow(clippy::too_many_arguments, non_snake_case)]
 fn fit_lplr(
     py: Python<'_>,
@@ -1206,6 +1256,7 @@ fn fit_lplr(
     splits: Option<PySplits>,
     inner_splits: Option<Vec<PySplits>>,
     treatment_names: Option<Vec<String>>,
+    external_predictions: Option<PyExternal<'_>>,
 ) -> PyResult<PyDmlResult> {
     let score = match score {
         "nuisance_space" => LplrScore::NuisanceSpace,
@@ -1216,7 +1267,10 @@ fn fit_lplr(
             )))
         }
     };
-    let data = build_data(y, d, x, None, None, treatment_names, None)?;
+    let data = attach_external(
+        build_data(y, d, x, None, None, treatment_names, None)?,
+        external_predictions,
+    );
     let ml_a = match ml_a {
         Some(a) => Some(to_treatment_learner(
             a,
@@ -1311,7 +1365,7 @@ fn fit_ssm(
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g, ml_m, score = "PQ", treatment = 1, quantile = 0.5, z = None,
                     clipping_threshold = 1e-2, calibration = None, normalize_ipw = true, n_folds = 5, n_rep = 1,
-                    seed = 0, splits = None))]
+                    seed = 0, splits = None, external_predictions = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_quantile(
     py: Python<'_>,
@@ -1331,8 +1385,17 @@ fn fit_quantile(
     n_rep: usize,
     seed: u64,
     splits: Option<PySplits>,
+    external_predictions: Option<PyExternal<'_>>,
 ) -> PyResult<PyDmlResult> {
-    let data = build_data(y, d, x, z, None, None, None)?;
+    if score == "CVaR" && external_predictions.is_some() {
+        return Err(PyValueError::new_err(
+            "external predictions are not available for CVaR (as in DoubleML)",
+        ));
+    }
+    let data = attach_external(
+        build_data(y, d, x, z, None, None, None)?,
+        external_predictions,
+    );
     let ml_m = to_classifier(ml_m)?;
     // A macro rather than a function: `Pq`, `Lpq` and `Cvar` are different
     // types that share these builder methods by name only.
@@ -1536,9 +1599,9 @@ fn fit_did(
 mod dml_rs_native {
     #[pymodule_export]
     use super::{
-        fit_apo, fit_apos, fit_cate, fit_did, fit_iivm, fit_irm, fit_lplr, fit_pliv, fit_plpr,
-        fit_plr, fit_qte, fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did, PyAposResult,
-        PyBlp, PyBootstrap, PyCateResult, PyDmlResult, PyGradientBoostingClassifier,
+        concat, fit_apo, fit_apos, fit_cate, fit_did, fit_iivm, fit_irm, fit_lplr, fit_pliv,
+        fit_plpr, fit_plr, fit_qte, fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did,
+        PyAposResult, PyBlp, PyBootstrap, PyCateResult, PyDmlResult, PyGradientBoostingClassifier,
         PyGradientBoostingRegressor, PyGridSearchClassifier, PyGridSearchRegressor, PyLasso,
         PyLassoCV, PyLogisticRegression, PyLogisticRegressionCV, PyOls, PyPolicyTree, PyQteResult,
         PyRandomForestClassifier, PyRandomForestRegressor, PyRdFlexResult, PySensitivityBenchmark,

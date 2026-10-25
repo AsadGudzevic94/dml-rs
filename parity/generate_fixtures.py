@@ -23,6 +23,7 @@ from doubleml.did.datasets import make_did_CS2021, make_did_cs_CS2021, make_did_
 from doubleml.irm.datasets import make_iivm_data, make_irm_data, make_irm_data_discrete_treatments, make_ssm_data
 from doubleml.plm.datasets import make_lplr_LZZ2020, make_pliv_CHS2015, make_plpr_CP2025, make_pliv_multiway_cluster_CKMS2021, make_plr_CCDDHNR2018
 from doubleml.utils._estimation import _draw_weights
+from doubleml.utils.gain_statistics import gain_statistics
 from sklearn.dummy import DummyClassifier
 from sklearn.linear_model import Lasso, LassoCV, LinearRegression, LogisticRegression, LogisticRegressionCV, Ridge
 from sklearn.model_selection import KFold
@@ -279,11 +280,31 @@ def staggered(name, seed, control_group, score, normalize, gt_setting="standard"
             "se": agg.aggregated_frameworks.ses.tolist(),
             "overall_coef": agg.overall_aggregated_framework.thetas.tolist(),
             "overall_se": agg.overall_aggregated_framework.ses.tolist(),
+            "sensitivity": framework_sensitivity_json(agg.aggregated_frameworks),
+            "overall_sensitivity": framework_sensitivity_json(agg.overall_aggregated_framework),
         }
+    expected["sensitivity"] = framework_sensitivity_json(model.framework)
     gt_folds = [
         [[{"train": tr.tolist(), "test": te.tolist()} for tr, te in rep] for rep in m.smpls]
         for m in model.modellist
     ]
+    # DoubleMLDIDMulti.sensitivity_benchmark refits a deep copy with fewer x_cols, but the group-time
+    # models keep the covariates they read at construction, so its benchmark is always 0. Build the
+    # short model on data without the covariate instead, on the long model's splits.
+    data_short = dml.data.DoubleMLPanelData(df, y_col="y", d_cols="d", id_col="id", t_col="t", x_cols=x_cols[1:])
+    short = dml.did.DoubleMLDIDMulti(
+        data_short, ml_g=learner(OLS), ml_m=learner(LOGIT) if score == "observational" else None,
+        gt_combinations=gt_setting, control_group=control_group, anticipation_periods=anticipation,
+        score=score, in_sample_normalization=normalize, n_folds=5, n_rep=n_rep,
+        **({} if calibration is None else {"ps_processor_config": PSProcessorConfig(
+            calibration_method="isotonic", cv_calibration=calibration == "isotonic_cv")}),
+    )
+    for m_short, m_long in zip(short.modellist, model.modellist):
+        m_short.set_sample_splitting(m_long.smpls)
+    short.fit()
+    bm = gain_statistics(dml_long=model, dml_short=short)
+    expected["sensitivity"]["benchmark"] = {"drop": [0], **{c: np.asarray(bm[c]).tolist()
+                                                            for c in ("cf_y", "cf_d", "rho", "delta_theta")}}
     return {
         "name": name,
         "model": "staggered",
@@ -334,7 +355,10 @@ def staggered_cs(name, seed, control_group, score, normalize, n_rep=1):
             "se": agg.aggregated_frameworks.ses.tolist(),
             "overall_coef": agg.overall_aggregated_framework.thetas.tolist(),
             "overall_se": agg.overall_aggregated_framework.ses.tolist(),
+            "sensitivity": framework_sensitivity_json(agg.aggregated_frameworks),
+            "overall_sensitivity": framework_sensitivity_json(agg.overall_aggregated_framework),
         }
+    expected["sensitivity"] = framework_sensitivity_json(model.framework)
     gt_folds = [
         [[{"train": tr.tolist(), "test": te.tolist()} for tr, te in rep] for rep in m.smpls]
         for m in model.modellist
@@ -457,8 +481,10 @@ def framework_json(fw):
 
 
 def framework_sensitivity_json(fw):
+    """Sensitivity scenarios of a framework; sigma2 / nu2 are null where DoubleML drops them (sums)."""
     se = fw.sensitivity_elements
-    out = {"sigma2": np.asarray(se["sigma2"])[0].tolist(), "nu2": np.asarray(se["nu2"])[0].tolist(), "scenarios": []}
+    out = {key: np.asarray(se[key])[0].tolist() if key in se else None for key in ("sigma2", "nu2")}
+    out["scenarios"] = []
     k = len(fw.thetas)
     for sc in [{"cf_y": 0.04, "cf_d": 0.03, "rho": 0.8, "level": 0.95, "null_hypothesis": np.zeros(k)},
                {"cf_y": 0.03, "cf_d": 0.03, "rho": 1.0, "level": 0.95, "null_hypothesis": 0.5 * np.asarray(fw.thetas)}]:
@@ -471,6 +497,36 @@ def framework_sensitivity_json(fw):
             "rva": np.asarray(sp["rva"]).tolist(),
         })
     return out
+
+
+def framework_arithmetic(name, seed):
+    """DoubleMLFramework arithmetic on PLR and IRM (ATE) fitted on the same data and sample splits."""
+    np.random.seed(seed)
+    x, y, d = make_irm_data(n_obs=500, dim_x=5, theta=0.5, return_type="array")
+    data = dml.DoubleMLData.from_arrays(x, y, d)
+    reps = draw_folds(len(y), 5, 2, seed)
+    plr = dml.DoubleMLPLR(data, learner(OLS), learner(OLS), n_folds=5, n_rep=2, draw_sample_splitting=False)
+    irm = dml.DoubleMLIRM(data, learner(OLS), learner(LOGIT), n_folds=5, n_rep=2, draw_sample_splitting=False)
+    for m in (plr, irm):
+        m.set_sample_splitting(reps)
+        m.fit()
+    a, b = plr.framework, irm.framework
+    combos = {"sum": a + b, "difference": a - b, "scaled": 2.5 * a,
+              "concat": dml.double_ml_framework.concat([a, b])}
+    expected = {key: {**framework_json(fw), "sensitivity": framework_sensitivity_json(fw)} for key, fw in combos.items()}
+    expected["coef"] = expected["sum"]["coef"]
+    # DoubleML 0.11 multiplies the standard errors by a negative scalar too (negative se): only the
+    # coefficients and the sensitivity bounds (computed from the scores) are comparable.
+    neg = -0.5 * b
+    expected["negated"] = {"coef": np.asarray(neg.thetas).tolist(), "abs_se": np.abs(neg.ses).tolist(),
+                           "sensitivity": framework_sensitivity_json(neg)}
+    return {
+        "name": name, "model": "framework", "options": {},
+        "learners": {"ml_l": OLS, "ml_m": OLS, "ml_g": OLS, "ml_m_irm": LOGIT},
+        "x": x.tolist(), "y": y.tolist(), "d": d.tolist(),
+        "folds": [[{"train": tr.tolist(), "test": te.tolist()} for tr, te in rep] for rep in reps],
+        "expected": expected, "_model": plr,
+    }
 
 
 def apos(name, seed, levels, n_rep=2, normalize_ipw=False):
@@ -814,6 +870,7 @@ CASES = [
     lambda: apo("apo_level1_rep2", 31, 1, n_rep=2),
     lambda: apo("apo_level0_normalized", 32, 0, normalize_ipw=True),
     lambda: apos("apos_rep2", 33, [0, 1, 2]),
+    lambda: framework_arithmetic("framework_arithmetic_rep2", 35),
     lambda: plr_cluster_one_way("plr_cluster_one_way_rep2", 91),
     lambda: irm_cluster_one_way("irm_cluster_one_way", 92),
     lambda: multiway("pliv_cluster_two_way", 93, "pliv"),

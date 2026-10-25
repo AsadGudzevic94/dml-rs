@@ -25,6 +25,13 @@ All classes are available from the top-level package, e.g. `dml_rs.PLR`.
 ::: dml_rs.DIDAggregation
 ::: dml_rs.RDFlex
 
+## Combining estimates
+
+::: dml_rs.Framework
+    options:
+      filters: ["!^_"]
+::: dml_rs.concat
+
 ## Heterogeneous effects
 
 ::: dml_rs.BLP

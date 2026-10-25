@@ -2,7 +2,9 @@
 
 mod common;
 
-use common::{assert_all_close, assert_close, to_matrix, to_vec, Fixture};
+use common::{
+    assert_all_close, assert_close, check_framework_sensitivity, to_matrix, to_vec, Fixture,
+};
 use dml_core::{
     Aggregation, ControlGroup, DidScore, Fold, GtCombinations, LogisticRegression, Ols, PanelData,
     RepeatedCrossSections, StaggeredDid, StaggeredInput,
@@ -188,6 +190,40 @@ fn check_staggered(name: &str) {
             &to_vec(&e["overall_se"]),
             TOL,
         );
+        // Sensitivity of the aggregated effects: bounds add with |weights|.
+        let what = format!("{name} {key}");
+        check_framework_sensitivity(&what, agg.effects(), &e["sensitivity"], TOL);
+        check_framework_sensitivity(&what, agg.overall(), &e["overall_sensitivity"], TOL);
+    }
+
+    // Sensitivity of every ATT(g, t), and a benchmark without the first covariate.
+    let e = fx.expected("sensitivity");
+    check_framework_sensitivity(&format!("{name} ATT"), att, e, TOL);
+    if let Some(bm) = e.get("benchmark") {
+        let StaggeredInput::Panel(panel) = data else {
+            panic!("benchmarks are recorded for panels")
+        };
+        let drop: Vec<usize> = to_vec(&bm["drop"]).iter().map(|&v| v as usize).collect();
+        let short = model
+            .fit_with_folds(
+                &panel.without_covariates(&drop).unwrap(),
+                &folds_of(&fx.0["gt_folds"]),
+            )
+            .unwrap();
+        let ours = att.sensitivity_benchmark(short.att()).unwrap();
+        for (key, v) in [
+            ("cf_y", &ours.cf_y),
+            ("cf_d", &ours.cf_d),
+            ("rho", &ours.rho),
+            ("delta_theta", &ours.delta_theta),
+        ] {
+            assert_all_close(
+                &format!("{name} benchmark {key}"),
+                v,
+                &to_vec(&bm[key]),
+                TOL,
+            );
+        }
     }
 }
 

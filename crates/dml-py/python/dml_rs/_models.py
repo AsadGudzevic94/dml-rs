@@ -380,6 +380,11 @@ class _DMLEstimator(_Params):
             return {"index": result.treatment_names, **table}  # type: ignore[return-value]  # no pandas
         return pd.DataFrame(table, index=result.treatment_names)
 
+    @property
+    def framework(self) -> Framework:
+        """The fitted estimates as a `Framework`, for arithmetic and `concat` (DoubleML's ``framework``)."""
+        return Framework(self._check_fitted())
+
     def __str__(self):
         return str(self.result_) if hasattr(self, "result_") else repr(self)
 
@@ -671,6 +676,17 @@ class DIDAggregation:
 
     coef = property(lambda self: self._effects.coef)
     se = property(lambda self: self._effects.se)
+
+    @property
+    def aggregated_frameworks(self) -> Framework:
+        """The aggregated effects as a `Framework` (``summary``, ``bootstrap``,
+        ``sensitivity_analysis``, ...), as DoubleML's ``aggregated_frameworks``."""
+        return Framework(self._effects)
+
+    @property
+    def overall_aggregated_framework(self) -> Framework:
+        """The overall effect as a `Framework`, as DoubleML's ``overall_aggregated_framework``."""
+        return Framework(self._overall)
     names = property(lambda self: self._effects.treatment_names)
     overall_coef = property(lambda self: float(self._overall.coef[0]))
     overall_se = property(lambda self: float(self._overall.se[0]))
@@ -760,6 +776,7 @@ class StaggeredDID(_DMLEstimator):
         ``g`` (first treated period; ``np.inf`` or NaN for never treated). For panels, rows
         are linked by ``id`` and ``X`` must be time-invariant; for repeated cross-sections
         (``panel=False``) ``id`` is ignored."""
+        self._remember(X, y, id, t, g)
         self.staggered_result_ = _dml_rs.fit_staggered_did(
             _as_1d(y, "y"), np.ascontiguousarray(id, dtype=np.int64), _as_1d(t, "t"), _as_1d(g, "g"),
             _as_2d(X, "X"), self.ml_g, self.ml_m, control_group=self.control_group,
@@ -925,7 +942,60 @@ class _ResultView(_DMLEstimator):
         return []
 
 
-class CausalContrast(_ResultView):
+class Framework(_ResultView):
+    """Estimates with their scores, for inference on combinations, as DoubleML's ``DoubleMLFramework``.
+
+    ``a + b`` and ``a - b`` combine the estimates of two fits on the same observations (and, for
+    meaningful inference, the same sample splits) treatment by treatment; ``c * a`` scales them.
+    The standard errors use the combined scores, so the correlation between the estimates is taken
+    into account; the sensitivity bounds add up with absolute weights. `linear_combination` gives
+    any weighted sums and `concat` stacks frameworks for joint inference. Offers the fitted-model
+    API (``summary``, ``confint``, ``bootstrap``, ``p_adjust``, ``sensitivity_analysis``).
+    """
+
+    def __add__(self, other: Any) -> Framework:
+        if not isinstance(other, Framework):
+            return NotImplemented
+        return Framework(self.result_ + other.result_)
+
+    def __sub__(self, other: Any) -> Framework:
+        if not isinstance(other, Framework):
+            return NotImplemented
+        return Framework(self.result_ - other.result_)
+
+    def __mul__(self, other: Any) -> Framework:
+        if isinstance(other, bool) or not isinstance(other, (int, float, np.integer, np.floating)):
+            return NotImplemented
+        return Framework(self.result_ * float(other))
+
+    __rmul__ = __mul__
+
+    def __neg__(self) -> Framework:
+        return Framework(-self.result_)
+
+    def linear_combination(self, weights: ArrayLike, names: Optional[Sequence[str]] = None) -> Framework:
+        """Weighted sums of the estimates, one per row of ``weights`` (shape
+        ``(n_combinations, n_coefs)``; a vector gives one combination), with joint inference."""
+        w = np.atleast_2d(np.asarray(weights, dtype=np.float64))
+        if names is None:
+            names = [f"combination {i}" for i in range(w.shape[0])] if w.shape[0] > 1 else ["combination"]
+        return Framework(self.result_.linear_combination(np.ascontiguousarray(w), [str(n) for n in names]))
+
+
+def concat(objs: Sequence[Any]) -> Framework:
+    """Stack fitted estimators or frameworks on the same observations and sample splits into one
+    `Framework` with all their estimates, for joint inference (DoubleML's ``concat``)."""
+    if len(objs) == 0:
+        raise TypeError("need at least one object to concatenate")
+    results = []
+    for obj in objs:
+        if not isinstance(obj, _DMLEstimator):
+            raise TypeError(f"cannot concatenate {type(obj).__name__}; pass fitted estimators or frameworks")
+        results.append(obj._check_fitted())
+    return Framework(_dml_rs.concat(results))
+
+
+class CausalContrast(Framework):
     """Contrasts between average potential outcomes, from `APOS.causal_contrast`.
 
     Offers the fitted-model API (``summary``, ``confint``, ``bootstrap``, ``p_adjust``,
@@ -1210,10 +1280,13 @@ class LPLR(_DMLEstimator):
         d: ArrayLike,
         folds: Optional[Folds] = None,
         inner_folds: Optional[Sequence[Any]] = None,
+        external_predictions: Any = None,
     ) -> Self:
         """``inner_folds`` (with ``folds``) fixes the inner splits in DoubleML's ``smpls_inner``
         layout: per repetition, per outer fold, a list of ``(train, test)`` index pairs within that
-        fold's training set."""
+        fold's training set. ``external_predictions`` as DoubleML: external ``ml_M`` and ``ml_a``
+        also need their inner predictions ``ml_M_inner_k`` / ``ml_a_inner_k`` for every outer fold
+        ``k`` (a fit reports them in ``predictions_``)."""
         splits = _splits(folds)
         inner = None
         if inner_folds is not None:
@@ -1225,6 +1298,7 @@ class LPLR(_DMLEstimator):
             _is_classifier(self.ml_m), self.ml_a, None if self.ml_a is None else _is_classifier(self.ml_a),
             score=self.score, n_folds=self.n_folds, n_folds_inner=self.n_folds_inner, n_rep=self.n_rep,
             seed=self.random_state, splits=splits, inner_splits=inner, treatment_names=_treatment_names(d),
+            external_predictions=_external_args(external_predictions, d),
         )
         return self._store(result)
 
@@ -1323,13 +1397,14 @@ class _QuantileBase(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
-    def _fit(self, X, y, d, z, folds):
+    def _fit(self, X, y, d, z, folds, external_predictions=None):
         result = _dml_rs.fit_quantile(
             _as_1d(y, "y"), _as_2d(_as_1d(d, "d"), "d"), _as_2d(X, "X"), self.ml_g, self.ml_m,
             score=self._score, treatment=int(self.treatment), quantile=float(self.quantile),
             z=None if z is None else _as_1d(z, "z"), clipping_threshold=self.clipping_threshold, calibration=self.calibration,
             normalize_ipw=self.normalize_ipw, n_folds=self.n_folds, n_rep=self.n_rep,
             seed=self.random_state, splits=_splits(folds),
+            external_predictions=_external_args(external_predictions, d),
         )
         return self._store(result)
 
@@ -1355,8 +1430,17 @@ class PQ(_QuantileBase):
 
     _score = "PQ"
 
-    def fit(self, X: ArrayLike, y: ArrayLike, d: ArrayLike, folds: Optional[Folds] = None) -> Self:
-        return self._fit(X, y, d, None, folds)
+    def fit(
+        self,
+        X: ArrayLike,
+        y: ArrayLike,
+        d: ArrayLike,
+        folds: Optional[Folds] = None,
+        external_predictions: Any = None,
+    ) -> Self:
+        """``external_predictions`` for ``ml_g`` and / or ``ml_m`` as DoubleML. A supplied ``ml_m``
+        also serves the preliminary estimate (on the rows of the first half of each training fold)."""
+        return self._fit(X, y, d, None, folds, external_predictions)
 
 
 class LPQ(_QuantileBase):
@@ -1372,8 +1456,18 @@ class LPQ(_QuantileBase):
 
     _score = "LPQ"
 
-    def fit(self, X: ArrayLike, y: ArrayLike, d: ArrayLike, z: ArrayLike, folds: Optional[Folds] = None) -> Self:
-        return self._fit(X, y, d, z, folds)
+    def fit(
+        self,
+        X: ArrayLike,
+        y: ArrayLike,
+        d: ArrayLike,
+        z: ArrayLike,
+        folds: Optional[Folds] = None,
+        external_predictions: Any = None,
+    ) -> Self:
+        """``external_predictions`` must cover all five learners (``ml_m_z``, ``ml_m_d_z0``,
+        ``ml_m_d_z1``, ``ml_g_du_z0``, ``ml_g_du_z1``) or none, as DoubleML."""
+        return self._fit(X, y, d, z, folds, external_predictions)
 
 
 class CVAR(_QuantileBase):
@@ -1392,7 +1486,7 @@ class CVAR(_QuantileBase):
         return self._fit(X, y, d, None, folds)
 
 
-class PotentialQuantiles(_ResultView):
+class PotentialQuantiles(Framework):
     """Potential quantiles (or CVaRs) of both treatment levels, from `QTE.potential`, ordered
     ``q1 (d=0), q1 (d=1), q2 (d=0), ...`` and with joint inference."""
 

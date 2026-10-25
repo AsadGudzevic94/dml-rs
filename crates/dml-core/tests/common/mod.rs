@@ -278,3 +278,73 @@ pub fn assert_all_close(what: &str, a: &Array1<f64>, b: &Array1<f64>, tol: f64) 
         assert_close(&format!("{what}[{i}]"), x, y, tol);
     }
 }
+
+/// Robustness values come from scipy's bounded minimiser in DoubleML
+/// (tolerance ~1e-5); dml-rs solves the crossing exactly.
+pub const TOL_RV_FRAMEWORK: f64 = 1e-4;
+
+/// Compare a fit's sensitivity elements and scenarios with a DoubleML framework's.
+pub fn check_framework_sensitivity(
+    what: &str,
+    fit: &dml_core::DmlFit,
+    e: &serde_json::Value,
+    tol: f64,
+) {
+    let (sigma2, nu2) = fit.sensitivity_elements().expect("sensitivity elements");
+    // DoubleML drops σ² and ν² for every sum of frameworks (null in the
+    // fixture); dml-rs keeps them for multiples of a single estimate.
+    if !e["sigma2"].is_null() {
+        assert_matrix_close(
+            &format!("{what} sigma2"),
+            &sigma2.to_owned(),
+            &to_matrix(&e["sigma2"]),
+            tol,
+        );
+        assert_matrix_close(
+            &format!("{what} nu2"),
+            &nu2.to_owned(),
+            &to_matrix(&e["nu2"]),
+            tol,
+        );
+    }
+    for (i, sc) in e["scenarios"].as_array().unwrap().iter().enumerate() {
+        let p = &sc["params"];
+        let params = dml_core::SensitivityParams::new()
+            .cf_y(p["cf_y"].as_f64().unwrap())
+            .cf_d(p["cf_d"].as_f64().unwrap())
+            .rho(p["rho"].as_f64().unwrap())
+            .level(p["level"].as_f64().unwrap())
+            .null_hypotheses(to_vec(&p["null_hypothesis"]).to_vec());
+        let res = fit.sensitivity_analysis(&params).unwrap();
+        for (key, ours) in [
+            ("theta_lower", &res.theta_lower),
+            ("theta_upper", &res.theta_upper),
+            ("se_lower", &res.se_lower),
+            ("se_upper", &res.se_upper),
+            ("ci_lower", &res.ci_lower),
+            ("ci_upper", &res.ci_upper),
+        ] {
+            assert_all_close(
+                &format!("{what} scenario {i} {key}"),
+                ours,
+                &to_vec(&sc[key]),
+                tol,
+            );
+        }
+        for (key, ours) in [("rv", &res.rv), ("rva", &res.rva)] {
+            for (j, (&a, &b)) in ours.iter().zip(to_vec(&sc[key]).iter()).enumerate() {
+                assert!(
+                    (a - b).abs() < TOL_RV_FRAMEWORK,
+                    "{what} scenario {i} {key}[{j}]: rust {a}, doubleml {b}"
+                );
+            }
+        }
+    }
+}
+
+pub fn assert_matrix_close(what: &str, a: &Array2<f64>, b: &Array2<f64>, tol: f64) {
+    assert_eq!(a.dim(), b.dim(), "{what}: shape");
+    for ((idx, &x), &y) in a.indexed_iter().zip(b.iter()) {
+        assert_close(&format!("{what}{idx:?}"), x, y, tol);
+    }
+}

@@ -34,6 +34,38 @@ model.confint(joint=True)                        # simultaneous bands
 model.p_adjust("romano-wolf")                    # also "holm" and "bonferroni"
 ```
 
+## Combining estimates
+
+Estimates from fits on the same observations and sample splits can be added, subtracted, scaled
+and stacked, as DoubleML's `DoubleMLFramework`. The scores are combined the same way, so standard
+errors and intervals account for the correlation between the estimates.
+
+=== "Python"
+
+    ```python
+    plr = dml_rs.PLR(ml_l, ml_m).fit(X, y, d, folds=folds)
+    irm = dml_rs.IRM(ml_g, ml_m_clf).fit(X, y, d, folds=folds)
+    diff = plr.framework - irm.framework   # also +, c * fw, -fw
+    diff.summary
+    both = dml_rs.concat([plr, irm])       # both estimates
+    both.bootstrap().confint(joint=True)   # simultaneous bands
+    both.linear_combination([[0.5, 0.5]], names=["average"])
+    ```
+
+=== "Rust"
+
+    ```rust
+    let diff = (&plr - &irm)?;                      // also &a + &b, c * &fit, -&fit
+    let both = DmlFit::concat(&[plr, irm])?;
+    let average = both.linear_combination(array![[0.5, 0.5]].view(), vec!["average".into()])?;
+    ```
+
+A `Framework` has the fitted-model API (`summary`, `confint`, `bootstrap`, `p_adjust`,
+`sensitivity_analysis`). For the sensitivity analysis the bias bounds add up with absolute weights,
+as in DoubleML. `framework.pval` is computed from the aggregated t-statistic, as a DoubleML
+model's `pval`. DoubleML's `DoubleMLFramework.pvals` instead takes the median of the
+per-repetition p-values; the two agree with a single repetition.
+
 ## Clustered data
 
 When observations are grouped (pupils in schools, workers in firms) and share unobserved shocks,
@@ -66,7 +98,8 @@ model.sensitivity_plot(benchmarks={"cf_y": [0.03], "cf_d": [0.02], "name": ["age
 
 The robustness value `RV` is the confounding strength (with `cf_y = cf_d`) that would move the
 estimate to the null hypothesis; `RVa` the strength that would make it insignificant. Available for
-PLR, IRM, APO and DiD models. See the [sensitivity example](../examples/04_sensitivity_analysis.ipynb).
+PLR, IRM, APO and DiD models, including every ATT(g, t) of a staggered DiD and its aggregations
+(`aggregate(...).aggregated_frameworks.sensitivity_analysis()`), and for combinations of these. See the [sensitivity example](../examples/04_sensitivity_analysis.ipynb).
 
 `sensitivity_plot` draws the bound of the effect (`value="theta"`) or of its confidence interval
 (`"ci"`) as contours over a grid of `cf_d` and `cf_y` (matplotlib, installed separately), marking

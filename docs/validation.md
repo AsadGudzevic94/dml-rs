@@ -29,7 +29,8 @@ losses.
 | `ssm_*` | Sample selection, missing at random and nonignorable, with and without normalised weights |
 | `pliv_ols`, `pliv_ivtype`, `pliv_*_instruments*`, `pliv_partial_z`, `pliv_partial_xz`, `iivm_late_rep2`, `iivm_no_always_takers` | PLIV and IIVM, including one-sided non-compliance |
 | `did_panel_*`, `did_cs_*` | Two-period DiD for panels and cross-sections, all score and normalisation variants |
-| `staggered_*`, `staggered_cs_*` | Staggered DiD: every ATT(g, t) and all aggregations |
+| `staggered_*`, `staggered_cs_*` | Staggered DiD: every ATT(g, t) and all aggregations, with their sensitivity bounds and (panels) benchmarks |
+| `framework_arithmetic_rep2` | Framework arithmetic: sums, differences, multiples and `concat` of a PLR and an IRM fit, with sensitivity bounds |
 | `plr_cluster_*`, `irm_cluster_one_way`, `pliv_cluster_two_way` | One-way and two-way clustering |
 | all PLR, IRM and DiD fixtures | Sensitivity analysis in two scenarios, and benchmarks |
 
@@ -87,6 +88,24 @@ These are deliberate, documented, and covered by tests:
   contours are drawn transposed; `sensitivity_plot` draws them with `cf_d` on the x axis as labelled.
   The bound is not symmetric in `cf_y` and `cf_d`, so the two pictures differ slightly (reported as
   [DoubleML #414](https://github.com/DoubleML/doubleml-for-py/issues/414)).
+- **Negative multiples of a framework.** dml-rs reports `|c|·se` for `c · framework`. DoubleML 0.11
+  multiplies the standard errors by `c` itself, so a negative multiple gets a negative standard
+  error, a t-statistic with the wrong sign and a confidence interval with its bounds swapped. The
+  estimates and sensitivity bounds agree.
+- **Sensitivity benchmarks of a staggered DiD.** dml-rs refits every ATT(g, t) without the
+  benchmarking covariates. DoubleML 0.11's `DoubleMLDIDMulti.sensitivity_benchmark` changes the
+  covariate list of a copy whose group-time models have already read their covariates, so its
+  short model equals the long one and every benchmark is 0. The fixtures compare with DoubleML's
+  benchmark statistics computed from a short model fitted on data without the covariates, on the
+  same splits; they agree to `1e-7`.
+- **PQ with external propensities only.** A supplied `ml_m` also serves the preliminary estimate,
+  on the rows of the first half of each training fold. DoubleML 0.11 indexes the external
+  propensities by position within that half instead of by row, so it pairs them with the wrong
+  observations. With external `ml_g` (with or without `ml_m`) the two agree to `1e-9`.
+- **σ² and ν² of combinations.** For a multiple of a single estimate dml-rs keeps the
+  sensitivity elements (with `ν²` scaled by the squared weight), so benchmarks remain possible;
+  DoubleML drops them once frameworks are added, even when all but one weight is zero. The bounds
+  are the same.
 - **`LogisticRegressionCV`** solves each fit to the exact optimum with Newton's method;
   scikit-learn's default L-BFGS solver stops earlier, so its probabilities can differ by about
   `1e-3` at default settings.

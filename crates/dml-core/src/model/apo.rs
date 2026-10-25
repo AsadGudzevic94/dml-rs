@@ -486,9 +486,7 @@ impl AposFit {
             .iter()
             .map(|&(i, r)| format!("{} vs {}", self.levels[i], self.levels[r]))
             .collect();
-        let mut contrast = self
-            .fit
-            .linear_combination("APOS contrasts".into(), names, &weights);
+        let mut contrast = self.fit.combine("APOS contrasts".into(), names, &weights);
         if let Some(store) = &self.fit.sensitivity {
             let n_rep = self.fit.n_rep();
             let mut combined = crate::sensitivity::SensitivityStore::new(

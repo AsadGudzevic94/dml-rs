@@ -77,6 +77,8 @@ from ._models import (
     RDFlex,
     CausalContrast,
     DIDAggregation,
+    Framework,
+    concat,
     PotentialQuantiles,
     StaggeredDID,
 )
@@ -93,6 +95,8 @@ __all__ = [
     "APO",
     "APOS",
     "CausalContrast",
+    "Framework",
+    "concat",
     "SSM",
     "LPLR",
     "PLPR",

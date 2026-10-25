@@ -62,6 +62,29 @@ pub(crate) struct Elements {
     pub nu2_fallback: bool,
 }
 
+impl Elements {
+    /// Elements of a sub-sample laid out over all `n` units, as DoubleML's
+    /// staggered DiD: `σ²` and `ν²` stay sub-sample means, while the influence
+    /// functions and the Riesz representer are zero outside the sub-sample and
+    /// scaled by `n / n_sub`, matching the scaling of the padded score.
+    pub(crate) fn padded(self, positions: &[usize], n: usize) -> Self {
+        let scale = n as f64 / positions.len() as f64;
+        let pad = |v: &Array1<f64>| {
+            let mut out = Array1::zeros(n);
+            for (&p, &x) in positions.iter().zip(v) {
+                out[p] = scale * x;
+            }
+            out
+        };
+        Self {
+            psi_sigma2: pad(&self.psi_sigma2),
+            psi_nu2: pad(&self.psi_nu2),
+            riesz: self.riesz.as_ref().map(pad),
+            ..self
+        }
+    }
+}
+
 impl SensitivityParts {
     /// `σ²`, `ν²` and their influence functions at the estimate θ. A non-positive
     /// `ν²` falls back to the (non-orthogonal) `mean(α²)`, as DoubleML does.
@@ -173,6 +196,49 @@ impl SensitivityStore {
                 .collect(),
             var_y: stores[0].var_y,
         }
+    }
+
+    /// Elements of linear combinations of the estimates (one row of `weights`
+    /// per combination), by DoubleML's framework arithmetic: bias bounds add
+    /// with absolute weights, `max_bias = Σ_j |w_j|·max_bias_j`, and so do
+    /// their influence functions. `σ²` and `ν²` survive (as `σ²` and `w²·ν²`)
+    /// only for a multiple of a single estimate; otherwise they are `NaN` and
+    /// benchmarking is unavailable.
+    pub(crate) fn combine(&self, weights: &Array2<f64>) -> Self {
+        let (n, _, n_rep) = self.psi_max_bias.dim();
+        let mut out = Self::new(n, weights.nrows(), n_rep, self.var_y);
+        for (c, row) in weights.outer_iter().enumerate() {
+            let used: Vec<usize> = (0..row.len()).filter(|&j| row[j] != 0.0).collect();
+            for r in 0..n_rep {
+                for &j in &used {
+                    let w = row[j].abs();
+                    out.max_bias[[c, r]] += w * self.max_bias[[j, r]];
+                    out.psi_max_bias
+                        .slice_mut(ndarray::s![.., c, r])
+                        .scaled_add(w, &self.psi_max_bias.slice(ndarray::s![.., j, r]));
+                }
+                if let [j] = used[..] {
+                    let w = row[j];
+                    out.sigma2[[c, r]] = self.sigma2[[j, r]];
+                    out.nu2[[c, r]] = w * w * self.nu2[[j, r]];
+                    for (dst, src, scale) in [
+                        (&mut out.psi_sigma2, &self.psi_sigma2, 1.0),
+                        (&mut out.psi_nu2, &self.psi_nu2, w * w),
+                        (&mut out.riesz, &self.riesz, w),
+                    ] {
+                        dst.slice_mut(ndarray::s![.., c, r])
+                            .scaled_add(scale, &src.slice(ndarray::s![.., j, r]));
+                    }
+                } else {
+                    out.sigma2[[c, r]] = f64::NAN;
+                    out.nu2[[c, r]] = f64::NAN;
+                }
+            }
+            if let [j] = used[..] {
+                out.nu2_fallback[c] = self.nu2_fallback[j];
+            }
+        }
+        out
     }
 
     /// Record one treatment / repetition: `max_bias = √(σ²ν²)` and its
@@ -475,6 +541,16 @@ impl DmlFit {
     pub fn sensitivity_benchmark(&self, short: &DmlFit) -> Result<SensitivityBenchmark> {
         let long = self.sensitivity_store()?;
         let short_store = short.sensitivity_store()?;
+        if long
+            .sigma2
+            .iter()
+            .chain(&short_store.sigma2)
+            .any(|v| v.is_nan())
+        {
+            return Err(DmlError::InvalidArgument(
+                "benchmarking is not available for combinations of several estimates".into(),
+            ));
+        }
         if short.all_coef.dim() != self.all_coef.dim() {
             return Err(DmlError::DimensionMismatch(
                 "long and short fits need the same treatments and repetitions".into(),

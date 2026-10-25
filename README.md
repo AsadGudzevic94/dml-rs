@@ -64,11 +64,13 @@ tested for numerical agreement with the reference [DoubleML](https://docs.double
 
 **Inference:** standard errors and confidence intervals, multiple treatments, repeated sample
 splitting, multiplier bootstrap (normal, Bayes, wild) with simultaneous confidence bands,
-Romano–Wolf, Holm and Bonferroni multiple-testing adjustment, and cluster-robust standard errors
-for one-way and two-way clustered data (Chiang et al., 2022).
+Romano–Wolf, Holm and Bonferroni multiple-testing adjustment, cluster-robust standard errors
+for one-way and two-way clustered data (Chiang et al., 2022), and sums, differences and linear
+combinations of estimates from several fits with joint inference.
 
 **Sensitivity analysis:** bounds on the effect of omitted confounders, robustness values and
-benchmarking against observed covariates (Chernozhukov et al., 2022), for PLR, IRM and DiD.
+benchmarking against observed covariates (Chernozhukov et al., 2022), for PLR, IRM, APO and DiD
+models, including staggered DiD and its aggregations.
 
 **Learner diagnostics:** out-of-sample losses of every nuisance learner (RMSE, or log loss for
 classifiers) and evaluation of the cross-fitted predictions with any metric.
@@ -304,7 +306,8 @@ confidence intervals reach their nominal coverage.
 | `apo_*`, `apos_rep2` | Average potential outcomes of a multi-valued treatment, causal contrasts and their sensitivity bounds |
 | `pliv_ols`, `iivm_late_rep2`, `iivm_no_always_takers` | PLIV and IIVM, including one-sided non-compliance |
 | `did_panel_*`, `did_cs_*` | Two-period DiD for panels and cross-sections, all score / normalisation variants |
-| `staggered_*`, `staggered_cs_*` | Staggered DiD: every ATT(g, t) and all aggregations, panels and cross-sections |
+| `staggered_*`, `staggered_cs_*` | Staggered DiD: every ATT(g, t) and all aggregations, panels and cross-sections, with sensitivity bounds and benchmarks |
+| `framework_arithmetic_rep2` | Sums, differences, multiples and `concat` of fits, with sensitivity bounds |
 | `plr_cluster_*`, `irm_cluster_one_way`, `pliv_cluster_two_way` | One-way and two-way clustering: DoubleML's cluster splits, coefficients, cluster-robust standard errors and sensitivity bounds |
 | all model fixtures | Out-of-sample nuisance learner losses (DoubleML's `nuisance_loss`) |
 | all PLR, IRM and DiD fixtures | Sensitivity analysis: σ² and ν², bounds, confidence bounds and robustness values in two scenarios, and benchmarks |

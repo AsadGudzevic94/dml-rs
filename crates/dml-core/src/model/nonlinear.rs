@@ -4,7 +4,7 @@
 
 use ndarray::{Array1, Array2, Array3};
 
-use super::NuisanceTarget;
+use super::{Name, NuisanceTarget};
 use crate::compat::np_mean;
 use crate::data::DmlData;
 use crate::fit::{aggregate, DmlFit, NuisanceLoss};
@@ -17,7 +17,7 @@ pub(super) struct RepFit {
     pub psi: Array1<f64>,
     /// Mean score derivative `J`.
     pub jacobian: f64,
-    pub predictions: Vec<(&'static str, Array1<f64>)>,
+    pub predictions: Vec<(Name, Array1<f64>)>,
     pub targets: Vec<NuisanceTarget>,
 }
 
@@ -72,7 +72,7 @@ pub(super) fn assemble(name: String, data: &DmlData, n_folds: usize, reps: Vec<R
                 .assign(&target.target);
         }
         for (name, pred) in rep.predictions {
-            let slot = match predictions.iter().position(|(nm, _)| nm == name) {
+            let slot = match predictions.iter().position(|(nm, _)| *nm == name) {
                 Some(i) => i,
                 None => {
                     predictions

@@ -385,6 +385,9 @@ units; `anticipation_periods` shifts the reference period. Works with panels and
     model = dml_rs.StaggeredDID(ml_g, ml_m, control_group="not_yet_treated")
     model.fit_frame(df, y_col="y", id_col="id", t_col="t", g_col="first_treated", x_cols=x_cols)
     model.aggregate("eventstudy").summary
+    model.sensitivity_analysis(cf_y=0.03, cf_d=0.03)        # every ATT(g, t)
+    model.aggregate("group").aggregated_frameworks.sensitivity_analysis()
+    model.sensitivity_benchmark(benchmarking_set=["x1"])
     ```
 
 === "Rust"

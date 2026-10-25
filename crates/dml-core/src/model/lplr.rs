@@ -18,11 +18,17 @@
 //!   `Y = 0`.
 //! - [`LplrScore::Instrument`]: `m` is learned on all observations, weighted
 //!   by `M(1 − M)`.
+//!
+//! External predictions ([`DmlData::with_external_predictions`]) may replace
+//! any learner. For the double cross-fitted `ml_M` and `ml_a`, the inner
+//! predictions of every outer fold `k` are needed too (`ml_M_inner_k`,
+//! `ml_a_inner_k`: the out-of-inner-fold predictions on fold `k`'s training
+//! set), as in DoubleML; a fit reports them under the same names.
 
 use ndarray::{concatenate, Array1, ArrayView1, ArrayView2, Axis};
 
 use super::nonlinear::{assemble, RepFit};
-use super::NuisanceTarget;
+use super::{external_get, external_or, ExternalRef, Name, NuisanceTarget};
 use crate::compat::{newton, np_mean, np_sum};
 use crate::crossfit::{Fold, KFold, SampleSplitting};
 use crate::data::{gather, is_binary, DmlData};
@@ -258,7 +264,15 @@ impl Lplr {
                 let reps = splits
                     .iter()
                     .zip(inner)
-                    .map(|(folds, inner_r)| self.fit_rep(data.y(), d, x.view(), folds, inner_r))
+                    .enumerate()
+                    .map(|(rep, (folds, inner_r))| {
+                        let ext = data.external_predictions().map(|preds| ExternalRef {
+                            preds,
+                            treatment: j,
+                            rep,
+                        });
+                        self.fit_rep(data.y(), d, x.view(), folds, inner_r, ext)
+                    })
                     .collect::<Result<Vec<_>>>()?;
                 let mut fit = assemble(self.name(), data, splits[0].len(), reps);
                 fit.treatment_names = vec![data.treatment_names()[j].clone()];
@@ -385,48 +399,77 @@ impl Lplr {
         x: ArrayView2<'_, f64>,
         folds: &[Fold],
         inner: &[Vec<Fold>],
+        ext: Option<ExternalRef<'_>>,
     ) -> Result<RepFit> {
         let n = y.len();
+        let is_external = |name: &str| ext.is_some_and(|e| e.preds.contains(e.treatment, name));
+        // External outer predictions of a double cross-fitted learner need
+        // the inner predictions of every outer fold too.
+        type Double = (Array1<f64>, Vec<Array1<f64>>);
+        let double = |name: &str, fit: &dyn Fn() -> Result<Double>| -> Result<Double> {
+            let Some(outer) = external_get(ext, n, name)? else {
+                return fit();
+            };
+            let inner = (0..folds.len())
+                .map(|k| {
+                    external_get(ext, n, &format!("{name}_inner_{k}"))?.ok_or_else(|| {
+                        DmlError::InvalidArgument(format!(
+                            "external predictions for {name} also need {name}_inner_k \
+                             for every outer fold k (missing k = {k})"
+                        ))
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            Ok((outer, inner))
+        };
         let xd = concatenate![Axis(1), d.insert_axis(Axis(1)), x];
-        let (big_m, big_m_inner) = Self::double_cross_fit(
-            Learner::Classifier(self.ml_outcome.as_ref()),
-            xd.view(),
-            y,
-            folds,
-            inner,
-        )?;
+        let (big_m, big_m_inner) = double("ml_M", &|| {
+            Self::double_cross_fit(
+                Learner::Classifier(self.ml_outcome.as_ref()),
+                xd.view(),
+                y,
+                folds,
+                inner,
+            )
+        })?;
         let ml_a = self.ml_a.as_ref().unwrap_or(&self.ml_m);
-        let (a, a_inner) = Self::double_cross_fit(ml_a.as_ref(), x, d, folds, inner)?;
+        let (a, a_inner) = double("ml_a", &|| {
+            Self::double_cross_fit(ml_a.as_ref(), x, d, folds, inner)
+        })?;
 
         // m(X): on Y = 0 (nuisance space) or weighted by M(1 − M) (instrument).
-        let weights = big_m.mapv(|p| p * (1.0 - p));
-        let mut m = Array1::from_elem(n, f64::NAN);
-        for fold in folds {
-            let (rows, w) = match self.score {
-                LplrScore::NuisanceSpace => (
-                    fold.train
-                        .iter()
-                        .copied()
-                        .filter(|&i| y[i] == 0.0)
-                        .collect(),
-                    None,
-                ),
-                LplrScore::Instrument => (fold.train.clone(), Some(weights.view())),
-            };
-            let x_test = x.select(Axis(0), &fold.test);
-            let pred = self
-                .ml_m
-                .as_ref()
-                .fit_predict(x, d, &rows, w, &[x_test.view()])?;
-            for (p, &i) in pred[0].iter().zip(&fold.test) {
-                m[i] = *p;
+        let m = external_or(ext, n, "ml_m", || {
+            let weights = big_m.mapv(|p| p * (1.0 - p));
+            let mut m = Array1::from_elem(n, f64::NAN);
+            for fold in folds {
+                let (rows, w) = match self.score {
+                    LplrScore::NuisanceSpace => (
+                        fold.train
+                            .iter()
+                            .copied()
+                            .filter(|&i| y[i] == 0.0)
+                            .collect(),
+                        None,
+                    ),
+                    LplrScore::Instrument => (fold.train.clone(), Some(weights.view())),
+                };
+                let x_test = x.select(Axis(0), &fold.test);
+                let pred = self
+                    .ml_m
+                    .as_ref()
+                    .fit_predict(x, d, &rows, w, &[x_test.view()])?;
+                for (p, &i) in pred[0].iter().zip(&fold.test) {
+                    m[i] = *p;
+                }
             }
-        }
+            Ok(m)
+        })?;
 
         // Preliminary θ per fold from the inner predictions, and the targets
         // logit M of ml_t on each training fold.
         let mut beta = Array1::zeros(n);
         let mut t = Array1::from_elem(n, f64::NAN);
+        let t_external = external_get(ext, n, "ml_t")?;
         for (k, fold) in folds.iter().enumerate() {
             let w: Array1<f64> = fold
                 .train
@@ -440,12 +483,17 @@ impl Lplr {
             for &i in &fold.test {
                 beta[i] = b;
             }
-            let mut model = self.ml_t.fresh();
-            model.fit(x.select(Axis(0), &fold.train).view(), w.view())?;
-            let pred = model.predict(x.select(Axis(0), &fold.test).view())?;
-            for (p, &i) in pred.iter().zip(&fold.test) {
-                t[i] = *p;
+            if t_external.is_none() {
+                let mut model = self.ml_t.fresh();
+                model.fit(x.select(Axis(0), &fold.train).view(), w.view())?;
+                let pred = model.predict(x.select(Axis(0), &fold.test).view())?;
+                for (p, &i) in pred.iter().zip(&fold.test) {
+                    t[i] = *p;
+                }
             }
+        }
+        if let Some(ext_t) = t_external {
+            t = ext_t;
         }
         let start = np_mean(beta.as_slice().expect("contiguous"));
         let r = &t - &(&beta * &a);
@@ -470,23 +518,34 @@ impl Lplr {
                 NuisanceTarget::regression(name, d.to_owned())
             }
         };
+        // Externally predicted learners have no out-of-sample loss.
+        let targets = [
+            kind(&self.ml_m, "ml_m"),
+            kind(ml_a, "ml_a"),
+            NuisanceTarget::classification("ml_M", y.to_owned()),
+        ]
+        .into_iter()
+        .filter(|t| !is_external(&t.name))
+        .collect();
+        let mut predictions: Vec<(Name, Array1<f64>)> = vec![
+            ("ml_r".into(), r),
+            ("ml_m".into(), m),
+            ("ml_a".into(), a),
+            ("ml_t".into(), t),
+            ("ml_M".into(), big_m),
+        ];
+        for (name, inner_preds) in [("ml_M", big_m_inner), ("ml_a", a_inner)] {
+            for (k, p) in inner_preds.into_iter().enumerate() {
+                predictions.push((format!("{name}_inner_{k}").into(), p));
+            }
+        }
         Ok(RepFit {
             next_start: start,
             theta,
             psi,
             jacobian,
-            predictions: vec![
-                ("ml_r", r),
-                ("ml_m", m),
-                ("ml_a", a),
-                ("ml_t", t),
-                ("ml_M", big_m),
-            ],
-            targets: vec![
-                kind(&self.ml_m, "ml_m"),
-                kind(ml_a, "ml_a"),
-                NuisanceTarget::classification("ml_M", y.to_owned()),
-            ],
+            predictions,
+            targets,
         })
     }
 }
