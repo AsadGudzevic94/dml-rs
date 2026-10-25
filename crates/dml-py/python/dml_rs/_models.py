@@ -234,6 +234,94 @@ class _DMLEstimator(_Params):
         }
         return self
 
+    def sensitivity_contours(
+        self,
+        idx_treatment: int = 0,
+        value: Literal["theta", "ci"] = "theta",
+        rho: float = 1.0,
+        level: float = 0.95,
+        grid_bounds: tuple[float, float] = (0.15, 0.15),
+        grid_size: int = 100,
+    ) -> dict[str, Any]:
+        """The data of `sensitivity_plot`, as DoubleML's ``sensitivity_plot``: the lower (or, when the
+        null hypothesis exceeds the estimate, upper) bound of the effect (``value="theta"``) or of its
+        confidence interval (``"ci"``) on a grid of ``cf_d`` in ``[0, grid_bounds[0]]`` and ``cf_y`` in
+        ``[0, grid_bounds[1]]``. Call `sensitivity_analysis` first; its null hypothesis decides the
+        side. ``values[i, j]`` belongs to ``cf_d[i]``, ``cf_y[j]``."""
+        result = self._check_fitted()
+        if not hasattr(self, "sensitivity_result_"):
+            raise ValueError("call sensitivity_analysis() before sensitivity_contours()")
+        if value not in ("theta", "ci"):
+            raise ValueError(f"value must be 'theta' or 'ci', got {value!r}")
+        if not all(0 < b < 1 for b in grid_bounds) or grid_size < 10:
+            raise ValueError("grid_bounds must lie in (0, 1) and grid_size be at least 10")
+        params = self.sensitivity_params_["input"]
+        nulls = np.atleast_1d(params["null_hypothesis"]).astype(float).tolist()
+        null = nulls[idx_treatment] if len(nulls) > 1 else nulls[0]
+        theta = float(self.coef_[idx_treatment])
+        bound = "upper" if null > theta else "lower"
+        cf_d = np.linspace(0, grid_bounds[0], grid_size)
+        cf_y = np.linspace(0, grid_bounds[1], grid_size)
+        values = result.sensitivity_grid(cf_y.tolist(), cf_d.tolist(), rho, level, nulls, idx_treatment, value, bound)
+        if value == "theta":
+            unadjusted = theta
+        else:
+            ci = result.confint(params["level"])
+            unadjusted = float(ci[idx_treatment, 1 if bound == "upper" else 0])
+        return {"cf_d": cf_d, "cf_y": cf_y, "values": values, "bound": bound, "unadjusted": unadjusted}
+
+    def sensitivity_plot(
+        self,
+        idx_treatment: int = 0,
+        value: Literal["theta", "ci"] = "theta",
+        rho: float = 1.0,
+        level: float = 0.95,
+        include_scenario: bool = True,
+        benchmarks: Optional[dict[str, Sequence[Any]]] = None,
+        fill: bool = True,
+        grid_bounds: tuple[float, float] = (0.15, 0.15),
+        grid_size: int = 100,
+        ax: Any = None,
+    ) -> Any:
+        """Contour plot of the effect's bound over confounding strengths ``cf_d`` (x) and ``cf_y``
+        (y), as DoubleML's ``sensitivity_plot``, with the scenario of `sensitivity_analysis` and
+        optional ``benchmarks`` (``{"cf_y": [...], "cf_d": [...], "name": [...]}``) marked. Draws with
+        matplotlib (installed separately) and returns the axes; `sensitivity_contours` gives the
+        data for other plotting libraries."""
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError as err:  # pragma: no cover - depends on the environment
+            raise ImportError("sensitivity_plot needs matplotlib: pip install matplotlib") from err
+        data = self.sensitivity_contours(idx_treatment, value, rho, level, grid_bounds, grid_size)
+        if ax is None:
+            _, ax = plt.subplots(figsize=(6, 5))
+        draw = ax.contourf if fill else ax.contour
+        cs = draw(data["cf_d"], data["cf_y"], data["values"].T, levels=20, cmap="RdBu_r" if fill else None)
+        ax.clabel(ax.contour(data["cf_d"], data["cf_y"], data["values"].T, levels=8, colors="k",
+                             linewidths=0.5), fontsize=7)
+        if fill:
+            ax.figure.colorbar(cs, ax=ax, label=f"{data['bound']} bound ({value})")
+        ax.plot(0, 0, "o", color="k")
+        ax.annotate(f"unadjusted: {data['unadjusted']:.3f}", (0, 0), xytext=(4, 4), textcoords="offset points")
+        if include_scenario:
+            inp = self.sensitivity_params_["input"]
+            point = self.sensitivity_params_[value][data["bound"]][idx_treatment]
+            ax.plot(inp["cf_d"], inp["cf_y"], "^", color="k")
+            ax.annotate(f"scenario: {point:.3f}", (inp["cf_d"], inp["cf_y"]), xytext=(4, 4),
+                        textcoords="offset points")
+        if benchmarks is not None:
+            result = self._check_fitted()
+            inp = self.sensitivity_params_["input"]
+            nulls = np.atleast_1d(inp["null_hypothesis"]).astype(float).tolist()
+            for y_b, d_b, name in zip(benchmarks["cf_y"], benchmarks["cf_d"], benchmarks["name"]):
+                v = result.sensitivity_grid([float(y_b)], [float(d_b)], inp["rho"], inp["level"], nulls,
+                                            idx_treatment, value, data["bound"])[0, 0]
+                ax.plot(d_b, y_b, "D", color="k")
+                ax.annotate(f"{name}: {v:.3f}", (d_b, y_b), xytext=(4, 4), textcoords="offset points")
+        ax.set_xlabel("cf_d")
+        ax.set_ylabel("cf_y")
+        return ax
+
     @property
     def sensitivity_summary(self) -> str:
         """Text summary of the last `sensitivity_analysis`."""

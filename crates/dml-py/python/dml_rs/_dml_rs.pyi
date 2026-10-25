@@ -94,6 +94,18 @@ class DmlResult:
         """Score values at the estimate, shape ``(n_obs, n_treat, n_rep)``."""
     @property
     def nuisance_names(self) -> list[str]: ...
+    def sensitivity_grid(
+        self,
+        cf_y: Sequence[float],
+        cf_d: Sequence[float],
+        rho: float,
+        level: float,
+        null_hypothesis: Sequence[float],
+        treatment: int,
+        value: Literal["theta", "ci"],
+        bound: Literal["lower", "upper"],
+    ) -> NDArray[np.float64]:
+        """Bounds over a grid, entry ``[i, j]`` at ``cf_d[i]``, ``cf_y[j]``."""
     @property
     def sensitivity_elements(self) -> Optional[tuple[NDArray[np.float64], NDArray[np.float64]]]:
         """``(sigma2, nu2)``, each of shape ``(n_treat, n_rep)``."""

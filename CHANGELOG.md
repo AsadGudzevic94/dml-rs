@@ -31,6 +31,11 @@ All notable changes to this project are documented here. The format follows
   `tune(..., tune_on_folds=True)`. Python classes of the same names accept built-in and
   scikit-learn candidates and reproduce `GridSearchCV(scoring="neg_mean_squared_error")`.
 
+- `sensitivity_plot` and `sensitivity_contours` (Python), as DoubleML's `sensitivity_plot`: contours
+  of the effect's bound (or confidence bound) over `cf_d` and `cf_y` with the scenario and
+  benchmarks marked (matplotlib), and the grid as data; the grid comes from the new native
+  `DmlResult.sensitivity_grid` and matches DoubleML's to `1e-9`.
+
 ### Fixed
 - Sensitivity analysis: when `ν²` is not positive in some repetition of an estimate, every
   repetition now falls back to the non-orthogonal `mean(α²)`, as DoubleML (previously only the

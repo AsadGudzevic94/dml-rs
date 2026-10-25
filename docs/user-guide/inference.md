@@ -61,11 +61,17 @@ correlation `rho`.
 model.sensitivity_analysis(cf_y=0.04, cf_d=0.04, rho=1.0)
 print(model.sensitivity_summary)     # bounds, confidence bounds, robustness values
 model.sensitivity_benchmark(benchmarking_set=["age"])   # calibrate against an observed covariate
+model.sensitivity_plot(benchmarks={"cf_y": [0.03], "cf_d": [0.02], "name": ["age"]})
 ```
 
 The robustness value `RV` is the confounding strength (with `cf_y = cf_d`) that would move the
 estimate to the null hypothesis; `RVa` the strength that would make it insignificant. Available for
-PLR, IRM and DiD models. See the [sensitivity example](../examples/04_sensitivity_analysis.ipynb).
+PLR, IRM, APO and DiD models. See the [sensitivity example](../examples/04_sensitivity_analysis.ipynb).
+
+`sensitivity_plot` draws the bound of the effect (`value="theta"`) or of its confidence interval
+(`"ci"`) as contours over a grid of `cf_d` and `cf_y` (matplotlib, installed separately), marking
+the unadjusted estimate, the scenario of the last `sensitivity_analysis` and any benchmarks, as
+DoubleML's `sensitivity_plot`. `sensitivity_contours` returns the grid for other plotting libraries.
 
 ## Learner diagnostics
 

@@ -300,6 +300,60 @@ impl PyDmlResult {
         .with_text())
     }
 
+    /// Sensitivity bounds over a grid: entry `[i, j]` is the `value`
+    /// (`"theta"` or `"ci"`) `bound` (`"lower"` or `"upper"`) of `treatment`
+    /// at `cf_d = cf_d[i]`, `cf_y = cf_y[j]`.
+    #[allow(clippy::too_many_arguments)]
+    fn sensitivity_grid<'py>(
+        &self,
+        py: Python<'py>,
+        cf_y: Vec<f64>,
+        cf_d: Vec<f64>,
+        rho: f64,
+        level: f64,
+        null_hypothesis: Vec<f64>,
+        treatment: usize,
+        value: &str,
+        bound: &str,
+    ) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let pick = match (value, bound) {
+            ("theta", "lower") => 0,
+            ("theta", "upper") => 1,
+            ("ci", "lower") => 2,
+            ("ci", "upper") => 3,
+            _ => {
+                return Err(PyValueError::new_err(
+                    "value must be 'theta' or 'ci' and bound 'lower' or 'upper'",
+                ))
+            }
+        };
+        if treatment >= self.fit.n_treat() {
+            return Err(PyValueError::new_err("treatment index out of range"));
+        }
+        let grid = py.detach(|| -> dml_core::Result<ndarray::Array2<f64>> {
+            let mut out = ndarray::Array2::zeros((cf_d.len(), cf_y.len()));
+            for (i, &d) in cf_d.iter().enumerate() {
+                for (j, &y) in cf_y.iter().enumerate() {
+                    let params = dml_core::SensitivityParams::new()
+                        .cf_y(y)
+                        .cf_d(d)
+                        .rho(rho)
+                        .level(level)
+                        .null_hypotheses(null_hypothesis.clone());
+                    let res = self.fit.sensitivity_analysis(&params)?;
+                    out[[i, j]] = match pick {
+                        0 => res.theta_lower[treatment],
+                        1 => res.theta_upper[treatment],
+                        2 => res.ci_lower[treatment],
+                        _ => res.ci_upper[treatment],
+                    };
+                }
+            }
+            Ok(out)
+        });
+        Ok(grid.map_err(to_py_err)?.into_pyarray(py))
+    }
+
     /// `(sigma2, nu2)`, each of shape `(n_treat, n_rep)`, or `None`.
     #[getter]
     #[allow(clippy::type_complexity)]
