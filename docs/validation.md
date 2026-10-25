@@ -76,7 +76,10 @@ These are deliberate, documented, and covered by tests:
   `ml_a` average the inner models. DoubleML 0.11 sums the inner models' predictions and divides by
   the number of outer folds, which scales them by `n_folds_inner / n_folds` when the two differ
   (with 4 outer and 2 inner folds its `ml_M` predictions average half the outcome mean) and changes
-  the estimate through `r̂ = t̂ − β·â`. With the default, equal fold counts the two agree to `1e-9`.
+  the estimate through `r̂ = t̂ − β·â`. This was reported in
+  [DoubleML #401](https://github.com/DoubleML/doubleml-for-py/issues/401) and is fixed on its main
+  branch ([#402](https://github.com/DoubleML/doubleml-for-py/pull/402)), not yet in a release;
+  dml-rs follows the fixed behaviour. With the default, equal fold counts the two agree to `1e-9`.
 - **`LogisticRegressionCV`** solves each fit to the exact optimum with Newton's method;
   scikit-learn's default L-BFGS solver stops earlier, so its probabilities can differ by about
   `1e-3` at default settings.
