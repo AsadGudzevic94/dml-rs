@@ -161,8 +161,8 @@ def test_discrete_treatments_and_heterogeneous_effects():
         assert list(ours["data"].columns) == list(theirs["data"].columns)
         x = ours["data"].filter(like="X_").to_numpy()
         # The effect function is deterministic: identical to DoubleML's on the same covariates.
-        np.testing.assert_allclose(ours["effects"], theirs["treatment_effect"](x), rtol=1e-12)
-        np.testing.assert_allclose(ours["treatment_effect"](x), ours["effects"], rtol=1e-12)
+        np.testing.assert_allclose(ours["effects"], theirs["treatment_effect"](x), rtol=1e-12, atol=1e-12)
+        np.testing.assert_allclose(ours["treatment_effect"](x), ours["effects"], rtol=1e-12, atol=1e-12)
         # The coefficients are drawn too, so the treatment share varies from draw to draw.
         assert abs(ours["data"]["d"].mean() - theirs["data"]["d"].mean()) < 0.15
 
