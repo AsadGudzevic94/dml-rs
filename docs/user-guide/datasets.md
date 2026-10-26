@@ -4,7 +4,8 @@
 
 Estimators take arrays (`fit(X, y, d)`) or a `DmlData`, which names the roles of the columns of a
 DataFrame, as DoubleML's `DoubleMLData`. One class covers DoubleML's data classes: pass the columns
-the design needs.
+the design needs. `DmlData`, the DataFrame return types and the real data sets need pandas
+(`pip install dml-rs[pandas]`).
 
 ```python
 data = dml_rs.DmlData(df, y_col="y", d_cols="d", x_cols=["x1", "x2"])
