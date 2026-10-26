@@ -6,7 +6,7 @@ members = ["crates/dml-core", "crates/dml-py"]
 default-members = ["crates/dml-core"]
 
 [workspace.package]
-version = "0.18.0"
+version = "0.19.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Asad Gudzevic <asadgudzevic94@gmail.com>"]
