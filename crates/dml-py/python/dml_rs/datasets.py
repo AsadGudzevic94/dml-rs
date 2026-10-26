@@ -361,7 +361,7 @@ def _staggered_frame(r: dict[str, Any], time_type: str, start_date: str):
         start = np.datetime64(start_date, "M")
         t = start + t.astype(np.int64).astype("timedelta64[M]")
         finite = np.isfinite(d)
-        dd = np.full(d.shape, np.datetime64("NaT"), dtype="datetime64[M]")
+        dd = np.full(d.shape, np.datetime64("NaT", "M"), dtype="datetime64[M]")
         dd[finite] = start + d[finite].astype(np.int64).astype("timedelta64[M]")
         t, d = pd.to_datetime(t), pd.to_datetime(dd)
     cols = {"id": r["id"], "y": r["y"], "y0": r["y0"], "y1": r["y1"], "d": d, "t": t}
