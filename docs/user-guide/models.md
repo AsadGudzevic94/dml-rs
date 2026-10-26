@@ -386,6 +386,7 @@ units; `anticipation_periods` shifts the reference period. Works with panels and
     model.fit_frame(df, y_col="y", id_col="id", t_col="t", g_col="first_treated", x_cols=x_cols)
     model.aggregate("eventstudy").summary
     model.plot_effects()                                     # ATT(g, t) by cohort (matplotlib)
+    model.fit_frame(df, "y", "id", "t", "first_treated", x_cols, cluster_col="state")   # clustered
     model.aggregate("eventstudy").plot_effects()
     model.sensitivity_analysis(cf_y=0.03, cf_d=0.03)        # every ATT(g, t)
     model.aggregate("group").aggregated_frameworks.sensitivity_analysis()
@@ -431,15 +432,16 @@ keyword arguments, as in DoubleML:
 - `kernel`
 - `bwselect`: all ten bandwidth selectors (MSE- and CER-optimal; common, two-sided, sum and
   combinations)
-- `vce`: `"nn"` or `"hc0"` to `"hc3"`
+- `vce`: `"nn"`, `"hc0"` to `"hc3"`, or the cluster-robust `"cr1"` to `"cr3"`
 - `nnmatch`, `level`, `masspoints`, `bwcheck`, `bwrestrict`, `stdvars`, `scaleregul`, `sharpbw`,
   `rho`, `scalepar`
 - `covs`: covariates of the RD stage
 - `cluster`: labels for cluster-robust standard errors
 
-With clusters the variance is `rdrobust`'s `cr1`; its leverage-adjusted `cr2` and `cr3` are not
-available. In Rust the back end is also available on its own (`dml_core::rd::rd_estimate` and
-`rd_bandwidths` with `RdOptions`).
+With clusters the variance is cluster-robust, as in `rdrobust`: `cr1` by default, the
+leverage-adjusted `cr2` (Bell and McCaffrey, 2002) with `vce="hc2"` or `"cr2"`, and `cr3`
+(Pustejovsky and Tipton, 2018) with `vce="hc3"` or `"cr3"`. In Rust the back end is also
+available on its own (`dml_core::rd::rd_estimate` and `rd_bandwidths` with `RdOptions`).
 
 === "Python"
 

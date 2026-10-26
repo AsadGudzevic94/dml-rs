@@ -735,7 +735,16 @@ def rd_options_case(name, seed):
               {"kwargs": {}, "cluster": True}, {"kwargs": {}, "cluster": True, "data": "fuzzy"},
               {"kwargs": {"bwselect": "cerrd"}, "cluster": True}, {"kwargs": {"vce": "hc1"}, "cluster": True, "covs": "z"},
               {"kwargs": {"h": 0.4}, "cluster": True}, {"kwargs": {"h": 0.3, "b": 0.5}, "cluster": True},
-              {"kwargs": {"h": 0.3, "rho": 0.6}}]
+              {"kwargs": {"h": 0.3, "rho": 0.6}},
+              {"kwargs": {"vce": "cr2"}, "cluster": True}, {"kwargs": {"vce": "cr3"}, "cluster": True},
+              {"kwargs": {"vce": "hc2"}, "cluster": True}, {"kwargs": {"vce": "hc3"}, "cluster": True, "data": "fuzzy"},
+              {"kwargs": {"vce": "cr2"}, "cluster": True, "covs": "z"},
+              {"kwargs": {"vce": "cr3", "bwselect": "cerrd"}, "cluster": True, "covs": "z", "data": "fuzzy"},
+              {"kwargs": {"vce": "cr2", "h": 0.4}, "cluster": True}, {"kwargs": {"vce": "cr3", "h": 0.4}, "cluster": True},
+              {"kwargs": {"vce": "cr2", "h": 0.3, "b": 0.5}, "cluster": True},
+              {"kwargs": {"vce": "cr3", "h": 0.3, "b": 0.5}, "cluster": True, "data": "fuzzy"},
+              {"kwargs": {"vce": "cr3", "bwselect": "msetwo", "kernel": "epa"}, "cluster": True},
+              {"kwargs": {"vce": "cr2"}}]
     covs_map = {"z": z, "z_collinear": z_collinear}
     out = []
     for case in cases:

@@ -116,7 +116,15 @@ def test_rdflex_rdrobust_options_are_parameters():
     with pytest.raises(ValueError, match="selects the bandwidths"):
         dml_rs.RDFlex(LinearRegression(), h=0.3)
     x, y, d, score = rdd(26, fuzzy=False)
-    with pytest.raises(ValueError, match="cr2"):
-        dml_rs.RDFlex(LinearRegression(), vce="hc2", cluster=np.arange(len(y)) % 10).fit(x, y, d, score)
     with pytest.raises(ValueError, match="kernel"):
         dml_rs.RDFlex(LinearRegression(), kernel="gauss").fit(x, y, d, score)
+
+
+@pytest.mark.parametrize("vce", ["cr2", "cr3", "hc2"])
+def test_rdflex_leverage_adjusted_cluster_variances_match_doubleml(vce):
+    x, y, d, score = rdd(27, fuzzy=True)
+    cluster = np.random.default_rng(4).integers(0, 30, len(y))
+    kwargs = {"vce": vce, "cluster": cluster}
+    ref = fit_doubleml(x, y, d, score, ml_g=LinearRegression(), ml_m=LOGIT, fuzzy=True, **kwargs)
+    ours = dml_rs.RDFlex(LinearRegression(), LOGIT, fuzzy=True, **kwargs).fit(x, y, d, score, folds=ref._smpls)
+    assert_same(ours, ref)

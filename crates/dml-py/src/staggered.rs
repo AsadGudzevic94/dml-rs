@@ -12,6 +12,20 @@ use crate::errors::to_py_err;
 use crate::learners::{to_classifier, to_regressor};
 use crate::{did_score, PyDmlResult};
 
+/// One cluster label per unit, in the order of `PanelData::from_long` (units
+/// sorted by id), from labels per row that must be constant within a unit.
+fn unit_labels(ids: &[i64], labels: &ndarray::Array1<i64>) -> PyResult<ndarray::Array1<i64>> {
+    let mut by_unit: std::collections::BTreeMap<i64, i64> = std::collections::BTreeMap::new();
+    for (&id, &label) in ids.iter().zip(labels) {
+        if *by_unit.entry(id).or_insert(label) != label {
+            return Err(PyValueError::new_err(format!(
+                "the cluster of unit {id} changes over time; clusters must be constant within units"
+            )));
+        }
+    }
+    Ok(by_unit.into_values().collect())
+}
+
 /// Fitted staggered DID: group-time effects and their aggregations.
 #[pyclass(name = "StaggeredResult", module = "dml_rs", frozen)]
 pub struct PyStaggeredResult {
@@ -73,11 +87,13 @@ impl PyStaggeredResult {
 /// period `t` and cohort `g` (first treated period; `inf` or `nan` = never).
 /// With `panel=True` rows are unit-periods linked by `id`; with `panel=False`
 /// every row is a separate cross-sectional observation (`id` is ignored).
+/// `cluster` (integer codes, one per row; constant within a panel unit) makes
+/// the standard errors cluster-robust.
 #[pyfunction]
 #[pyo3(signature = (y, id, t, g, x, ml_g, ml_m = None, control_group = "never_treated",
                     anticipation_periods = 0, gt_combinations = "standard", score = "observational",
                     in_sample_normalization = true, clipping_threshold = 1e-2, calibration = None, n_folds = 5,
-                    n_rep = 1, seed = 0, panel = true))]
+                    n_rep = 1, seed = 0, panel = true, cluster = None))]
 #[allow(clippy::too_many_arguments)]
 pub fn fit_staggered_did(
     py: Python<'_>,
@@ -99,6 +115,7 @@ pub fn fit_staggered_did(
     n_rep: usize,
     seed: u64,
     panel: bool,
+    cluster: Option<PyReadonlyArray1<'_, i64>>,
 ) -> PyResult<PyStaggeredResult> {
     let control_group = match control_group {
         "never_treated" => ControlGroup::NeverTreated,
@@ -133,14 +150,26 @@ pub fn fit_staggered_did(
         .n_folds(n_folds)
         .n_rep(n_rep)
         .seed(seed);
+    let cluster = cluster.map(|c| c.as_array().to_owned());
+    if cluster.as_ref().is_some_and(|c| c.len() != y.len()) {
+        return Err(PyValueError::new_err("cluster needs one label per row"));
+    }
     let fit = if panel {
         let ids: Vec<i64> = id.iter().copied().collect();
-        let data = PanelData::from_long(&ids, &to_vec(t), &to_vec(y), &to_vec(g), &x)
+        let mut data = PanelData::from_long(&ids, &to_vec(t), &to_vec(y), &to_vec(g), &x)
             .map_err(to_py_err)?;
+        if let Some(cl) = &cluster {
+            data = data
+                .with_clusters(unit_labels(&ids, cl)?)
+                .map_err(to_py_err)?;
+        }
         py.detach(|| model.fit(&data))
     } else {
-        let data = RepeatedCrossSections::new(y.to_owned(), t.to_owned(), g.to_owned(), x)
+        let mut data = RepeatedCrossSections::new(y.to_owned(), t.to_owned(), g.to_owned(), x)
             .map_err(to_py_err)?;
+        if let Some(cl) = cluster {
+            data = data.with_clusters(cl).map_err(to_py_err)?;
+        }
         py.detach(|| model.fit(&data))
     }
     .map_err(to_py_err)?;

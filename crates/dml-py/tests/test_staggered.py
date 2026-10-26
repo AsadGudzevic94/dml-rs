@@ -95,3 +95,52 @@ def test_staggered_cross_sections_agree_with_doubleml():
     np.testing.assert_allclose(ours.se_, ref.se, rtol=0.15)
     for how in ["group", "time", "eventstudy"]:
         np.testing.assert_allclose(ours.aggregate(how).weights, ref.aggregate(how).aggregation_weights, atol=1e-12)
+
+
+def test_staggered_did_with_clusters():
+    rng = np.random.default_rng(6)
+    df = make_did_CS2021(n_obs=900, dgp_type=1, include_never_treated=True, time_type="float")
+    x_cols = [c for c in df.columns if c.startswith("Z")]
+    # 45 clusters nested in the cohorts (as states adopting together), with a common shock per
+    # cluster and period.
+    first = df.sort_values(["id", "t"]).groupby("id")["d"].first()
+    cohort_code = np.unique(first.to_numpy(), return_inverse=True)[1]
+    unit_cluster = cohort_code * 9 + rng.integers(0, 9, len(first))
+    n_cl = int(unit_cluster.max()) + 1
+    df["state"] = np.array([f"s{c}" for c in unit_cluster])[df["id"].to_numpy()]
+    shock = rng.normal(scale=2.0, size=(n_cl, df["t"].nunique()))
+    df["y"] = df["y"] + shock[unit_cluster[df["id"].to_numpy()], df["t"].to_numpy().astype(int)]
+    model = dml_rs.StaggeredDID(LinearRegression(), LogisticRegression())
+    clustered = model.fit_frame(df, "y", "id", "t", "d", x_cols, cluster_col="state")
+    assert clustered.n_clusters_ == len(np.unique(unit_cluster))
+    iid = dml_rs.StaggeredDID(LinearRegression(), LogisticRegression()).fit_frame(df, "y", "id", "t", "d", x_cols)
+    # Cluster shocks make the cluster-robust standard errors much larger.
+    assert np.median(clustered.se_ / iid.se_) > 1.5
+    agg = clustered.aggregate("eventstudy")
+    assert agg.overall_se > 0
+    with pytest.raises(ValueError):
+        agg.confint(joint=True)
+    clustered.sensitivity_analysis()
+    # The same through a DmlData with a cluster column.
+    data = dml_rs.DmlData(df, "y", "d", x_cols=x_cols, id_col="id", t_col="t", cluster_cols="state")
+    again = dml_rs.StaggeredDID(LinearRegression(), LogisticRegression()).fit(data)
+    np.testing.assert_allclose(again.se_, clustered.se_, rtol=1e-12)
+    bad = df.assign(state=np.arange(len(df)))
+    with pytest.raises(ValueError, match="constant within units"):
+        model.fit_frame(bad, "y", "id", "t", "d", x_cols, cluster_col="state")
+
+
+def test_staggered_cross_sections_with_clusters_and_plots():
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+    df = dml_rs.datasets.make_did_cs_CS2021(n_obs=1200, random_state=3)
+    df["county"] = np.random.default_rng(1).integers(0, 40, len(df))
+    x_cols = ["Z1", "Z2", "Z3", "Z4"]
+    model = dml_rs.StaggeredDID(LinearRegression(), LogisticRegression(), panel=False).fit_frame(
+        df, "y", "id", "t", "d", x_cols, cluster_col="county")
+    assert model.n_clusters_ == 40
+    with pytest.warns(UserWarning, match="pointwise"):
+        model.plot_effects()
+    with pytest.warns(UserWarning, match="pointwise"):
+        model.aggregate("group").plot_effects()
+    matplotlib.pyplot.close("all")

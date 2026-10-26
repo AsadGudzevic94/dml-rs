@@ -20,7 +20,7 @@ losses.
 | `plr_lasso_cv`, `irm_ate_lasso_cv_logit_cv` | scikit-learn's `LassoCV` and `LogisticRegressionCV` as nuisance learners |
 | `plr_boot_bayes`, `plr_boot_wild`, `plr_multi_rep3_boot` | Bootstrap methods, multiple treatments, joint intervals, Romano–Wolf |
 | `rd_*`, `rdflex_*` | The RD back end against the `rdrobust` package (bandwidths and estimates, sharp, fuzzy and with mass points); RDFlex in sharp and fuzzy designs with every first-stage specification and kernel, a non-zero cutoff, one to three bandwidth rounds and repeated splits |
-| `rd_options`, `rdflex_*_rd_options`, `rdflex_fuzzy_covs_cluster`, `rdflex_*binary*` | 42 `rdrobust` option sets (polynomial orders, kernels, all ten bandwidth selectors, HC variances, mass points, regularisation, `rho`, covariates with a collinear column, clusters, manual bandwidths) and RDFlex with `rdrobust` options, RD covariates, clusters and a classifier for a binary outcome |
+| `rd_options`, `rdflex_*_rd_options`, `rdflex_fuzzy_covs_cluster`, `rdflex_*binary*` | 54 `rdrobust` option sets (polynomial orders, kernels, all ten bandwidth selectors, HC variances, mass points, regularisation, `rho`, covariates with a collinear column, clusters with the `cr1`, `cr2` and `cr3` variances for `h = b` and `h ≠ b`, manual bandwidths) and RDFlex with `rdrobust` options, RD covariates, clusters and a classifier for a binary outcome |
 | `*_isotonic*` | Isotonic propensity calibration, on all observations and cross-fitted: IRM (ATE, ATTE with sensitivity), APO, IIVM, SSM and staggered DiD |
 | `plpr_*` | Panel regression: all four approaches, unbalanced panels with gaps, IV-type score, DoubleML's unit-clustered splits |
 | `lplr_*` | Logistic partially linear regression: both scores, continuous and binary treatments, replaying DoubleML's outer and inner splits |
@@ -49,6 +49,10 @@ learners themselves), and the type stubs are checked against the compiled extens
 `mypy.stubtest`.
 
 ## Statistical tests
+
+Clustered staggered DiD has no DoubleML counterpart: its tests check that singleton clusters
+reproduce the iid standard errors exactly and that cluster-robust intervals reach their coverage
+when shocks are shared within clusters.
 
 Monte-Carlo tests simulate data with a known effect and check that confidence intervals reach
 their nominal coverage: PLR, LPLR (both scores), PLPR (three approaches, with correlated unit effects), RDFlex (sharp and fuzzy), IRM (ATE and ATTE), PLIV, IIVM, DiD, sample selection (both scores), quantile and CVaR effects, joint bootstrap bands, and

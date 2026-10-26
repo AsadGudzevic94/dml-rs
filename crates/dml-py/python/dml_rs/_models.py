@@ -729,6 +729,12 @@ class DIDAggregation:
         if sort_by not in (None, "estimate", "name"):
             raise ValueError("sort_by must be 'estimate', 'name' or None")
         plt = _pyplot()
+        if joint and self._effects.n_clusters is not None:
+            import warnings
+
+            warnings.warn("The multiplier bootstrap is not available with clusters: plotting pointwise "
+                          "confidence intervals.", UserWarning, stacklevel=2)
+            joint = False
         ci = self.confint(level=level, joint=joint)
         names = [str(n) for n in self.names]
         coef = np.asarray(self.coef)
@@ -828,13 +834,26 @@ class StaggeredDID(_DMLEstimator):
         self.random_state = random_state
         self.panel = panel
 
-    @accepts_data("x", "y", "id", "t", "d")
-    def fit(self, X: ArrayLike, y: ArrayLike, id: ArrayLike, t: ArrayLike, g: ArrayLike) -> Self:
+    @accepts_data("x", "y", "id", "t", "d", cluster=True)
+    def fit(
+        self,
+        X: ArrayLike,
+        y: ArrayLike,
+        id: ArrayLike,
+        t: ArrayLike,
+        g: ArrayLike,
+        cluster: Optional[ArrayLike] = None,
+    ) -> Self:
         """Fit on long-format data: one row per observation with period ``t`` and cohort
         ``g`` (first treated period; ``np.inf`` or NaN for never treated). For panels, rows
         are linked by ``id`` and ``X`` must be time-invariant; for repeated cross-sections
-        (``panel=False``) ``id`` is ignored."""
-        self._remember(X, y, id, t, g)
+        (``panel=False``) ``id`` is ignored.
+
+        ``cluster`` (one label per row, of any type; constant within a panel unit) makes the
+        standard errors, aggregations and sensitivity bounds cluster-robust, and each ATT(g, t)
+        assigns whole clusters to folds. DoubleML's ``DoubleMLDIDMulti`` has no clustered
+        version; the multiplier bootstrap (joint bands) is not available with clusters."""
+        self._remember(X, y, id, t, g, cluster=cluster)
         self.staggered_result_ = _dml_rs.fit_staggered_did(
             _as_1d(y, "y"), np.ascontiguousarray(id, dtype=np.int64), _as_1d(t, "t"), _as_1d(g, "g"),
             _as_2d(X, "X"), self.ml_g, self.ml_m, control_group=self.control_group,
@@ -842,16 +861,25 @@ class StaggeredDID(_DMLEstimator):
             score=self.score, in_sample_normalization=self.in_sample_normalization,
             clipping_threshold=self.clipping_threshold, calibration=self.calibration, n_folds=self.n_folds, n_rep=self.n_rep,
             seed=self.random_state, panel=self.panel,
+            cluster=None if cluster is None else _codes(cluster, "cluster"),
         )
         self.group_times_ = self.staggered_result_.group_times
         return self._store(self.staggered_result_.att)
 
     def fit_frame(
-        self, df: pd.DataFrame, y_col: str, id_col: str, t_col: str, g_col: str, x_cols: Sequence[str]
+        self,
+        df: pd.DataFrame,
+        y_col: str,
+        id_col: str,
+        t_col: str,
+        g_col: str,
+        x_cols: Sequence[str],
+        cluster_col: Optional[str] = None,
     ) -> Self:
         """Convenience wrapper for a pandas DataFrame in long format."""
         return self.fit(df[list(x_cols)].to_numpy(), df[y_col].to_numpy(), df[id_col].to_numpy(),
-                        df[t_col].to_numpy(), df[g_col].to_numpy())
+                        df[t_col].to_numpy(), df[g_col].to_numpy(),
+                        cluster=None if cluster_col is None else df[cluster_col].to_numpy())
 
     def plot_effects(
         self,
@@ -879,6 +907,10 @@ class StaggeredDID(_DMLEstimator):
         plt = _pyplot()
         from matplotlib.lines import Line2D
 
+        if result_type == "effect" and joint and self.n_clusters_ is not None:
+            warnings.warn("The multiplier bootstrap is not available with clusters: plotting pointwise "
+                          "confidence intervals.", UserWarning, stacklevel=2)
+            joint = False
         if result_type == "effect" and joint and self._boot is None:
             self.bootstrap()
             warnings.warn("Joint confidence intervals require bootstrapping, which had not been performed: "
@@ -1308,10 +1340,11 @@ class RDFlex(_Params):
     n_iterations : rounds of first-stage fitting and bandwidth updates.
     **rdrobust_kwargs : options of the RD estimator, as DoubleML passes them to ``rdrobust``:
         ``p``, ``q``, ``kernel``, ``bwselect`` (all ten selectors), ``vce`` (``"nn"``, ``"hc0"`` to
-        ``"hc3"``), ``nnmatch``, ``level``, ``masspoints``, ``bwcheck``, ``bwrestrict``, ``stdvars``,
-        ``scaleregul``, ``sharpbw``, ``rho``, ``scalepar``, ``covs_drop``, ``covs`` (covariates of the
-        RD stage) and ``cluster`` (labels for cluster-robust standard errors, ``rdrobust``'s
-        ``cr1``).
+        ``"hc3"``, ``"cr1"`` to ``"cr3"``), ``nnmatch``, ``level``, ``masspoints``, ``bwcheck``,
+        ``bwrestrict``, ``stdvars``, ``scaleregul``, ``sharpbw``, ``rho``, ``scalepar``,
+        ``covs_drop``, ``covs`` (covariates of the RD stage) and ``cluster`` (labels for
+        cluster-robust standard errors; as in ``rdrobust``, ``"hc2"`` / ``"hc3"`` then give
+        ``"cr2"`` / ``"cr3"`` and the others ``"cr1"``).
     """
 
     _ROWS = ["Conventional", "Bias-Corrected", "Robust"]

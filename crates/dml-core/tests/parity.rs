@@ -1135,6 +1135,9 @@ fn rd_options_from(kw: &serde_json::Value) -> (dml_core::rd::RdOptions, Option<f
                     "hc1" => Vce::Hc1,
                     "hc2" => Vce::Hc2,
                     "hc3" => Vce::Hc3,
+                    "cr1" => Vce::Cr1,
+                    "cr2" => Vce::Cr2,
+                    "cr3" => Vce::Cr3,
                     _ => Vce::Nn,
                 }
             }
@@ -1177,7 +1180,7 @@ fn rd_options_match_rdrobust() {
     let (y_sharp, y_fuzzy, d_fuzzy) = (fx.vec("y_sharp"), fx.vec("y_fuzzy"), fx.vec("d_fuzzy"));
     let (z, z_collinear) = (fx.matrix("z"), fx.matrix("z_collinear"));
     let cases = fx.expected("cases").as_array().unwrap();
-    assert_eq!(cases.len(), 42);
+    assert_eq!(cases.len(), 54);
     let mut checked = 0;
     for case in cases {
         checked += 1;

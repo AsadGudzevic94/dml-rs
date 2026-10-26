@@ -774,6 +774,7 @@ def fit_staggered_did(
     n_rep: int = 1,
     seed: int = 0,
     panel: bool = True,
+    cluster: Optional[NDArray[np.int64]] = None,
 ) -> StaggeredResult: ...
 def fit_cate(
     method: Literal["S", "T", "X", "R", "DR"],

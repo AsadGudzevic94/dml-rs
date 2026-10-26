@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- The leverage-adjusted cluster-robust RD variances of `rdrobust`: CRV2 (Bell and McCaffrey, 2002)
+  and CRV3 (Pustejovsky and Tipton, 2018), in estimation (for `h = b` and `h ≠ b`) and bandwidth
+  selection. `rd::Vce` gains `Cr1`, `Cr2` and `Cr3`; with cluster labels `Hc2` / `Hc3` switch to
+  `Cr2` / `Cr3` as in `rdrobust` (previously an error). Python `RDFlex(vce="cr2", cluster=...)`.
+  Twelve new cases in the `rd_options` fixture match `rdrobust` to `1e-9`; RDFlex matches DoubleML.
+- Clustered staggered DiD: `PanelData::with_clusters` (per unit) and
+  `RepeatedCrossSections::with_clusters` (per row); Python `StaggeredDID.fit(..., cluster=...)`,
+  `fit_frame(..., cluster_col=...)` and `DmlData(cluster_cols=...)`. Each ATT(g, t) assigns whole
+  clusters to folds; standard errors, aggregations and sensitivity bounds are cluster-robust. An
+  extension (DoubleML's `DoubleMLDIDMulti` has no clustered version), checked by simulation.
+
 ## [0.17.0] - 2026-10-26
 
 ### Added

@@ -12,14 +12,15 @@
 //! bandwidth selector, variance estimator, mass-point handling, ...) with its
 //! defaults; [`RdData`] the outcome, running variable and optional treatment
 //! (fuzzy design), covariates and cluster labels. With clusters the variance
-//! is cluster-robust (`rdrobust`'s `cr1`). [`rdbwselect`] and [`rdrobust`]
-//! are shortcuts with the default options.
+//! is cluster-robust (`rdrobust`'s `cr1`, or the leverage-adjusted `cr2` and
+//! `cr3`). [`rdbwselect`] and [`rdrobust`] are shortcuts with the default
+//! options.
 
 use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2, Axis};
 
 use crate::compat::{np_mean, np_sum};
 use crate::error::{DmlError, Result};
-use crate::linalg::{spd_inverse, sym_pinv};
+use crate::linalg::{cholesky_factor, spd_inverse, sym_eigen, sym_pinv};
 use crate::stats::norm_ppf;
 
 /// Kernel of the local polynomial fits.
@@ -120,10 +121,11 @@ impl BwSelect {
     }
 }
 
-/// Variance estimator, as `rdrobust`'s `vce`. With cluster labels, `Nn`,
-/// `Hc0` and `Hc1` all give the cluster-robust `cr1`; the leverage-adjusted
-/// cluster estimators (`rdrobust`'s `cr2` / `cr3`, from `Hc2` / `Hc3`) are
-/// not available.
+/// Variance estimator, as `rdrobust`'s `vce`. As in `rdrobust`, the
+/// cluster-robust estimators need cluster labels and the others are switched
+/// to them when labels are given: `Nn`, `Hc0` and `Hc1` to `Cr1`, `Hc2` to
+/// `Cr2` and `Hc3` to `Cr3`; without labels `Cr1`, `Cr2` and `Cr3` fall back
+/// to `Hc1`, `Hc2` and `Hc3`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Vce {
     /// Nearest-neighbour residuals (with at least `nnmatch` neighbours).
@@ -133,6 +135,12 @@ pub enum Vce {
     Hc1,
     Hc2,
     Hc3,
+    /// Cluster-robust with the degrees-of-freedom correction.
+    Cr1,
+    /// Bell and McCaffrey (2002) bias-reduced cluster-robust (CRV2).
+    Cr2,
+    /// Pustejovsky and Tipton (2018) cluster-robust (CRV3).
+    Cr3,
 }
 
 /// Treatment of repeated values of the running variable, as `rdrobust`'s
@@ -652,13 +660,12 @@ fn residuals(
         return nn_residuals(e, &dmat, nnmatch);
     }
     let n = e.n();
-    let clustered = e.cl.is_some();
     let fitted = fitted.expect("plug-in residuals need fitted values");
     let mut res = &dmat - fitted;
     for i in 0..n {
+        // Cluster-robust variances use raw residuals.
         let w = match vce {
-            Vce::Hc0 => 1.0,
-            Vce::Hc1 if clustered => 1.0,
+            Vce::Hc0 | Vce::Cr1 | Vce::Cr2 | Vce::Cr3 => 1.0,
             Vce::Hc1 => (n as f64 / (n - d) as f64).sqrt(),
             Vce::Hc2 => (1.0 / (1.0 - hii.expect("leverages")[i]).max(1e-8)).sqrt(),
             Vce::Hc3 => 1.0 / (1.0 - hii.expect("leverages")[i]).max(1e-8),
@@ -716,16 +723,92 @@ fn nn_residuals(s: &Side, dmat: &Array2<f64>, nnmatch: usize) -> Array2<f64> {
     res
 }
 
-/// Meat of the sandwich (`rdrobust_vce`): `Σᵢ (sᵀrᵢ)² RXᵢ RXᵢᵀ`, or with
+/// Rows of each cluster, in the order of the labels.
+fn cluster_groups(cl: &[i64]) -> Vec<Vec<usize>> {
+    let mut order: Vec<usize> = (0..cl.len()).collect();
+    order.sort_by_key(|&i| cl[i]);
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for i in order {
+        match groups.last_mut() {
+            Some(g) if cl[g[0]] == cl[i] => g.push(i),
+            _ => groups.push(vec![i]),
+        }
+    }
+    groups
+}
+
+/// `outer += v vᵀ`.
+fn add_outer(outer: &mut Array2<f64>, v: &Array1<f64>) {
+    let k = v.len();
+    for a in 0..k {
+        for b in 0..k {
+            outer[[a, b]] += v[a] * v[b];
+        }
+    }
+}
+
+/// Inverse of a symmetric matrix: Cholesky, else the pseudo-inverse.
+fn sym_inverse(a: &Array2<f64>) -> Array2<f64> {
+    spd_inverse(a).unwrap_or_else(|_| sym_pinv(a))
+}
+
+/// A cluster's leverage adjustment `u ↦ L_g · A u` of its score.
+type Adjust = Box<dyn Fn(&Array1<f64>) -> Array1<f64>>;
+
+/// A leverage-adjusted cluster-robust variance: `rdrobust`'s CRV2 or CRV3.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Crv {
+    Two,
+    Three,
+}
+
+impl Crv {
+    fn of(vce: Vce) -> Option<Self> {
+        match vce {
+            Vce::Cr2 => Some(Crv::Two),
+            Vce::Cr3 => Some(Crv::Three),
+            _ => None,
+        }
+    }
+}
+
+/// What a leverage-adjusted cluster variance needs of a weighted fit.
+struct CrvParts<'a> {
+    kind: Crv,
+    inv_g: &'a Array2<f64>,
+    /// `R·√w` (its first column is `√w`).
+    sqrt_rx: &'a Array2<f64>,
+    /// The Gram matrix `RᵀWR` (CRV3); `None` inverts `inv_g`, as `rdrobust`
+    /// does where it does not pass it.
+    g: Option<Array2<f64>>,
+}
+
+impl<'a> CrvParts<'a> {
+    fn new(vce: Vce, inv_g: &'a Array2<f64>, sqrt_rx: &'a Array2<f64>, gram: bool) -> Option<Self> {
+        Crv::of(vce).map(|kind| CrvParts {
+            kind,
+            inv_g,
+            sqrt_rx,
+            g: (gram && kind == Crv::Three).then(|| crossprod(sqrt_rx, sqrt_rx)),
+        })
+    }
+}
+
+/// Meat of the sandwich (`rdrobust_vce`): `Σᵢ (sᵀrᵢ)² RXᵢ RXᵢᵀ`; with
 /// clusters the CR1 sum over clusters of `(Σᵢ∈g RXᵢ sᵀrᵢ)(…)ᵀ` times
-/// `(n − 1)/(n − k) · G/(G − 1)` (`k_df` coefficients).
+/// `(n − 1)/(n − k) · G/(G − 1)` (`k_df` coefficients), or with `crv` the
+/// leverage-adjusted CRV2 / CRV3 sums.
 fn vce_meat(
     s: &[f64],
     rx: &Array2<f64>,
     res: &Array2<f64>,
     cl: Option<&[i64]>,
     k_df: usize,
+    crv: Option<&CrvParts<'_>>,
 ) -> Array2<f64> {
+    if let (Some(cl), Some(crv)) = (cl, crv) {
+        return crv_meat(s, res, cl, crv);
+    }
     let k = rx.ncols();
     let combined: Vec<f64> = res
         .rows()
@@ -739,28 +822,16 @@ fn vce_meat(
         }
         Some(cl) => {
             let n = cl.len();
-            let mut order: Vec<usize> = (0..n).collect();
-            order.sort_by_key(|&i| cl[i]);
+            let groups = cluster_groups(cl);
             let mut meat = Array2::<f64>::zeros((k, k));
-            let mut g = 0usize;
-            let mut start = 0;
-            while start < n {
-                let mut end = start + 1;
-                while end < n && cl[order[end]] == cl[order[start]] {
-                    end += 1;
-                }
+            for rows in &groups {
                 let mut sv = Array1::<f64>::zeros(k);
-                for &i in &order[start..end] {
+                for &i in rows {
                     sv.scaled_add(combined[i], &rx.row(i));
                 }
-                for a in 0..k {
-                    for b in 0..k {
-                        meat[[a, b]] += sv[a] * sv[b];
-                    }
-                }
-                g += 1;
-                start = end;
+                add_outer(&mut meat, &sv);
             }
+            let g = groups.len();
             let w = if g > 1 {
                 ((n - 1) as f64 / (n - k_df) as f64) * (g as f64 / (g - 1) as f64)
             } else {
@@ -769,6 +840,134 @@ fn vce_meat(
             meat * w
         }
     }
+}
+
+/// CRV2 (Bell and McCaffrey, 2002) and CRV3 (Pustejovsky and Tipton, 2018)
+/// sums of `rdrobust_vce`: each cluster's score `u_g = (R√w)_gᵀ (√w_g ∘ r_g)`
+/// is adjusted by its leverage block `L_g = (R√w)_gᵀ(R√w)_g`, with
+/// `u_g + L_g (G − L_g)⁻¹ u_g` (CRV3) or the symmetric square-root
+/// correction of CRV2.
+fn crv_meat(s: &[f64], res: &Array2<f64>, cl: &[i64], crv: &CrvParts<'_>) -> Array2<f64> {
+    let k = crv.sqrt_rx.ncols();
+    let mut meat = Array2::<f64>::zeros((k, k));
+    let g_full = match crv.kind {
+        Crv::Three => Some(crv.g.clone().unwrap_or_else(|| sym_inverse(crv.inv_g))),
+        Crv::Two => None,
+    };
+    // CRV2: the upper Cholesky factor `C` of `G⁻¹ = CᵀC`.
+    let c_half = match crv.kind {
+        Crv::Two => cholesky_factor(crv.inv_g).ok().map(|l| l.t().to_owned()),
+        Crv::Three => None,
+    };
+    for rows in cluster_groups(cl) {
+        let srx = crv.sqrt_rx.select(Axis(0), &rows);
+        let sw = srx.column(0).to_owned();
+        let l_g = crossprod(&srx, &srx);
+        let mut sv = Array1::<f64>::zeros(k);
+        // The adjustment `u ↦ L_g · A u` for this cluster.
+        let adjust: Adjust = match crv.kind {
+            Crv::Three => {
+                let m_g = sym_inverse(&(g_full.as_ref().expect("crv3") - &l_g));
+                let lm = l_g.dot(&m_g);
+                Box::new(move |u: &Array1<f64>| lm.dot(u))
+            }
+            Crv::Two => match &c_half {
+                Some(c) => {
+                    let (sigma2, v) = sym_eigen(&c.dot(&l_g).dot(&c.t()));
+                    let coef = sigma2.mapv(|s2| {
+                        let s2 = s2.max(0.0);
+                        if s2 < 1e-14 {
+                            0.0
+                        } else {
+                            (1.0 / (1.0 - s2).max(1e-8).sqrt() - 1.0) / s2
+                        }
+                    });
+                    let ltc = l_g.dot(&c.t());
+                    let c = c.clone();
+                    Box::new(move |u: &Array1<f64>| {
+                        let vt_ru = v.t().dot(&c.dot(u));
+                        ltc.dot(&v.dot(&(&coef * &vt_ru)))
+                    })
+                }
+                None => Box::new(move |u: &Array1<f64>| Array1::zeros(u.len())),
+            },
+        };
+        for (l, &sl) in s.iter().enumerate() {
+            let r: Array1<f64> = rows.iter().map(|&i| res[[i, l]]).collect();
+            let u = srx.t().dot(&(&sw * &r));
+            let score = &u + &adjust(&u);
+            sv.scaled_add(sl, &score);
+        }
+        add_outer(&mut meat, &sv);
+    }
+    meat
+}
+
+/// `rdrobust_vce_qq_cluster`: the CRV2 / CRV3 meat of the bias-corrected
+/// estimator when `h ≠ b`. The sandwich uses `Q_q` and the leverage comes
+/// from the order-`q` regression at bandwidth `b`.
+#[allow(clippy::too_many_arguments)]
+fn crv_meat_qq(
+    q_q: &Array2<f64>,
+    r_q: &Array2<f64>,
+    w_b: &[f64],
+    inv_g_q: &Array2<f64>,
+    g_q: &Array2<f64>,
+    res: &Array2<f64>,
+    cl: &[i64],
+    kind: Crv,
+    s: &[f64],
+) -> Array2<f64> {
+    let k = q_q.ncols();
+    let mut meat = Array2::<f64>::zeros((k, k));
+    for rows in cluster_groups(cl) {
+        let q_g = q_q.select(Axis(0), &rows);
+        let r_g = r_q.select(Axis(0), &rows);
+        let wb: Array1<f64> = rows.iter().map(|&i| w_b[i]).collect();
+        let sr = scale_rows(&r_g, &wb.iter().map(|w| w.sqrt()).collect::<Vec<_>>());
+        let l_g = crossprod(&sr, &sr);
+        let p_g = q_g.t().dot(&r_g);
+        // `adj(u_q)`: Λ u_q (CRV2) or (G_q − L_g)⁻¹ u_q (CRV3); None = no
+        // adjustment.
+        let lambda: Option<Array2<f64>> = match kind {
+            Crv::Two => {
+                let (sigma2, v) = sym_eigen(&l_g);
+                let sigma = sigma2.mapv(|v| v.max(0.0).sqrt());
+                let tol = sigma.iter().fold(0.0_f64, |m, &x| m.max(x)) * 1e-10;
+                let keep: Vec<usize> = (0..sigma.len()).filter(|&j| sigma[j] > tol).collect();
+                if keep.is_empty() {
+                    None
+                } else {
+                    let v_r = v.select(Axis(1), &keep);
+                    let sig: Array1<f64> = keep.iter().map(|&j| sigma[j]).collect();
+                    let d = Array2::from_diag(&sig);
+                    let t = d.dot(&v_r.t().dot(&inv_g_q.dot(&v_r))).dot(&d);
+                    let t = (&t + &t.t()) / 2.0;
+                    let (tau, w_g) = sym_eigen(&t);
+                    let gamma = tau.mapv(|t| 1.0 / (1.0 - t.clamp(0.0, 1.0 - 1e-10)).sqrt() - 1.0);
+                    let a = v_r
+                        .dot(&Array2::from_diag(&sig.mapv(|x| 1.0 / x)))
+                        .dot(&w_g);
+                    Some(a.dot(&Array2::from_diag(&gamma)).dot(&a.t()))
+                }
+            }
+            Crv::Three => {
+                Some(spd_inverse(&(g_q - &l_g)).unwrap_or_else(|_| Array2::zeros(l_g.dim())))
+            }
+        };
+        let mut sv = Array1::<f64>::zeros(k);
+        for (l, &sl) in s.iter().enumerate() {
+            let e: Array1<f64> = rows.iter().map(|&i| res[[i, l]]).collect();
+            let mut score = q_g.t().dot(&e);
+            if let Some(lam) = &lambda {
+                let u_q = r_g.t().dot(&(&wb * &e));
+                score = &score + &p_g.dot(&lam.dot(&u_q));
+            }
+            sv.scaled_add(sl, &score);
+        }
+        add_outer(&mut meat, &sv);
+    }
+    meat
 }
 
 /// Leverages `hᵢᵢ = Σⱼ (R G⁻¹)ᵢⱼ (RW)ᵢⱼ`.
@@ -883,7 +1082,8 @@ impl BwCtx<'_> {
             }
         };
         let res = self.pilot_residuals(&e, &r, &inv_g, &rw, &beta, o + 1);
-        let meat = vce_meat(&s, &rw, &res, e.cl.as_deref(), rw.ncols());
+        let crv = CrvParts::new(self.vce, &inv_g, &rws, true);
+        let meat = vce_meat(&s, &rw, &res, e.cl.as_deref(), rw.ncols(), crv.as_ref());
         let v_v = inv_g.dot(&meat).dot(&inv_g)[[nu, nu]];
         let pw: Array1<f64> = e.x.iter().map(|x| powk((x - c) / h_v, o + 1)).collect();
         let ig_v = inv_g.dot(&rw.t().dot(&pw));
@@ -932,7 +1132,8 @@ impl BwCtx<'_> {
         let mut bw_reg = 0.0;
         if scale > 0.0 {
             let res = self.pilot_residuals(&e, &r, &inv_g, &rw, &beta, o_b + 1);
-            let meat = vce_meat(&s, &rw, &res, e.cl.as_deref(), rw.ncols());
+            let crv = CrvParts::new(self.vce, &inv_g, &rws, true);
+            let meat = vce_meat(&s, &rw, &res, e.cl.as_deref(), rw.ncols(), crv.as_ref());
             let v_b = inv_g.dot(&meat).dot(&inv_g)[[o_b, o_b]];
             bw_reg = 3.0 * b_const * b_const * v_b;
         }
@@ -1025,7 +1226,7 @@ fn select_bandwidths(left: &Side, right: &Side, c: f64, opts: &RdOptions) -> Res
 
     let ctx = BwCtx {
         opts,
-        vce: effective_vce(opts.vce, left.cl.is_some())?,
+        vce: effective_vce(opts.vce, left.cl.is_some()),
         c,
     };
     let reg = opts.scaleregul;
@@ -1157,15 +1358,17 @@ fn n_unique_i64(v: &[i64]) -> usize {
     v.len()
 }
 
-/// The variance estimator actually used: with clusters `rdrobust` switches
-/// `nn`, `hc0` and `hc1` to the cluster-robust `cr1` (internally `hc1`).
-fn effective_vce(vce: Vce, clustered: bool) -> Result<Vce> {
+/// The variance estimator actually used, with `rdrobust`'s switching between
+/// the cluster-robust estimators and the others (see [`Vce`]).
+fn effective_vce(vce: Vce, clustered: bool) -> Vce {
     match (vce, clustered) {
-        (Vce::Nn | Vce::Hc0 | Vce::Hc1, true) => Ok(Vce::Hc1),
-        (Vce::Hc2 | Vce::Hc3, true) => Err(DmlError::InvalidArgument(
-            "rdrobust: the leverage-adjusted cluster-robust variances (cr2, cr3) are not available; use Vce::Hc1 (cr1) with clusters".into(),
-        )),
-        (v, false) => Ok(v),
+        (Vce::Nn | Vce::Hc0 | Vce::Hc1 | Vce::Cr1, true) => Vce::Cr1,
+        (Vce::Hc2 | Vce::Cr2, true) => Vce::Cr2,
+        (Vce::Hc3 | Vce::Cr3, true) => Vce::Cr3,
+        (Vce::Cr1, false) => Vce::Hc1,
+        (Vce::Cr2, false) => Vce::Hc2,
+        (Vce::Cr3, false) => Vce::Hc3,
+        (v, false) => v,
     }
 }
 
@@ -1223,6 +1426,13 @@ struct SideFit {
     u_p: Option<Array2<f64>>,
     cl: Option<Vec<i64>>,
     n_h: usize,
+    /// For the leverage-adjusted cluster variances: `R_p√W_h`, `R_q√W_h`,
+    /// `R_q`, the bias weights `W_b` and `G_q = R_qᵀW_bR_q`.
+    sqrt_rx_p: Array2<f64>,
+    sqrt_rx_q_h: Array2<f64>,
+    r_q: Array2<f64>,
+    w_b: Vec<f64>,
+    g_q: Array2<f64>,
 }
 
 fn fit_side(side: &Side, c: f64, h: f64, b: f64, opts: &RdOptions, vce: Vce) -> Result<SideFit> {
@@ -1269,10 +1479,11 @@ fn fit_side(side: &Side, c: f64, h: f64, b: f64, opts: &RdOptions, vce: Vce) -> 
         .t()
         .dot(&Array1::from_iter(u.iter().map(|&v| powk(v, p + 1))));
     let sq = |w: &[f64]| w.iter().map(|v| v.sqrt()).collect::<Vec<_>>();
-    let inv_g_q = {
+    let g_q = {
         let m = scale_rows(&r_q, &sq(&ww_b));
-        spd_inverse(&crossprod(&m, &m))?
+        crossprod(&m, &m)
     };
+    let inv_g_q = spd_inverse(&g_q)?;
     let inv_g_p = {
         let m = scale_rows(&r_p, &sq(&ww_h));
         spd_inverse(&crossprod(&m, &m))?
@@ -1320,6 +1531,10 @@ fn fit_side(side: &Side, c: f64, h: f64, b: f64, opts: &RdOptions, vce: Vce) -> 
         None => (None, None),
     };
     Ok(SideFit {
+        sqrt_rx_p: scale_rows(&r_p, &sq(&ww_h)),
+        sqrt_rx_q_h: scale_rows(&r_q, &sq(&ww_h)),
+        g_q,
+        w_b: ww_b,
         rw_q_h: scale_rows(&r_q, &ww_h),
         beta_p,
         beta_bc,
@@ -1333,6 +1548,7 @@ fn fit_side(side: &Side, c: f64, h: f64, b: f64, opts: &RdOptions, vce: Vce) -> 
         u_p,
         cl: e.cl,
         n_h,
+        r_q,
     })
 }
 
@@ -1361,7 +1577,7 @@ pub fn rd_estimate(
             ));
         }
     }
-    let vce = effective_vce(opts.vce, data.cluster.is_some())?;
+    let vce = effective_vce(opts.vce, data.cluster.is_some());
     let n = left.n() + right.n();
     let bws = match bandwidths {
         Some(bws) => {
@@ -1460,20 +1676,33 @@ pub fn rd_estimate(
         let cl = f.cl.as_deref();
         if !robust {
             let k = f.rw_p.ncols();
+            // rdrobust recovers G_p by inverting G_p⁻¹ here.
+            let crv = CrvParts::new(vce, &f.inv_g_p, &f.sqrt_rx_p, false);
             return f
                 .inv_g_p
-                .dot(&vce_meat(&s_y, &f.rw_p, &f.res_h, cl, k))
+                .dot(&vce_meat(&s_y, &f.rw_p, &f.res_h, cl, k, crv.as_ref()))
                 .dot(&f.inv_g_p)[[0, 0]];
         }
         if hb_match && clustered {
             // The q-order regression directly (rdrobust's h = b path).
             let k = f.rw_q_h.ncols();
+            let crv = Crv::of(vce).map(|kind| CrvParts {
+                kind,
+                inv_g: &f.inv_g_q,
+                sqrt_rx: &f.sqrt_rx_q_h,
+                g: (kind == Crv::Three).then(|| f.g_q.clone()),
+            });
             f.inv_g_q
-                .dot(&vce_meat(&s_y, &f.rw_q_h, &f.res_b, cl, k))
+                .dot(&vce_meat(&s_y, &f.rw_q_h, &f.res_b, cl, k, crv.as_ref()))
                 .dot(&f.inv_g_q)[[0, 0]]
+        } else if let (Some(cl), Some(kind)) = (cl, Crv::of(vce)) {
+            let meat = crv_meat_qq(
+                &f.q_q, &f.r_q, &f.w_b, &f.inv_g_q, &f.g_q, &f.res_b, cl, kind, &s_y,
+            );
+            f.inv_g_p.dot(&meat).dot(&f.inv_g_p)[[0, 0]]
         } else {
             f.inv_g_p
-                .dot(&vce_meat(&s_y, &f.q_q, &f.res_b, cl, q + 1))
+                .dot(&vce_meat(&s_y, &f.q_q, &f.res_b, cl, q + 1, None))
                 .dot(&f.inv_g_p)[[0, 0]]
         }
     };
@@ -1570,7 +1799,8 @@ mod tests {
             ..RdOptions::default()
         }));
         assert!(RdOptions::default().validate().is_ok());
-        assert!(effective_vce(Vce::Hc2, true).is_err());
-        assert_eq!(effective_vce(Vce::Nn, true).unwrap(), Vce::Hc1);
+        assert_eq!(effective_vce(Vce::Hc2, true), Vce::Cr2);
+        assert_eq!(effective_vce(Vce::Nn, true), Vce::Cr1);
+        assert_eq!(effective_vce(Vce::Cr3, false), Vce::Hc3);
     }
 }

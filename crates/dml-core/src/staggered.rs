@@ -21,14 +21,21 @@
 //! and the aggregations, as DoubleML: each effect's sensitivity elements are
 //! sub-sample means, with influence functions laid out over all units and
 //! scaled like the score.
+//!
+//! With cluster labels (`with_clusters`, an extension: DoubleML's
+//! `DoubleMLDIDMulti` does not support clustered data), each `ATT(g, t)`
+//! assigns whole clusters to folds and every standard error, aggregation and
+//! sensitivity bound uses the cluster-robust variance
+//! `Σ_c (Σ_{i∈c} ψ_i)² / (Σ_i ψ_a,i)²` of the score over all units.
 
 use std::fmt;
 
 use ndarray::{Array1, Array2, Array3, Axis};
 
+use crate::cluster::{ClusterFold, ClusterInfo};
 use crate::crossfit::{Fold, KFold};
 use crate::error::{DmlError, Result};
-use crate::fit::DmlFit;
+use crate::fit::{aggregate, DmlFit};
 use crate::learner::{Classifier, Regressor};
 use crate::model::did::{cs_did_score, panel_did_score, DidSettings};
 use crate::model::DidScore;
@@ -50,6 +57,7 @@ pub struct PanelData {
     periods: Vec<f64>,
     cohort: Array1<f64>,
     x: Array2<f64>,
+    cluster: Option<Array1<i64>>,
 }
 
 impl PanelData {
@@ -101,6 +109,7 @@ impl PanelData {
             periods,
             cohort,
             x,
+            cluster: None,
         })
     }
 
@@ -185,6 +194,21 @@ impl PanelData {
 }
 
 impl PanelData {
+    /// Cluster labels, one per unit (in the order of the rows of `y`; for
+    /// [`from_long`](Self::from_long), units ordered by id): standard errors
+    /// become cluster-robust and the sample splits keep clusters together.
+    pub fn with_clusters(mut self, labels: Array1<i64>) -> Result<Self> {
+        if labels.len() != self.n_units() {
+            return Err(DmlError::DimensionMismatch(format!(
+                "{} cluster labels for {} units",
+                labels.len(),
+                self.n_units()
+            )));
+        }
+        self.cluster = Some(labels);
+        Ok(self)
+    }
+
     /// The same panel without the covariate columns in `drop` (for
     /// sensitivity benchmarks).
     pub fn without_covariates(&self, drop: &[usize]) -> Result<Self> {
@@ -215,6 +239,7 @@ pub struct RepeatedCrossSections {
     cohort: Array1<f64>,
     x: Array2<f64>,
     periods: Vec<f64>,
+    cluster: Option<Array1<i64>>,
 }
 
 impl RepeatedCrossSections {
@@ -266,11 +291,26 @@ impl RepeatedCrossSections {
             cohort,
             x,
             periods,
+            cluster: None,
         })
     }
 
     pub fn n_rows(&self) -> usize {
         self.y.len()
+    }
+
+    /// Cluster labels, one per row: standard errors become cluster-robust
+    /// and the sample splits keep clusters together.
+    pub fn with_clusters(mut self, labels: Array1<i64>) -> Result<Self> {
+        if labels.len() != self.n_rows() {
+            return Err(DmlError::DimensionMismatch(format!(
+                "{} cluster labels for {} rows",
+                labels.len(),
+                self.n_rows()
+            )));
+        }
+        self.cluster = Some(labels);
+        Ok(self)
     }
 
     /// The same data without the covariate columns in `drop` (for
@@ -285,6 +325,63 @@ impl RepeatedCrossSections {
     pub fn periods(&self) -> &[f64] {
         &self.periods
     }
+}
+
+/// K-fold over the distinct cluster labels of a sample: every cluster's rows
+/// stay in one test fold.
+fn cluster_kfold(labels: &[i64], n_folds: usize, seed: u64) -> Result<Vec<Fold>> {
+    let mut distinct = labels.to_vec();
+    distinct.sort_unstable();
+    distinct.dedup();
+    if distinct.len() < n_folds {
+        return Err(DmlError::InvalidArgument(format!(
+            "only {} clusters for {n_folds} folds",
+            distinct.len()
+        )));
+    }
+    let folds = KFold::new(n_folds, seed)?.split(distinct.len())?;
+    Ok(folds
+        .iter()
+        .map(|f| {
+            let test_clusters: std::collections::HashSet<i64> =
+                f.test.iter().map(|&j| distinct[j]).collect();
+            let (test, train) =
+                (0..labels.len()).partition(|&i| test_clusters.contains(&labels[i]));
+            Fold { train, test }
+        })
+        .collect())
+}
+
+/// Replace the standard errors of every `ATT(g, t)` by the cluster-robust
+/// `√(Σ_c S_c² / (Σ ψ_a)²)` with `S_c` the cluster sums of the score, and
+/// attach the clusters so aggregations and sensitivity bounds use them too.
+/// (DoubleML's clustered variance with a single fold spanning all units.)
+fn cluster_robust(fit: &mut DmlFit, cl: &Array1<i64>) -> Result<()> {
+    let n = cl.len();
+    let n_rep = fit.n_rep();
+    let mut distinct = cl.to_vec();
+    distinct.sort_unstable();
+    distinct.dedup();
+    let whole = ClusterFold {
+        fold: Fold {
+            train: Vec::new(),
+            test: (0..n).collect(),
+        },
+        test_clusters: vec![distinct],
+    };
+    let info = ClusterInfo::new(vec![cl.clone()], vec![vec![whole]; n_rep])?;
+    for j in 0..fit.n_treat() {
+        for r in 0..n_rep {
+            let psi = fit.psi.slice(ndarray::s![.., j, r]);
+            let psi_a = fit.psi_a.slice(ndarray::s![.., j, r]);
+            fit.all_se[[j, r]] = info.variance(psi, psi_a, r).sqrt();
+        }
+    }
+    let (coef, se) = aggregate(&fit.all_coef, &fit.all_se);
+    fit.coef = coef;
+    fit.se = se;
+    fit.cluster = Some(info);
+    Ok(())
 }
 
 fn drop_columns(x: &Array2<f64>, drop: &[usize]) -> Result<Array2<f64>> {
@@ -344,6 +441,14 @@ impl StaggeredInput<'_> {
         let n = values.len() as f64;
         let mean = values.iter().sum::<f64>() / n;
         values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n
+    }
+
+    /// Cluster labels per observation, if any.
+    fn clusters(&self) -> Option<&Array1<i64>> {
+        match self {
+            StaggeredInput::Panel(p) => p.cluster.as_ref(),
+            StaggeredInput::CrossSections(c) => c.cluster.as_ref(),
+        }
     }
 
     fn cohort_values(&self) -> &Array1<f64> {
@@ -639,9 +744,17 @@ impl StaggeredDid {
                             .seed
                             .wrapping_add((i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15))
                             .wrapping_add((r as u64).wrapping_mul(0xD1B5_4A32_D192_ED03));
-                        KFold::new(self.n_folds, seed)?
-                            .split_stratified(&sample.strata)
-                            .map_err(|e| context(gt, e))?
+                        match data.clusters() {
+                            Some(cl) => {
+                                let labels: Vec<i64> =
+                                    sample.positions.iter().map(|&u| cl[u]).collect();
+                                cluster_kfold(&labels, self.n_folds, seed)
+                                    .map_err(|e| context(gt, e))?
+                            }
+                            None => KFold::new(self.n_folds, seed)?
+                                .split_stratified(&sample.strata)
+                                .map_err(|e| context(gt, e))?,
+                        }
                     }
                 };
                 n_folds_used = rep_folds.len();
@@ -726,6 +839,9 @@ impl StaggeredDid {
             store.validate();
         }
         fit.sensitivity = sensitivity;
+        if let Some(cl) = data.clusters() {
+            cluster_robust(&mut fit, cl)?;
+        }
         Ok(StaggeredDidFit {
             group_times: gts,
             cohorts: data.cohorts(),

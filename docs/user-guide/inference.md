@@ -82,6 +82,15 @@ model.n_clusters_
 Labels can be of any type. With clustered data, the multiplier bootstrap is not available (as in
 DoubleML). In Rust: `DmlData::with_clusters` and `with_two_way_clusters`.
 
+Staggered DiD takes one-way cluster labels too (`StaggeredDID.fit(..., cluster=...)`, constant
+within a panel unit; Rust `PanelData::with_clusters`, `RepeatedCrossSections::with_clusters`), an
+extension, since DoubleML's `DoubleMLDIDMulti` does not support clustered data. Each ATT(g, t)
+assigns whole clusters to folds, and the standard errors of the ATT(g, t), their aggregations and
+the sensitivity bounds use the cluster-robust variance of the score over all units,
+$\sum_c \big(\sum_{i \in c} \psi_i\big)^2 / \big(\sum_i \psi_{a,i}\big)^2$. In a simulation
+with a common shock per cluster and period, clustered intervals for the group effects cover 90%
+and 96% of the time, iid intervals about a third.
+
 ## Sensitivity analysis
 
 How strong would an omitted confounder have to be to change the conclusion? Following Chernozhukov,

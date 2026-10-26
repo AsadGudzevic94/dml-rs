@@ -434,3 +434,133 @@ fn cross_sections_recover_dynamic_effects() {
         );
     }
 }
+
+/// Units in `n_clusters` clusters (cohort assigned per cluster) with a common
+/// shock per cluster and period, so scores are correlated within clusters.
+fn simulate_clustered(n_clusters: usize, per: usize, seed: u64) -> PanelData {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let periods = vec![0.0, 1.0, 2.0, 3.0];
+    let n = n_clusters * per;
+    let x = Array2::from_shape_simple_fn((n, 2), || std_normal(&mut rng));
+    let mut y = Array2::zeros((n, 4));
+    let mut cohort = Array1::zeros(n);
+    let mut labels = Array1::zeros(n);
+    for c in 0..n_clusters {
+        let u: f64 = rng.gen();
+        let g = if u < 0.3 {
+            2.0
+        } else if u < 0.6 {
+            3.0
+        } else {
+            f64::INFINITY
+        };
+        let shocks: Vec<f64> = (0..4).map(|_| 1.5 * std_normal(&mut rng)).collect();
+        for k in 0..per {
+            let i = c * per + k;
+            cohort[i] = g;
+            labels[i] = c as i64;
+            let level = x[[i, 1]] + std_normal(&mut rng);
+            for (j, &t) in periods.iter().enumerate() {
+                let effect = if t >= g { 1.0 + 0.5 * (t - g) } else { 0.0 };
+                y[[i, j]] =
+                    level + t * (0.5 + 0.4 * x[[i, 0]]) + effect + shocks[j] + std_normal(&mut rng);
+            }
+        }
+    }
+    PanelData::new(y, periods, cohort, x)
+        .unwrap()
+        .with_clusters(labels)
+        .unwrap()
+}
+
+#[test]
+fn singleton_clusters_reproduce_the_iid_standard_errors() {
+    let (y, periods, cohort, x) = simulate_parts(1200, 21);
+    let plain = PanelData::new(y, periods, cohort.clone(), x).unwrap();
+    let clustered = plain
+        .clone()
+        .with_clusters((0..1200).map(|i| i as i64).collect())
+        .unwrap();
+    let model = StaggeredDid::new(Ols::new(), LogisticRegression::default());
+    // The same folds for both fits: K-fold over each ATT(g, t)'s sample
+    // (its cohort and the never treated).
+    let folds: Vec<Vec<Vec<Fold>>> = model
+        .group_times(&plain)
+        .unwrap()
+        .iter()
+        .map(|gt| {
+            let size = cohort
+                .iter()
+                .filter(|&&g| g == gt.cohort || g.is_infinite())
+                .count();
+            vec![dml_core::KFold::new(5, 3).unwrap().split(size).unwrap()]
+        })
+        .collect();
+    let (a, b) = (
+        model.fit_with_folds(&plain, &folds).unwrap(),
+        model.fit_with_folds(&clustered, &folds).unwrap(),
+    );
+    assert_all_close(
+        "coef",
+        &a.att().coef().to_owned(),
+        &b.att().coef().to_owned(),
+        1e-12,
+    );
+    assert_all_close(
+        "se",
+        &a.att().se().to_owned(),
+        &b.att().se().to_owned(),
+        1e-10,
+    );
+    assert_eq!(b.att().n_clusters(), Some(1200));
+    let (ga, gb) = (
+        a.aggregate(Aggregation::Group).unwrap(),
+        b.aggregate(Aggregation::Group).unwrap(),
+    );
+    assert_all_close(
+        "group se",
+        &ga.effects().se().to_owned(),
+        &gb.effects().se().to_owned(),
+        1e-10,
+    );
+}
+
+#[test]
+fn cluster_robust_standard_errors_cover_with_cluster_shocks() {
+    // Group effects: cohort 2 averages e = 0, 1 → 1.25; cohort 3 has e = 0 → 1.0.
+    let reps = 80;
+    let (mut clustered, mut iid) = ([0usize; 2], [0usize; 2]);
+    for r in 0..reps {
+        let data = simulate_clustered(60, 25, 900 + r);
+        let model = StaggeredDid::new(Ols::new(), LogisticRegression::default()).seed(r);
+        let fit = model.fit(&data).unwrap();
+        // The same estimates with iid standard errors: singleton clusters.
+        let single = data
+            .clone()
+            .with_clusters((0..1500).map(|i| i as i64).collect())
+            .unwrap();
+        let fit_iid = model.fit(&single).unwrap();
+        for (counts, fit) in [(&mut clustered, &fit), (&mut iid, &fit_iid)] {
+            let ci = fit
+                .aggregate(Aggregation::Group)
+                .unwrap()
+                .effects()
+                .confint(0.95)
+                .unwrap();
+            for (j, truth) in [1.25, 1.0].into_iter().enumerate() {
+                counts[j] += usize::from(ci[[j, 0]] <= truth && truth <= ci[[j, 1]]);
+            }
+        }
+    }
+    for j in 0..2 {
+        let (c, i) = (
+            clustered[j] as f64 / reps as f64,
+            iid[j] as f64 / reps as f64,
+        );
+        assert!(c >= 0.85, "cohort {j}: clustered coverage {c}");
+        assert!(
+            i < c - 0.15,
+            "cohort {j}: iid coverage {i} vs clustered {c}"
+        );
+    }
+}

@@ -1145,9 +1145,12 @@ fn parse_rd_options(options: Option<&Bound<'_, PyDict>>) -> PyResult<dml_core::r
                 opts.vce = match v.as_str() {
                     "nn" => Vce::Nn,
                     "hc0" => Vce::Hc0,
-                    "hc1" | "cr1" => Vce::Hc1,
+                    "hc1" => Vce::Hc1,
                     "hc2" => Vce::Hc2,
                     "hc3" => Vce::Hc3,
+                    "cr1" => Vce::Cr1,
+                    "cr2" => Vce::Cr2,
+                    "cr3" => Vce::Cr3,
                     _ => return Err(bad(&key, &v)),
                 }
             }
