@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from . import _dml_rs
 from ._blp import BLP, blp_from
+from .data import accepts_data
 from ._policy import PolicyTree
 from ._validation import _as_1d, _as_2d, _as_clusters
 
@@ -422,6 +423,7 @@ class PLR(_HeterogeneityMixin, _DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
+    @accepts_data("x", "y", "d", cluster=True)
     def fit(
         self,
         X: ArrayLike,
@@ -490,6 +492,7 @@ class IRM(_HeterogeneityMixin, _DMLEstimator):
         self.random_state = random_state
         self.weights = weights
 
+    @accepts_data("x", "y", "d", cluster=True)
     def fit(
         self,
         X: ArrayLike,
@@ -559,6 +562,7 @@ class IIVM(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
+    @accepts_data("x", "y", "d", "z", cluster=True)
     def fit(
         self,
         X: ArrayLike,
@@ -633,6 +637,7 @@ class DID(_DIDBase):
     in_sample_normalization : normalise the weights by their sample means (DoubleML default).
     """
 
+    @accepts_data("x", "y", "d", cluster=True)
     def fit(
         self,
         X: ArrayLike,
@@ -652,6 +657,7 @@ class DIDCS(_DIDBase):
     Parameters as `DID`, with ``ml_g`` fitted in each treatment-group x period cell.
     """
 
+    @accepts_data("x", "y", "d", "t", cluster=True)
     def fit(
         self,
         X: ArrayLike,
@@ -708,6 +714,44 @@ class DIDAggregation:
     def overall_summary(self) -> pd.DataFrame:
         return _summary_table(self._overall)
 
+    def plot_effects(
+        self,
+        level: float = 0.95,
+        joint: bool = True,
+        figsize: tuple[float, float] = (12, 6),
+        sort_by: Optional[Literal["estimate", "name"]] = None,
+        title: str = "Aggregated Treatment Effects",
+        y_label: str = "Effect",
+    ) -> tuple[Any, Any]:
+        """Aggregated effects with confidence intervals (simultaneous with ``joint``), as DoubleML's
+        ``plot_effects``; event-study effects before treatment are drawn in a second colour.
+        Needs matplotlib. Returns ``(fig, ax)``."""
+        if sort_by not in (None, "estimate", "name"):
+            raise ValueError("sort_by must be 'estimate', 'name' or None")
+        plt = _pyplot()
+        ci = self.confint(level=level, joint=joint)
+        names = [str(n) for n in self.names]
+        coef = np.asarray(self.coef)
+        order = list(range(len(names)))
+        if sort_by == "estimate":
+            order = [int(i) for i in np.argsort(-coef, kind="stable")]
+        elif sort_by == "name":
+            order = sorted(order, key=lambda i: names[i])
+        is_event = self.aggregation == "eventstudy"
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.axhline(y=0, color="black", linestyle="--", alpha=0.5, label="Zero effect")
+        for pos, i in enumerate(order):
+            color = _COLORBLIND[0 if is_event and "-" in names[i] else 1]
+            ax.errorbar(pos, coef[i], yerr=[[coef[i] - ci[i, 0]], [ci[i, 1] - coef[i]]], fmt="o", capsize=4,
+                        color=color, ecolor=color, markersize=8, markeredgewidth=1.5, linewidth=1.5)
+        ax.set_xticks(range(len(order)))
+        ax.set_xticklabels([names[i] for i in order])
+        ax.set_ylabel(y_label)
+        ax.set_title(title)
+        ax.grid(axis="y", alpha=0.3)
+        fig.tight_layout()
+        return fig, ax
+
     def __str__(self):
         return f"{self._effects}\n{self._overall}"
 
@@ -721,6 +765,18 @@ def _summary_table(result):
     except ImportError:
         return {"index": result.treatment_names, **table}
     return pd.DataFrame(table, index=result.treatment_names)
+
+
+# seaborn's "colorblind" palette (DoubleML's default), without the dependency.
+_COLORBLIND = ["#0173b2", "#de8f05", "#029e73"]
+
+
+def _pyplot():
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError as err:  # pragma: no cover - depends on the environment
+        raise ImportError("plot_effects needs matplotlib: pip install matplotlib") from err
+    return plt
 
 
 class StaggeredDID(_DMLEstimator):
@@ -772,6 +828,7 @@ class StaggeredDID(_DMLEstimator):
         self.random_state = random_state
         self.panel = panel
 
+    @accepts_data("x", "y", "id", "t", "d")
     def fit(self, X: ArrayLike, y: ArrayLike, id: ArrayLike, t: ArrayLike, g: ArrayLike) -> Self:
         """Fit on long-format data: one row per observation with period ``t`` and cohort
         ``g`` (first treated period; ``np.inf`` or NaN for never treated). For panels, rows
@@ -795,6 +852,94 @@ class StaggeredDID(_DMLEstimator):
         """Convenience wrapper for a pandas DataFrame in long format."""
         return self.fit(df[list(x_cols)].to_numpy(), df[y_col].to_numpy(), df[id_col].to_numpy(),
                         df[t_col].to_numpy(), df[g_col].to_numpy())
+
+    def plot_effects(
+        self,
+        level: float = 0.95,
+        result_type: Literal["effect", "rv", "est_bounds", "ci_bounds"] = "effect",
+        joint: bool = True,
+        figsize: tuple[float, float] = (12, 8),
+        y_label: Optional[str] = None,
+        title: Optional[str] = None,
+    ) -> tuple[Any, list[Any]]:
+        """The ATT(g, t) over evaluation periods, one panel per cohort, as DoubleML's
+        ``plot_effects``: pre-treatment, anticipation and post-treatment periods in different
+        colours, with confidence intervals (simultaneous with ``joint``; runs `bootstrap` if
+        needed), or the sensitivity bounds / robustness values of the last
+        `sensitivity_analysis`. Needs matplotlib. Returns ``(fig, axes)``."""
+        import warnings
+
+        if not hasattr(self, "staggered_result_"):
+            raise ValueError("Apply fit() before plot_effects().")
+        if result_type not in ("effect", "rv", "est_bounds", "ci_bounds"):
+            raise ValueError("result_type must be either 'effect', 'rv', 'est_bounds' or 'ci_bounds'.")
+        if result_type != "effect" and not hasattr(self, "sensitivity_params_"):
+            raise ValueError(f"result_type='{result_type}' requires sensitivity analysis. "
+                             "Please call sensitivity_analysis() first.")
+        plt = _pyplot()
+        from matplotlib.lines import Line2D
+
+        if result_type == "effect" and joint and self._boot is None:
+            self.bootstrap()
+            warnings.warn("Joint confidence intervals require bootstrapping, which had not been performed: "
+                          "applied bootstrap(method='normal', n_boot=500). Call bootstrap() before plotting "
+                          "for other settings.", UserWarning, stacklevel=2)
+        coef = np.asarray(self.coef_)
+        lower = upper = coef
+        if result_type == "effect":
+            ci = self.confint(level=level, joint=joint)
+            lower, upper = ci[:, 0], ci[:, 1]
+        elif result_type == "est_bounds":
+            lower = self.sensitivity_params_["theta"]["lower"]
+            upper = self.sensitivity_params_["theta"]["upper"]
+        elif result_type == "ci_bounds":
+            lower = self.sensitivity_params_["ci"]["lower"]
+            upper = self.sensitivity_params_["ci"]["upper"]
+        labels = {"effect": ("Effect", "Estimated ATTs by Group"),
+                  "rv": ("Robustness Value", "Robustness Values by Group"),
+                  "est_bounds": ("Estimate Bounds", "Estimate Bounds by Group"),
+                  "ci_bounds": ("Confidence Interval Bounds", "Confidence Interval Bounds by Group")}[result_type]
+        y_label = labels[0] if y_label is None else y_label
+        title = labels[1] if title is None else title
+        gts = self.group_times_
+        cohorts = sorted({g for g, _, _ in gts})
+        colors = {"pre": _COLORBLIND[0], "post": _COLORBLIND[1], "anticipation": _COLORBLIND[2]}
+        a = self.anticipation_periods
+        fig = plt.figure(figsize=figsize)
+        grid = fig.add_gridspec(len(cohorts) + 1, 1, height_ratios=[3] * len(cohorts) + [0.5])
+        axes = [fig.add_subplot(grid[i]) for i in range(len(cohorts))]
+        for ax, g in zip(axes, cohorts):
+            ax.axvline(x=g, color="red", linestyle=":", alpha=0.7)
+            ax.axhline(y=0, color="black", linestyle="--", alpha=0.5)
+            for i, (gi, _, t_eval) in enumerate(gts):
+                if gi != g:
+                    continue
+                kind = "post" if t_eval >= g else ("anticipation" if a > 0 and t_eval >= g - a else "pre")
+                color = colors[kind]
+                if result_type == "rv":
+                    ax.scatter(t_eval, self.sensitivity_params_["rv"][i], color=color, s=50, marker="o")
+                    ax.scatter(t_eval, self.sensitivity_params_["rva"][i], color=color, s=50, marker="s")
+                else:
+                    ax.errorbar(t_eval, coef[i], yerr=[[coef[i] - lower[i]], [upper[i] - coef[i]]], fmt="o",
+                                color=color, ecolor=color, capsize=4, markersize=5)
+            ax.set_xticks(sorted({t for _, _, t in gts}))
+            ax.set_title(f"First Treated: {g:g}")
+            ax.set_ylabel(y_label)
+            ax.grid(alpha=0.3)
+        axes[-1].set_xlabel("Evaluation Period")
+        legend_ax = fig.add_subplot(grid[-1])
+        legend_ax.axis("off")
+        handles = [Line2D([0], [0], color="red", linestyle=":", alpha=0.7, label="Treatment start"),
+                   Line2D([0], [0], color="black", linestyle="--", alpha=0.5, label=f"Zero {result_type}"),
+                   Line2D([0], [0], marker="o", color=colors["pre"], linestyle="None", label="Pre-treatment")]
+        if a > 0:
+            handles.append(Line2D([0], [0], marker="o", color=colors["anticipation"], linestyle="None",
+                                  label="Anticipation"))
+        handles.append(Line2D([0], [0], marker="o", color=colors["post"], linestyle="None", label="Post-treatment"))
+        legend_ax.legend(handles=handles, loc="center", ncol=len(handles), mode="expand", borderaxespad=0.0)
+        fig.suptitle(title)
+        fig.tight_layout()
+        return fig, axes
 
     def aggregate(self, aggregation: Literal["group", "time", "eventstudy"] = "group") -> DIDAggregation:
         """Aggregate the ATT(g, t): ``"group"``, ``"time"`` or ``"eventstudy"``."""
@@ -845,6 +990,7 @@ class PLIV(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
+    @accepts_data("x", "y", "d", "z", cluster=True)
     def fit(
         self,
         X: ArrayLike,
@@ -903,6 +1049,7 @@ class APO(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
+    @accepts_data("x", "y", "d", cluster=True)
     def fit(
         self,
         X: ArrayLike,
@@ -1036,6 +1183,7 @@ class APOS(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
+    @accepts_data("x", "y", "d", cluster=True)
     def fit(
         self,
         X: ArrayLike,
@@ -1115,6 +1263,7 @@ class PLPR(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
+    @accepts_data("x", "y", "d", "id", "t")
     def fit(
         self,
         X: ArrayLike,
@@ -1211,6 +1360,7 @@ class RDFlex(_Params):
             self._rd_kwargs[key] = params.pop(key)
         return super().set_params(**params)
 
+    @accepts_data("x", "y", "d", "score")
     def fit(self, X: ArrayLike, y: ArrayLike, d: ArrayLike, score: ArrayLike, folds: Optional[Folds] = None) -> Self:
         """Fit on covariates ``X``, outcome ``y``, treatment ``d`` and running variable ``score``. A
         classifier ``ml_g`` (with ``predict_proba``) learns a binary outcome, as in DoubleML."""
@@ -1303,6 +1453,7 @@ class LPLR(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
+    @accepts_data("x", "y", "d")
     def fit(
         self,
         X: ArrayLike,
@@ -1380,6 +1531,7 @@ class SSM(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
+    @accepts_data("x", "y", "d", "s", "z?", cluster=True)
     def fit(
         self,
         X: ArrayLike,
@@ -1460,6 +1612,7 @@ class PQ(_QuantileBase):
 
     _score = "PQ"
 
+    @accepts_data("x", "y", "d")
     def fit(
         self,
         X: ArrayLike,
@@ -1486,6 +1639,7 @@ class LPQ(_QuantileBase):
 
     _score = "LPQ"
 
+    @accepts_data("x", "y", "d", "z")
     def fit(
         self,
         X: ArrayLike,
@@ -1512,6 +1666,7 @@ class CVAR(_QuantileBase):
 
     _score = "CVaR"
 
+    @accepts_data("x", "y", "d")
     def fit(self, X: ArrayLike, y: ArrayLike, d: ArrayLike, folds: Optional[Folds] = None) -> Self:
         return self._fit(X, y, d, None, folds)
 
@@ -1560,6 +1715,7 @@ class QTE(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
+    @accepts_data("x", "y", "d", "z?")
     def fit(
         self,
         X: ArrayLike,

@@ -898,6 +898,33 @@ impl PyPolicyTree {
         self.tree.export_text(feature_names.as_deref())
     }
 
+    /// The nodes in preorder as `(feature, threshold, left, right, share)`;
+    /// leaves have `feature = left = right = -1` and the share of positive
+    /// effects, splits a NaN share.
+    fn nodes(&self) -> Vec<(i64, f64, i64, i64, f64)> {
+        self.tree
+            .nodes()
+            .into_iter()
+            .map(|n| match n {
+                dml_core::PolicyNode::Split {
+                    feature,
+                    threshold,
+                    left,
+                    right,
+                } => (
+                    feature as i64,
+                    threshold,
+                    left as i64,
+                    right as i64,
+                    f64::NAN,
+                ),
+                dml_core::PolicyNode::Leaf { share_positive } => {
+                    (-1, f64::NAN, -1, -1, share_positive)
+                }
+            })
+            .collect()
+    }
+
     #[getter]
     fn n_leaves(&self) -> usize {
         self.tree.n_leaves()

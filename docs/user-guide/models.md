@@ -385,6 +385,8 @@ units; `anticipation_periods` shifts the reference period. Works with panels and
     model = dml_rs.StaggeredDID(ml_g, ml_m, control_group="not_yet_treated")
     model.fit_frame(df, y_col="y", id_col="id", t_col="t", g_col="first_treated", x_cols=x_cols)
     model.aggregate("eventstudy").summary
+    model.plot_effects()                                     # ATT(g, t) by cohort (matplotlib)
+    model.aggregate("eventstudy").plot_effects()
     model.sensitivity_analysis(cf_y=0.03, cf_d=0.03)        # every ATT(g, t)
     model.aggregate("group").aggregated_frameworks.sensitivity_analysis()
     model.sensitivity_benchmark(benchmarking_set=["x1"])
@@ -466,7 +468,8 @@ available. In Rust the back end is also available on its own (`dml_core::rd::rd_
 - **Policy trees** (`IRM.policy_tree`) turn the estimated effects into a treatment rule: a shallow
   decision tree classifies the sign of each unit's doubly robust effect signal, weighted by its
   size, and is pruned by cost-complexity pruning (as DoubleML's `DoubleMLPolicyTree`; Athey and
-  Wager, 2021). `print(tree)` shows the rules, `tree.predict(features)` the recommendations.
+  Wager, 2021). `print(tree)` shows the rules, `tree.predict(features)` the recommendations and
+  `tree.plot_tree()` draws the tree (matplotlib).
 - **Meta-learners** estimate the conditional average treatment effect $\tau(x)$ itself:
   `SLearner`, `TLearner`, `XLearner` (Künzel et al., 2019), `RLearner` (Nie and Wager, 2021) and
   `DRLearner` (Kennedy, 2023), the last with BLP and GATE inference.

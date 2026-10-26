@@ -56,6 +56,7 @@ from ._dml_rs import (
     fit_staggered_did,
 )
 from . import datasets
+from .data import DmlData
 from ._blp import BLP
 from ._cate import DRLearner, RLearner, SLearner, TLearner, XLearner
 from ._policy import PolicyTree
@@ -148,5 +149,6 @@ __all__ = [
     "fit_qte",
     "fit_ssm",
     "datasets",
+    "DmlData",
     "__version__",
 ]

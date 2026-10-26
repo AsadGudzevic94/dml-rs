@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `dml_rs.DmlData`, a data container naming the roles of a DataFrame's columns (outcome,
+  treatments, covariates, instruments, clusters, time, selection indicator, unit identifier,
+  running variable), as DoubleML's data classes; every estimator's `fit` accepts it
+  (`model.fit(data)`), and `DmlData.from_arrays` uses DoubleML's column names. The simulated data
+  sets take `return_type="DmlData"`.
+- `fetch_401K` and `fetch_bonus` (`dml_rs.datasets`): the 401(k) and Pennsylvania bonus data sets
+  of DoubleML's tutorials, downloaded and prepared as DoubleML (including the bonus data's
+  polynomial features).
+- Plots (matplotlib): `StaggeredDID.plot_effects` (the ATT(g, t) by cohort, with pre-treatment,
+  anticipation and post-treatment periods, or sensitivity bounds and robustness values),
+  `DIDAggregation.plot_effects` and `PolicyTree.plot_tree`, as DoubleML's. Rust:
+  `PolicyTree::nodes` (`PolicyNode`).
+
 ## [0.16.0] - 2026-10-26
 
 ### Added

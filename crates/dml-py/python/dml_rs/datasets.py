@@ -5,9 +5,10 @@ seeded generator: pass ``random_state`` for reproducible data (without it, the s
 NumPy's global generator, so ``np.random.seed`` makes the data reproducible as well). The draws
 are not identical to DoubleML's, but the distributions are the same.
 
-``return_type`` is ``"array"`` (a tuple of arrays, the default) or ``"DataFrame"`` (pandas, with
-DoubleML's column names); DoubleML's data classes are not available. Generators that DoubleML
-returns as a dict or a DataFrame return the same here.
+``return_type`` is ``"array"`` (a tuple of arrays, the default), ``"DataFrame"`` (pandas, with
+DoubleML's column names) or ``"DmlData"`` (a `DmlData` with the columns in their roles, as
+DoubleML's data classes). Generators that DoubleML returns as a dict or a DataFrame return the
+same here.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from typing import Any, Callable, Literal, Optional
 import numpy as np
 
 from . import _dml_rs
+from .data import DmlData
 
 __all__ = [
     "make_plr_CCDDHNR2018",
@@ -36,6 +38,8 @@ __all__ = [
     "make_did_CS2021",
     "make_did_cs_CS2021",
     "make_simple_rdd_data",
+    "fetch_401K",
+    "fetch_bonus",
 ]
 
 
@@ -72,15 +76,23 @@ def _xyd_frame(x, y, d, extra: Optional[dict[str, Any]] = None, x_prefix: str = 
 
 
 def _check_return_type(return_type: str) -> None:
-    if return_type not in ("array", "DataFrame"):
-        raise ValueError(f"return_type must be 'array' or 'DataFrame', got {return_type!r}")
+    if return_type not in ("array", "DataFrame", "DmlData"):
+        raise ValueError(f"return_type must be 'array', 'DataFrame' or 'DmlData', got {return_type!r}")
+
+
+def _finish(frame: Any, return_type: str, y_col: str = "y", d_col: str = "d", x_prefix: str = "X", **roles: Any):
+    """The DataFrame, or a `DmlData` over it with covariates ``x_prefix...``."""
+    if return_type == "DataFrame":
+        return frame
+    x_cols = [c for c in frame.columns if c.startswith(x_prefix)]
+    return DmlData(frame, y_col, d_col, x_cols=x_cols, **roles)
 
 
 def make_plr_CCDDHNR2018(
     n_obs: int = 500,
     dim_x: int = 20,
     alpha: float = 0.5,
-    return_type: Literal["array", "DataFrame"] = "array",
+    return_type: Literal["array", "DataFrame", "DmlData"] = "array",
     random_state: Optional[int] = None,
     **kwargs: float,
 ):
@@ -92,14 +104,14 @@ def make_plr_CCDDHNR2018(
     r = _draw("plr_CCDDHNR2018", random_state, n_obs=n_obs, dim_x=dim_x, alpha=alpha, **kwargs)
     if return_type == "array":
         return r["x"], r["y"], r["d"]
-    return _xyd_frame(r["x"], r["y"], r["d"])
+    return _finish(_xyd_frame(r["x"], r["y"], r["d"]), return_type)
 
 
 def make_plr_turrell2018(
     n_obs: int = 100,
     dim_x: int = 20,
     theta: float = 0.5,
-    return_type: Literal["array", "DataFrame"] = "array",
+    return_type: Literal["array", "DataFrame", "DmlData"] = "array",
     random_state: Optional[int] = None,
     **kwargs: float,
 ):
@@ -109,7 +121,7 @@ def make_plr_turrell2018(
     r = _draw("plr_turrell2018", random_state, n_obs=n_obs, dim_x=dim_x, theta=theta, **kwargs)
     if return_type == "array":
         return r["x"], r["y"], r["d"]
-    return _xyd_frame(r["x"], r["y"], r["d"])
+    return _finish(_xyd_frame(r["x"], r["y"], r["d"]), return_type)
 
 
 def make_confounded_plr_data(
@@ -132,7 +144,7 @@ def make_pliv_CHS2015(
     alpha: float = 1.0,
     dim_x: int = 200,
     dim_z: int = 150,
-    return_type: Literal["array", "DataFrame"] = "array",
+    return_type: Literal["array", "DataFrame", "DmlData"] = "array",
     random_state: Optional[int] = None,
 ):
     """Partially linear IV of Chernozhukov, Hansen and Spindler (2015) with ``dim_z``
@@ -142,7 +154,8 @@ def make_pliv_CHS2015(
     z = r["z"][:, 0] if dim_z == 1 else r["z"]
     if return_type == "array":
         return r["x"], r["y"], r["d"], z
-    return _xyd_frame(r["x"], r["y"], r["d"], {f"Z{i + 1}": r["z"][:, i] for i in range(dim_z)})
+    frame = _xyd_frame(r["x"], r["y"], r["d"], {f"Z{i + 1}": r["z"][:, i] for i in range(dim_z)})
+    return _finish(frame, return_type, z_cols=[f"Z{i + 1}" for i in range(dim_z)])
 
 
 def make_pliv_multiway_cluster_CKMS2021(
@@ -150,7 +163,7 @@ def make_pliv_multiway_cluster_CKMS2021(
     M: int = 25,
     dim_X: int = 100,
     theta: float = 1.0,
-    return_type: Literal["array", "DataFrame"] = "array",
+    return_type: Literal["array", "DataFrame", "DmlData"] = "array",
     random_state: Optional[int] = None,
     **kwargs: Any,
 ):
@@ -165,14 +178,15 @@ def make_pliv_multiway_cluster_CKMS2021(
     cols = {"cluster_var_i": r["clusters"][:, 0], "cluster_var_j": r["clusters"][:, 1]}
     cols.update({f"X{i + 1}": r["x"][:, i] for i in range(dim_X)})
     cols.update({"Y": r["y"], "D": r["d"], "Z": z})
-    return _frame(cols)
+    return _finish(_frame(cols), return_type, y_col="Y", d_col="D", z_cols="Z",
+                   cluster_cols=["cluster_var_i", "cluster_var_j"])
 
 
 def make_lplr_LZZ2020(
     n_obs: int = 500,
     dim_x: int = 20,
     alpha: float = 0.5,
-    return_type: Literal["array", "DataFrame"] = "array",
+    return_type: Literal["array", "DataFrame", "DmlData"] = "array",
     balanced_r0: bool = True,
     treatment: Literal["continuous", "binary", "binary_unbalanced"] = "continuous",
     random_state: Optional[int] = None,
@@ -185,7 +199,7 @@ def make_lplr_LZZ2020(
               treatment=treatment)
     if return_type == "array":
         return r["x"], r["y"], r["d"], r["p"]
-    return _xyd_frame(r["x"], r["y"], r["d"], {"p": r["p"]})
+    return _finish(_xyd_frame(r["x"], r["y"], r["d"], {"p": r["p"]}), return_type)
 
 
 def make_plpr_CP2025(
@@ -219,7 +233,7 @@ def make_irm_data(
     theta: float = 0.0,
     R2_d: float = 0.5,
     R2_y: float = 0.5,
-    return_type: Literal["array", "DataFrame"] = "array",
+    return_type: Literal["array", "DataFrame", "DmlData"] = "array",
     random_state: Optional[int] = None,
 ):
     """Interactive regression with a binary treatment (Belloni et al., 2017), with the strength of
@@ -228,7 +242,7 @@ def make_irm_data(
     r = _draw("irm_data", random_state, n_obs=n_obs, dim_x=dim_x, theta=theta, R2_d=R2_d, R2_y=R2_y)
     if return_type == "array":
         return r["x"], r["y"], r["d"]
-    return _xyd_frame(r["x"], r["y"], r["d"])
+    return _finish(_xyd_frame(r["x"], r["y"], r["d"]), return_type)
 
 
 def make_confounded_irm_data(
@@ -269,7 +283,7 @@ def make_iivm_data(
     dim_x: int = 20,
     theta: float = 1.0,
     alpha_x: float = 0.2,
-    return_type: Literal["array", "DataFrame"] = "array",
+    return_type: Literal["array", "DataFrame", "DmlData"] = "array",
     random_state: Optional[int] = None,
 ):
     """Binary treatment shifted by a binary instrument (LATE). Returns ``(x, y, d, z)``."""
@@ -278,7 +292,7 @@ def make_iivm_data(
     z = r["z"][:, 0]
     if return_type == "array":
         return r["x"], r["y"], r["d"], z
-    return _xyd_frame(r["x"], r["y"], r["d"], {"z": z})
+    return _finish(_xyd_frame(r["x"], r["y"], r["d"], {"z": z}), return_type, z_cols="z")
 
 
 def make_ssm_data(
@@ -286,7 +300,7 @@ def make_ssm_data(
     dim_x: int = 100,
     theta: float = 1.0,
     mar: bool = True,
-    return_type: Literal["array", "DataFrame"] = "array",
+    return_type: Literal["array", "DataFrame", "DmlData"] = "array",
     random_state: Optional[int] = None,
 ):
     """Sample selection: the outcome is observed where ``s = 1`` (0 elsewhere); missing at random
@@ -298,7 +312,8 @@ def make_ssm_data(
     if return_type == "array":
         return r["x"], r["y"], r["d"], z, r["s"]
     extra = {"s": r["s"]} if mar else {"z": z, "s": r["s"]}
-    return _xyd_frame(r["x"], r["y"], r["d"], extra)
+    return _finish(_xyd_frame(r["x"], r["y"], r["d"], extra), return_type, s_col="s",
+                   z_cols=None if mar else "z")
 
 
 def make_heterogeneous_data(
@@ -336,7 +351,7 @@ def make_did_SZ2020(
     n_obs: int = 500,
     dgp_type: int = 1,
     cross_sectional_data: bool = False,
-    return_type: Literal["array", "DataFrame"] = "array",
+    return_type: Literal["array", "DataFrame", "DmlData"] = "array",
     random_state: Optional[int] = None,
     **kwargs: float,
 ):
@@ -350,7 +365,8 @@ def make_did_SZ2020(
     t = r.get("t")
     if return_type == "array":
         return r["x"], r["y"], r["d"], t
-    return _xyd_frame(r["x"], r["y"], r["d"], {} if t is None else {"t": t}, x_prefix="Z")
+    frame = _xyd_frame(r["x"], r["y"], r["d"], {} if t is None else {"t": t}, x_prefix="Z")
+    return _finish(frame, return_type, x_prefix="Z", t_col=None if t is None else "t")
 
 
 def _staggered_frame(r: dict[str, Any], time_type: str, start_date: str):
@@ -424,3 +440,80 @@ def make_simple_rdd_data(
               **kwargs)
     return {"score": r["score"], "Y": r["y"], "D": r["d"].astype(np.int64), "X": r["x"],
             "oracle_values": {"Y0": r["y0"], "Y1": r["y1"]}}
+
+
+# ---------------------------------------------------------------------------
+# Real data sets (downloaded)
+# ---------------------------------------------------------------------------
+
+_URL_401K = "https://github.com/VC2015/DMLonGitHub/raw/master/sipp1991.dta"
+_URL_BONUS = "https://raw.githubusercontent.com/VC2015/DMLonGitHub/master/penn_jae.dat"
+
+
+def _check_fetch_return_type(return_type: str) -> None:
+    if return_type not in ("DmlData", "DataFrame"):
+        raise ValueError(f"return_type must be 'DmlData' or 'DataFrame', got {return_type!r}")
+
+
+def _polynomial_features(frame: Any, columns: list[str]) -> Any:
+    """Degree-2 polynomial features without bias, with the column order and names of
+    scikit-learn's ``PolynomialFeatures(2, include_bias=False)``."""
+    pd = _pandas()
+    out = {c: frame[c].to_numpy(dtype=float) for c in columns}
+    for i, a in enumerate(columns):
+        for b in columns[i:]:
+            name = f"{a}^2" if a == b else f"{a} {b}"
+            out[name] = frame[a].to_numpy(dtype=float) * frame[b].to_numpy(dtype=float)
+    return pd.DataFrame(out)
+
+
+def fetch_401K(return_type: Literal["DmlData", "DataFrame"] = "DmlData", polynomial_features: bool = False):
+    """The 401(k) data of Chernozhukov and Hansen (2004), as DoubleML's ``fetch_401K``: net
+    financial assets (``net_tfa``) of 9,915 households, eligibility for a 401(k) plan (``e401``)
+    and nine covariates. Downloaded from the DoubleML authors' repository (needs internet
+    access). Returns a `DmlData` (outcome ``net_tfa``, treatment ``e401``) or the DataFrame."""
+    _check_fetch_return_type(return_type)
+    if polynomial_features:
+        raise NotImplementedError("polynomial_features is not implemented for fetch_401K (as in DoubleML).")
+    data = _pandas().read_stata(_URL_401K)
+    if return_type == "DataFrame":
+        return data
+    x_cols = ["age", "inc", "educ", "fsize", "marr", "twoearn", "db", "pira", "hown"]
+    return DmlData(data, "net_tfa", "e401", x_cols=x_cols)
+
+
+_BONUS_X = ["female", "black", "othrace", "dep1", "dep2", "q2", "q3", "q4", "q5", "q6", "agelt35", "agegt54",
+            "durable", "lusd", "husd"]
+
+
+def _prepare_bonus(raw: Any, polynomial_features: bool) -> tuple[Any, list[str]]:
+    """The Pennsylvania bonus experiment as DoubleML prepares it: control group and treatment
+    group 4, log unemployment duration, dummies for ``dep``."""
+    pd = _pandas()
+    data = raw[(raw["tg"] == 0) | (raw["tg"] == 4)].copy()
+    data.reset_index(inplace=True)
+    data["tg"] = data["tg"].replace(4, 1)
+    data["inuidur1"] = np.log(data["inuidur1"])
+    levels = sorted(data["dep"].unique())
+    data["dep1"] = (data["dep"] == levels[1]).astype(float)
+    data["dep2"] = (data["dep"] == levels[2]).astype(float)
+    x_cols = list(_BONUS_X)
+    if polynomial_features:
+        transformed = _polynomial_features(data, x_cols)
+        x_cols = list(transformed.columns)
+        data = pd.concat((data[["inuidur1", "tg"]], transformed), axis=1, sort=False)
+    return data, x_cols
+
+
+def fetch_bonus(return_type: Literal["DmlData", "DataFrame"] = "DmlData", polynomial_features: bool = False):
+    """The Pennsylvania reemployment bonus experiment (Bilias, 2000), as DoubleML's
+    ``fetch_bonus``: log unemployment duration (``inuidur1``) of the control group and treatment
+    group 4 (``tg``), with 15 covariates (degree-2 polynomial features with
+    ``polynomial_features``). Downloaded from the DoubleML authors' repository (needs internet
+    access). Returns a `DmlData` or the DataFrame."""
+    _check_fetch_return_type(return_type)
+    raw = _pandas().read_csv(_URL_BONUS, sep=r"\s+")
+    data, x_cols = _prepare_bonus(raw, polynomial_features)
+    if return_type == "DataFrame":
+        return data
+    return DmlData(data, "inuidur1", "tg", x_cols=x_cols)

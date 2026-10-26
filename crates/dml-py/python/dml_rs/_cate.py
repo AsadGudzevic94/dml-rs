@@ -18,6 +18,7 @@ from . import _dml_rs
 from ._blp import BLP, blp_from
 from ._models import _Params, _splits
 from ._validation import _as_1d, _as_2d
+from .data import accepts_data
 
 
 class _MetaLearner(_Params):
@@ -29,6 +30,7 @@ class _MetaLearner(_Params):
     def _options(self):
         return {}
 
+    @accepts_data("x", "y", "d")
     def fit(self, X: ArrayLike, y: ArrayLike, d: ArrayLike, folds: Optional[Folds] = None) -> Self:
         """Fit on covariates ``X``, outcome ``y`` and binary treatment ``d``."""
         x = _as_2d(X, "X")

@@ -41,6 +41,9 @@ the outcomes, treatments, instruments and covariates with DoubleML's generators,
 oracle confounding strengths; the deterministic effect functions agree exactly. The Rust tests
 check that every design's effect is recovered by the matching estimator.
 
+`fetch_401K` and `fetch_bonus` return the same DataFrames as DoubleML's (the bonus preparation is
+compared on a synthetic raw file, the 401(k) data with a download).
+
 The Python test suite checks the bindings against DoubleML and scikit-learn (including the
 learners themselves), and the type stubs are checked against the compiled extension with
 `mypy.stubtest`.

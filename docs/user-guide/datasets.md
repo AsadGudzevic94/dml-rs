@@ -1,4 +1,43 @@
-# Simulated data
+# Data
+
+## Data containers
+
+Estimators take arrays (`fit(X, y, d)`) or a `DmlData`, which names the roles of the columns of a
+DataFrame, as DoubleML's `DoubleMLData`. One class covers DoubleML's data classes: pass the columns
+the design needs.
+
+```python
+data = dml_rs.DmlData(df, y_col="y", d_cols="d", x_cols=["x1", "x2"])
+dml_rs.PLR(ml_l, ml_m).fit(data)
+
+dml_rs.DmlData(df, "y", "d", z_cols="z")                          # PLIV, IIVM, LPQ
+dml_rs.DmlData(df, "y", "d", cluster_cols=["firm", "year"])       # clustered data
+dml_rs.DmlData(df, "y", "d", t_col="post")                        # DIDCS
+dml_rs.DmlData(df, "y", "d", s_col="observed", z_cols="z")        # SSM
+dml_rs.DmlData(df, "y", "first_treated", id_col="id", t_col="year")   # StaggeredDID
+dml_rs.DmlData(df, "y", "d", id_col="id", t_col="year")           # PLPR
+dml_rs.DmlData(df, "y", "d", score_col="score")                   # RDFlex
+dml_rs.DmlData.from_arrays(x, y, d, z=z)                          # DoubleML's column names
+```
+
+Other arguments of `fit` (folds, external predictions, ...) are passed by keyword:
+`model.fit(data, folds=folds)`. Cluster columns are used by the estimators that support clustered
+data.
+
+## Real data sets
+
+`fetch_401K` (the 401(k) data of Chernozhukov and Hansen, 2004) and `fetch_bonus` (the
+Pennsylvania reemployment bonus experiment) download the data sets of DoubleML's tutorials and
+return them as a `DmlData` or a DataFrame, prepared as DoubleML prepares them (with
+`polynomial_features` for the bonus data).
+
+```python
+from dml_rs.datasets import fetch_401K
+data = fetch_401K()                     # outcome net_tfa, treatment e401
+dml_rs.PLR(ml_l, ml_m).fit(data).summary
+```
+
+## Simulated data
 
 `dml_rs.datasets` (Rust: `dml_core::datasets`) provides the data generating processes of
 DoubleML's `make_*` functions, for examples, tests and simulation studies. The functions keep
@@ -34,10 +73,9 @@ without it the seed is drawn from NumPy's global generator, so `np.random.seed` 
 The draws are not identical to DoubleML's, but the distributions are the same. The tests compare
 moments and output formats with DoubleML's generators on large samples.
 
-`return_type` is `"array"` (a tuple of arrays, the default) or `"DataFrame"` (pandas, with
-DoubleML's column names). DoubleML's data classes have no counterpart, since dml-rs models take
-arrays. Generators that DoubleML returns as a dict (with oracle values) or a DataFrame return the
-same here.
+`return_type` is `"array"` (a tuple of arrays, the default), `"DataFrame"` (pandas, with
+DoubleML's column names) or `"DmlData"`. Generators that DoubleML returns as a dict (with oracle
+values) or a DataFrame return the same here.
 
 | Function | Design | Returns |
 |---|---|---|

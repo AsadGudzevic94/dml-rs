@@ -16,6 +16,21 @@ use rand_chacha::ChaCha8Rng;
 use crate::error::{DmlError, Result};
 use crate::learner::{MaxFeatures, Node, Tree, TreeBuilder, TreeParams};
 
+/// One node of a fitted [`PolicyTree`] (see [`PolicyTree::nodes`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PolicyNode {
+    /// Rows with `feature <= threshold` go to node `left`, the others to `right`.
+    Split {
+        feature: usize,
+        threshold: f64,
+        left: usize,
+        right: usize,
+    },
+    /// A leaf: the weighted share of positive effects; treatment is
+    /// recommended when it exceeds 0.5.
+    Leaf { share_positive: f64 },
+}
+
 /// A fitted policy tree.
 #[derive(Debug, Clone)]
 pub struct PolicyTree {
@@ -173,6 +188,30 @@ impl PolicyTree {
             Node::Leaf { value } => value,
             Node::Split { .. } => unreachable!("leaf_index returns a leaf"),
         }
+    }
+
+    /// The nodes in preorder; node 0 is the root (for plotting the tree).
+    pub fn nodes(&self) -> Vec<PolicyNode> {
+        self.tree
+            .nodes
+            .iter()
+            .map(|n| match *n {
+                Node::Leaf { value } => PolicyNode::Leaf {
+                    share_positive: value,
+                },
+                Node::Split {
+                    feature,
+                    threshold,
+                    left,
+                    right,
+                } => PolicyNode::Split {
+                    feature,
+                    threshold,
+                    left: left as usize,
+                    right: right as usize,
+                },
+            })
+            .collect()
     }
 
     /// The decision rules as text, in the style of scikit-learn's

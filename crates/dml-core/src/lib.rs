@@ -105,7 +105,7 @@ pub use model::{
     PanelApproach, Pliv, PlivScore, PlivVariant, Plpr, Plr, PlrScore, Pq, Qte, QteFit, RdFlex,
     RdFlexFit, RdKernel, ScoreEstimate, ScoreInput, Ssm, SsmScore, StaticPanel, TreatmentLearner,
 };
-pub use policy::PolicyTree;
+pub use policy::{PolicyNode, PolicyTree};
 pub use propensity::{Calibration, IsotonicRegression};
 pub use score::LinearScore;
 pub use sensitivity::{

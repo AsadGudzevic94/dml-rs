@@ -75,8 +75,9 @@ models, including staggered DiD and its aggregations.
 **Learner diagnostics:** out-of-sample losses of every nuisance learner (RMSE, or log loss for
 classifiers) and evaluation of the cross-fitted predictions with any metric.
 
-**Simulated data:** the data generating processes of DoubleML's `make_*` functions
-(`dml_rs.datasets`, `dml_core::datasets`), for examples and simulation studies.
+**Data:** a `DmlData` container (as DoubleML's data classes), the 401(k) and bonus data sets of
+DoubleML's tutorials, and the data generating processes of DoubleML's `make_*` functions
+(`dml_rs.datasets`, `dml_core::datasets`).
 
 **Learners:** gradient boosting and random forests (both implemented in Rust; the boosting
 grows the same trees as scikit-learn's), OLS / ridge, Lasso and logistic regression, cross-validated
