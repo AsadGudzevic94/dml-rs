@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Hyperparameter tuning as DoubleML (Python): `tune` (grid or randomized search, on the whole
+  sample or on every cross-fitting training fold) and `tune_ml_models` (Optuna), for PLR, IRM,
+  APO, IIVM, DID, DIDCS, SSM (missing at random) and PLIV. With the same random state both choose
+  the same parameters as DoubleML. `OptunaResult` holds the Optuna studies.
+- `set_ml_nuisance_params`, `params`, `params_names` and `learner_names` on PLR, LPLR, PLPR, IRM,
+  APO, SSM, PLIV, IIVM, DID and DIDCS: parameters per nuisance model, treatment and (optionally)
+  fold, as DoubleML.
+- `fit(..., store_models=True)` keeps the fitted nuisance learners in `models_`, in DoubleML's
+  layout.
+- Callable `score` functions for PLR, IRM, PLIV and IIVM, as DoubleML.
+- Rust: learners per nuisance model (`nuisance_regressor` / `nuisance_classifier` on `Irm`, `Apo`,
+  `Iivm`, `Did`, `DidCs` and `Ssm`), `NuisanceLearners`; `set_parallel_folds` to fit folds one
+  after the other; `DmlFit::from_linear_scores` for score elements computed elsewhere. Python:
+  `copy.copy` / `copy.deepcopy` of the built-in learners.
+
 ## [0.18.0] - 2026-10-26
 
 ### Added

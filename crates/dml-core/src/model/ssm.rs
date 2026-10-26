@@ -20,7 +20,10 @@
 use ndarray::{concatenate, Array1, ArrayView1, ArrayView2, Axis};
 
 use super::quantile::half_split;
-use super::{dml_model_api, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput};
+use super::{
+    dml_model_api, nuisance_api, LinearScoreModel, NuisanceLearners, NuisanceTarget, ScoreEstimate,
+    ScoreInput,
+};
 use crate::crossfit::{cross_fit_predict_proba, cross_fit_predict_subset, Fold, SampleSplitting};
 use crate::data::{gather, is_binary, DmlData};
 use crate::error::{DmlError, Result};
@@ -52,6 +55,7 @@ pub enum SsmScore {
 /// the other nuisances on the second with the predicted selection
 /// probability as a covariate.
 pub struct Ssm {
+    nuisance: NuisanceLearners,
     ml_g: Box<dyn Regressor>,
     ml_pi: Box<dyn Classifier>,
     ml_m: Box<dyn Classifier>,
@@ -79,6 +83,7 @@ impl Ssm {
         ml_m: Box<dyn Classifier>,
     ) -> Self {
         Self {
+            nuisance: NuisanceLearners::default(),
             ml_g,
             ml_pi,
             ml_m,
@@ -115,6 +120,7 @@ impl Ssm {
     }
 
     dml_model_api!();
+    nuisance_api!();
 
     /// Nonignorable selection: nested cross-fitting within each fold.
     /// Returns `(g0, g1, π, m)` out of fold.
@@ -133,10 +139,12 @@ impl Ssm {
             let (train1, train2) = half_split(&fold.train, &strata)?;
             // Selection probability from the first half, predicted for every
             // observation and added to the covariates.
-            let pi_all = fit_proba(self.ml_pi.as_ref(), dxz.view(), &train1, s, dxz.view())?;
+            let ml_pi = self.nuisance.classifier("ml_pi", self.ml_pi.as_ref());
+            let pi_all = fit_proba(ml_pi, dxz.view(), &train1, s, dxz.view())?;
             let xpi = concatenate![Axis(1), x, pi_all.view().insert_axis(Axis(1))];
             let xpi_test = xpi.select(Axis(0), &fold.test);
-            let m = fit_proba(self.ml_m.as_ref(), xpi.view(), &train2, d, xpi_test.view())?;
+            let ml_m = self.nuisance.classifier("ml_m", self.ml_m.as_ref());
+            let m = fit_proba(ml_m, xpi.view(), &train2, d, xpi_test.view())?;
             // Outcome models on the selected of the second half, in index order
             // (DoubleML's `np.intersect1d`).
             let mut sorted2 = train2.clone();
@@ -152,20 +160,16 @@ impl Ssm {
                         "a training fold has no selected observations in a treatment arm".into(),
                     ));
                 }
-                let mut model = self.ml_g.fresh();
+                let name = if level == 1.0 { "ml_g_d1" } else { "ml_g_d0" };
+                let mut model = self.nuisance.regressor(name, self.ml_g.as_ref()).fresh();
                 model.fit(xpi.select(Axis(0), &rows).view(), gather(y, &rows).view())?;
                 model.predict(xpi_test.view())
             };
             let pi_test = gather(pi_all.view(), &fold.test);
             Ok([outcome(0.0)?, outcome(1.0)?, pi_test, m])
         };
-        #[cfg(feature = "parallel")]
-        let per_fold: Vec<[Array1<f64>; 4]> = {
-            use rayon::prelude::*;
-            folds.par_iter().map(fit_fold).collect::<Result<_>>()?
-        };
-        #[cfg(not(feature = "parallel"))]
-        let per_fold: Vec<[Array1<f64>; 4]> = folds.iter().map(fit_fold).collect::<Result<_>>()?;
+        let per_fold: Vec<[Array1<f64>; 4]> =
+            crate::crossfit::map_folds(folds.len(), |k| fit_fold(&folds[k]))?;
 
         let mut out: [Array1<f64>; 4] = std::array::from_fn(|_| Array1::from_elem(n, f64::NAN));
         for (fold, preds) in folds.iter().zip(per_fold) {
@@ -201,6 +205,8 @@ impl LinearScoreModel for Ssm {
     }
 
     fn validate(&self, data: &DmlData) -> Result<()> {
+        self.nuisance
+            .check("SSM", &["ml_g_d0", "ml_g_d1"], &["ml_pi", "ml_m"])?;
         if !(0..data.n_treat()).all(|j| data.is_binary_treatment(j)) {
             return Err(DmlError::InvalidArgument(
                 "SSM needs binary (0/1) treatments".into(),
@@ -254,13 +260,24 @@ impl LinearScoreModel for Ssm {
         let [g0, g1, pi, m] = match self.score {
             SsmScore::MissingAtRandom => {
                 let dx = concatenate![Axis(1), x, d.insert_axis(Axis(1))];
-                let pi = cross_fit_predict_proba(self.ml_pi.as_ref(), dx.view(), s, folds)?;
-                let m = cross_fit_predict_proba(self.ml_m.as_ref(), x, d, folds)?;
+                let nu = &self.nuisance;
+                let ml_pi = nu.classifier("ml_pi", self.ml_pi.as_ref());
+                let pi = cross_fit_predict_proba(ml_pi, dx.view(), s, folds)?;
+                let m = cross_fit_predict_proba(
+                    nu.classifier("ml_m", self.ml_m.as_ref()),
+                    x,
+                    d,
+                    folds,
+                )?;
                 let selected = |level: f64| -> Vec<bool> {
                     (0..n).map(|i| d[i] == level && s[i] == 1.0).collect()
                 };
-                let g1 = cross_fit_predict_subset(self.ml_g.as_ref(), x, y, folds, &selected(1.0))?;
-                let g0 = cross_fit_predict_subset(self.ml_g.as_ref(), x, y, folds, &selected(0.0))?;
+                let (g_d1, g_d0) = (
+                    nu.regressor("ml_g_d1", self.ml_g.as_ref()),
+                    nu.regressor("ml_g_d0", self.ml_g.as_ref()),
+                );
+                let g1 = cross_fit_predict_subset(g_d1, x, y, folds, &selected(1.0))?;
+                let g0 = cross_fit_predict_subset(g_d0, x, y, folds, &selected(0.0))?;
                 [g0, g1, pi, m]
             }
             SsmScore::Nonignorable => {

@@ -14,7 +14,8 @@ use ndarray::{concatenate, Array1, Array2, Axis};
 
 use super::irm::{normalize_propensity, ScoreWeights};
 use super::{
-    dml_model_api, CateSignal, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput,
+    dml_model_api, nuisance_api, CateSignal, LinearScoreModel, NuisanceLearners, NuisanceTarget,
+    ScoreEstimate, ScoreInput,
 };
 use crate::cluster::ClusterFold;
 use crate::crossfit::{cross_fit_predict_proba, cross_fit_predict_subset, Fold, SampleSplitting};
@@ -34,6 +35,7 @@ use crate::sensitivity::{Elements, Nu2Parts, SensitivityParts};
 /// analysis (as in DoubleML). Default sample splits are stratified by the
 /// treatment.
 pub struct Apo {
+    nuisance: NuisanceLearners,
     ml_g: Box<dyn Regressor>,
     ml_m: Box<dyn Classifier>,
     treatment_level: f64,
@@ -59,6 +61,7 @@ impl Apo {
         treatment_level: f64,
     ) -> Self {
         Self {
+            nuisance: NuisanceLearners::default(),
             ml_g,
             ml_m,
             treatment_level,
@@ -109,6 +112,7 @@ impl Apo {
     }
 
     dml_model_api!();
+    nuisance_api!();
 }
 
 /// Index of each observation's treatment value among the sorted distinct
@@ -142,6 +146,8 @@ impl LinearScoreModel for Apo {
     }
 
     fn validate(&self, data: &DmlData) -> Result<()> {
+        self.nuisance
+            .check("APO", &["ml_g_d_lvl1", "ml_g_d_lvl0"], &["ml_m"])?;
         if data.n_treat() != 1 {
             return Err(DmlError::InvalidArgument(
                 "APO requires exactly one (discrete) treatment".into(),
@@ -175,15 +181,19 @@ impl LinearScoreModel for Apo {
 
         // g(d, X) on the units at the level; the model for the other levels
         // also sees D (it only enters the sensitivity analysis).
+        let nu = &self.nuisance;
         let g1 = input.predictions_or("ml_g_d_lvl1", || {
-            cross_fit_predict_subset(self.ml_g.as_ref(), x, y, folds, &at_level)
+            let ml = nu.regressor("ml_g_d_lvl1", self.ml_g.as_ref());
+            cross_fit_predict_subset(ml, x, y, folds, &at_level)
         })?;
         let dx: Array2<f64> = concatenate![Axis(1), d.insert_axis(Axis(1)), x];
         let g0 = input.predictions_or("ml_g_d_lvl0", || {
-            cross_fit_predict_subset(self.ml_g.as_ref(), dx.view(), y, folds, &others)
+            let ml = nu.regressor("ml_g_d_lvl0", self.ml_g.as_ref());
+            cross_fit_predict_subset(ml, dx.view(), y, folds, &others)
         })?;
         let m_raw = input.predictions_or("ml_m", || {
-            cross_fit_predict_proba(self.ml_m.as_ref(), x, treated.view(), folds)
+            let ml = nu.classifier("ml_m", self.ml_m.as_ref());
+            cross_fit_predict_proba(ml, x, treated.view(), folds)
         })?;
         let m = adjust_propensity(
             m_raw,

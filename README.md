@@ -72,8 +72,11 @@ combinations of estimates from several fits with joint inference.
 benchmarking against observed covariates (Chernozhukov et al., 2022), for PLR, IRM, APO and DiD
 models, including staggered DiD and its aggregations.
 
-**Learner diagnostics:** out-of-sample losses of every nuisance learner (RMSE, or log loss for
-classifiers) and evaluation of the cross-fitted predictions with any metric.
+**Learner diagnostics and tuning:** out-of-sample losses of every nuisance learner (RMSE, or log
+loss for classifiers) and evaluation of the cross-fitted predictions with any metric;
+hyperparameter tuning as DoubleML's `tune` (grid or randomized search) and `tune_ml_models`
+(Optuna), parameters per nuisance model and fold, and the fitted learners on request
+(`store_models`). In Python, custom scores can be passed as functions.
 
 **Data:** a `DmlData` container (as DoubleML's data classes), the 401(k) and bonus data sets of
 DoubleML's tutorials, and the data generating processes of DoubleML's `make_*` functions

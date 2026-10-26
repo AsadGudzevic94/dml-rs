@@ -254,6 +254,7 @@ def accepts_data(*roles: str, cluster: bool = False) -> Callable[[F], F]:
                 raise ValueError(f"{name} does not support clustered data")
             return fit(self, *values, **kwargs)
 
+        inner.__dml_roles__ = (roles, cluster)  # type: ignore[attr-defined]
         return inner  # type: ignore[return-value]
 
     return wrap

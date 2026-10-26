@@ -724,6 +724,7 @@ impl StaggeredDid {
             clipping_threshold: self.clipping_threshold,
             calibration: self.calibration,
             external: None,
+            nuisance: None,
         };
 
         let mut all_coef = Array2::<f64>::zeros((k, n_rep));

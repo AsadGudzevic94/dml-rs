@@ -35,6 +35,12 @@ losses.
 | `plr_cluster_*`, `irm_cluster_one_way`, `pliv_cluster_two_way` | One-way and two-way clustering |
 | all PLR, IRM and DiD fixtures | Sensitivity analysis in two scenarios, and benchmarks |
 
+The Python tests also compare DoubleML's `tune` (grid and randomized search, on the whole sample
+and on the folds) and `tune_ml_models` (Optuna) with the same random state: the chosen parameters
+and the resulting estimates agree for PLR (both scores), IRM, APO, IIVM, DID, DIDCS, SSM and PLIV.
+So do `set_ml_nuisance_params` (including fold- and treatment-specific parameters), the learners
+stored with `store_models`, and callable scores for PLR, IRM, PLIV and IIVM.
+
 The simulated data sets (`dml_rs.datasets`) draw from another random generator than DoubleML, so
 their tests compare output formats and, on samples of 20,000, the means and standard deviations of
 the outcomes, treatments, instruments and covariates with DoubleML's generators, as well as the
@@ -124,6 +130,16 @@ These are deliberate, documented, and covered by tests:
   time_type="float")` in DoubleML 0.11 also drops the never-treated units (its first filter tests
   `pd.isna`, which is false for the `inf` cohort; the datetime version keeps them). dml-rs keeps
   them in both versions.
+- **Fold-specific tuning with repeated splits.** DoubleML 0.11's `tune(tune_on_folds=True)` stores
+  its results in a list indexed `[repetition][treatment]` that has one entry per treatment, so it
+  fails whenever there are more repetitions than treatments. dml-rs tunes every repetition; the
+  tests compare with DoubleML for one repetition.
+- **Optuna tuning of IV-type PLIV.** DoubleML 0.11's `tune_ml_models` for `DoubleMLPLIV` with
+  `score="IV-type"` calls `cross_val_predict` for `ml_r` without the treatment as target and fails;
+  dml-rs uses the treatment, as its grid search does.
+- **Initial estimate for tuning `ml_g`** (PLR and PLIV, IV-type). With a classifier for `ml_m`,
+  dml-rs uses predicted probabilities in the partialling-out estimate that defines `ml_g`'s target;
+  DoubleML's grid search uses predicted classes. With regressors the two agree.
 - **`LogisticRegressionCV`** solves each fit to the exact optimum with Newton's method;
   scikit-learn's default L-BFGS solver stops earlier, so its probabilities can differ by about
   `1e-3` at default settings.

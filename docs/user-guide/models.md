@@ -493,6 +493,28 @@ available on its own (`dml_core::rd::rd_estimate` and `rd_bandwidths` with `RdOp
 
 ## Your own model
 
+In Python, PLR, IRM, PLIV and IIVM take a callable `score` as DoubleML: a function of the data,
+the cross-fitted nuisance predictions and the sample splits that returns the elements `psi_a`,
+`psi_b` of a linear score $\psi = \psi_a \theta + \psi_b$. The nuisance models are fitted as for
+the built-in score (PLR and PLIV fit `ml_g` only when it is given), and $\theta$, its standard
+error and the aggregation over repetitions follow from the score as for the built-in ones.
+Sensitivity analysis needs a built-in score.
+
+```python
+def ate_trimmed(y, d, g_hat0, g_hat1, m_hat, smpls):
+    keep = (m_hat > 0.05) & (m_hat < 0.95)
+    psi_b = keep * (g_hat1 - g_hat0 + d * (y - g_hat1) / m_hat - (1 - d) * (y - g_hat0) / (1 - m_hat))
+    return -keep.astype(float), psi_b
+
+dml_rs.IRM(ml_g, ml_m, score=ate_trimmed).fit(X, y, d)
+```
+
+The arguments are `(y, d, l_hat, m_hat, g_hat, smpls)` for PLR, `(y, d, g_hat0, g_hat1, m_hat,
+smpls)` for IRM (`m_hat` clipped, and normalised with `normalize_ipw`), `(y, z, d, l_hat, m_hat,
+r_hat, g_hat, smpls)` for PLIV (partial `X`, one instrument) and `(y, z, d, g_hat0, g_hat1, m_hat,
+r_hat0, r_hat1, smpls)` for IIVM.
+
 In Rust, any score that is linear in $\theta$ plugs into the same cross-fitting and inference
 engine by implementing the `LinearScoreModel` trait; see the
 [API documentation](https://docs.rs/dml-core/latest/dml_core/trait.LinearScoreModel.html).
+Score elements computed elsewhere become a fit with `DmlFit::from_linear_scores`.

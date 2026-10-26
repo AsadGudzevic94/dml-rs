@@ -13,8 +13,8 @@
 use ndarray::{Array1, ArrayView1, ArrayView2};
 
 use super::{
-    dml_model_api, external_or, ExternalRef, LinearScoreModel, NuisanceTarget, ScoreEstimate,
-    ScoreInput,
+    dml_model_api, external_or, nuisance_api, ExternalRef, LinearScoreModel, NuisanceLearners,
+    NuisanceTarget, ScoreEstimate, ScoreInput,
 };
 use crate::crossfit::{cross_fit_predict_proba, cross_fit_predict_subset, Fold, SampleSplitting};
 use crate::data::DmlData;
@@ -99,6 +99,7 @@ macro_rules! did_builders {
 /// the outcome change `Y₁ − Y₀`. `ml_g` learns `E[ΔY | D = d, X]` per group,
 /// `ml_m` the propensity `P(D = 1 | X)` (observational score only).
 pub struct Did {
+    nuisance: NuisanceLearners,
     ml_g: Box<dyn Regressor>,
     ml_m: Option<Box<dyn Classifier>>,
     score: DidScore,
@@ -121,6 +122,7 @@ impl Did {
 
     pub fn from_boxed(ml_g: Box<dyn Regressor>, ml_m: Option<Box<dyn Classifier>>) -> Self {
         Self {
+            nuisance: NuisanceLearners::default(),
             ml_g,
             ml_m,
             score: DidScore::default(),
@@ -133,6 +135,7 @@ impl Did {
 
     did_builders!();
     dml_model_api!();
+    nuisance_api!();
 }
 
 impl LinearScoreModel for Did {
@@ -144,6 +147,7 @@ impl LinearScoreModel for Did {
     }
 
     fn validate(&self, data: &DmlData) -> Result<()> {
+        self.nuisance.check("DID", &["ml_g0", "ml_g1"], &["ml_m"])?;
         validate_common(
             data,
             self.score,
@@ -163,6 +167,7 @@ impl LinearScoreModel for Did {
                 clipping_threshold: self.clipping_threshold,
                 calibration: self.calibration,
                 external: input.external_ref(),
+                nuisance: Some(&self.nuisance),
             },
             x,
             y,
@@ -184,6 +189,24 @@ pub(crate) struct DidSettings<'a> {
     pub calibration: Calibration,
     /// User-supplied nuisance predictions, if any.
     pub external: Option<ExternalRef<'a>>,
+    /// Per-nuisance learners replacing `ml_g` / `ml_m`, if any.
+    pub nuisance: Option<&'a NuisanceLearners>,
+}
+
+impl<'a> DidSettings<'a> {
+    fn regressor(&self, name: &str) -> &'a dyn Regressor {
+        match self.nuisance {
+            Some(nu) => nu.regressor(name, self.ml_g),
+            None => self.ml_g,
+        }
+    }
+
+    fn classifier(&self, name: &str, default: &'a dyn Classifier) -> &'a dyn Classifier {
+        match self.nuisance {
+            Some(nu) => nu.classifier(name, default),
+            None => default,
+        }
+    }
 }
 
 /// Panel DID score elements for outcome changes `y`, group indicator `d`.
@@ -199,10 +222,10 @@ pub(crate) fn panel_did_score(
     let n = y.len();
     let ext = settings.external;
     let g0 = external_or(ext, n, "ml_g0", || {
-        cross_fit_predict_subset(settings.ml_g, x, y, folds, &control)
+        cross_fit_predict_subset(settings.regressor("ml_g0"), x, y, folds, &control)
     })?;
     let g1 = external_or(ext, n, "ml_g1", || {
-        cross_fit_predict_subset(settings.ml_g, x, y, folds, &treated)
+        cross_fit_predict_subset(settings.regressor("ml_g1"), x, y, folds, &treated)
     })?;
     let d = d.to_owned();
     let n = d.len();
@@ -216,7 +239,7 @@ pub(crate) fn panel_did_score(
                 DmlError::InvalidArgument("the observational DID score needs ml_m".into())
             })?;
             let m_raw = external_or(settings.external, d.len(), "ml_m", || {
-                cross_fit_predict_proba(ml_m, x, d.view(), folds)
+                cross_fit_predict_proba(settings.classifier("ml_m", ml_m), x, d.view(), folds)
             })?;
             let m = adjust_propensity(
                 m_raw,
@@ -300,6 +323,7 @@ pub(crate) fn panel_did_score(
 /// `E[Y | D = d, T = t, X]` separately in each of the four group × period
 /// cells, `ml_m` the propensity `P(D = 1 | X)` (observational score only).
 pub struct DidCs {
+    nuisance: NuisanceLearners,
     ml_g: Box<dyn Regressor>,
     ml_m: Option<Box<dyn Classifier>>,
     score: DidScore,
@@ -322,6 +346,7 @@ impl DidCs {
 
     pub fn from_boxed(ml_g: Box<dyn Regressor>, ml_m: Option<Box<dyn Classifier>>) -> Self {
         Self {
+            nuisance: NuisanceLearners::default(),
             ml_g,
             ml_m,
             score: DidScore::default(),
@@ -334,6 +359,7 @@ impl DidCs {
 
     did_builders!();
     dml_model_api!();
+    nuisance_api!();
 }
 
 /// Cell indicator `1{D = a, T = b}`.
@@ -353,6 +379,11 @@ impl LinearScoreModel for DidCs {
     }
 
     fn validate(&self, data: &DmlData) -> Result<()> {
+        self.nuisance.check(
+            "DIDCS",
+            &["ml_g_d0_t0", "ml_g_d0_t1", "ml_g_d1_t0", "ml_g_d1_t1"],
+            &["ml_m"],
+        )?;
         validate_common(
             data,
             self.score,
@@ -380,6 +411,7 @@ impl LinearScoreModel for DidCs {
                 clipping_threshold: self.clipping_threshold,
                 calibration: self.calibration,
                 external: input.external_ref(),
+                nuisance: Some(&self.nuisance),
             },
             x,
             y,
@@ -406,7 +438,7 @@ pub(crate) fn cs_did_score(
     let fit_cell = |c: &Array1<f64>, name: &str| -> Result<Array1<f64>> {
         let keep: Vec<bool> = c.iter().map(|&v| v == 1.0).collect();
         external_or(settings.external, y.len(), name, || {
-            cross_fit_predict_subset(settings.ml_g, x, y, folds, &keep)
+            cross_fit_predict_subset(settings.regressor(name), x, y, folds, &keep)
         })
     };
     let (g00, g01) = (
@@ -427,7 +459,7 @@ pub(crate) fn cs_did_score(
                 DmlError::InvalidArgument("the observational DID score needs ml_m".into())
             })?;
             let m_raw = external_or(settings.external, d.len(), "ml_m", || {
-                cross_fit_predict_proba(ml_m, x, d.view(), folds)
+                cross_fit_predict_proba(settings.classifier("ml_m", ml_m), x, d.view(), folds)
             })?;
             Some(adjust_propensity(
                 m_raw,

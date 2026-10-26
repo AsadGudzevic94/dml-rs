@@ -60,6 +60,7 @@ from .data import DmlData
 from ._blp import BLP
 from ._cate import DRLearner, RLearner, SLearner, TLearner, XLearner
 from ._policy import PolicyTree
+from ._tuning import OptunaResult
 from ._models import (
     APO,
     APOS,
@@ -115,6 +116,7 @@ __all__ = [
     "RLearner",
     "DRLearner",
     "BLP",
+    "OptunaResult",
     "Ols",
     "Lasso",
     "LassoCV",

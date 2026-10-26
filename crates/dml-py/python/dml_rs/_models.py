@@ -19,6 +19,7 @@ from . import _dml_rs
 from ._blp import BLP, blp_from
 from .data import accepts_data
 from ._policy import PolicyTree
+from ._tuning import TuningMixin, fit_callable_score, normalize_ipw, nuisance_fit
 from ._validation import _as_1d, _as_2d, _as_clusters
 
 
@@ -126,7 +127,7 @@ class _Params:
         return self.result_
 
 
-class _DMLEstimator(_Params):
+class _DMLEstimator(TuningMixin, _Params):
     """Shared fitted-model API of the DML estimators."""
 
     _boot = None
@@ -350,6 +351,7 @@ class _DMLEstimator(_Params):
         X_arr = np.asarray(X, dtype=np.float64)
         keep = [i for i in range(X_arr.shape[1]) if i not in drop]
         short: Any = type(self)(**self.get_params())
+        short._ml_params.update(self._ml_params)
         short.fit(X_arr[:, keep], *rest, **kwargs)
         bm = result.sensitivity_benchmark(short.result_)
         table = {"cf_y": bm.cf_y, "cf_d": bm.cf_d, "rho": bm.rho, "delta_theta": bm.delta_theta}
@@ -400,17 +402,28 @@ class PLR(_HeterogeneityMixin, _DMLEstimator):
         ``fit`` / ``predict`` (e.g. a scikit-learn estimator).
     ml_m : regressor for ``E[D | X]``.
     ml_g : regressor for ``g(X)``, used by ``score="IV-type"`` (default: a clone of ``ml_l``).
-    score : ``"partialling out"`` or ``"IV-type"``.
+    score : ``"partialling out"``, ``"IV-type"`` or a callable ``score(y, d, l_hat, m_hat, g_hat,
+        smpls) -> (psi_a, psi_b)`` returning the elements of a linear score, as DoubleML
+        (``g_hat`` is None unless ``ml_g`` is given).
     n_folds, n_rep : cross-fitting folds and repetitions of the sample split.
     random_state : seed for the sample splits.
     """
+
+    _learner_fallback = {"ml_g": "ml_l"}
+    _tuning_kind = "PLR"
+
+    def _nuisance_spec(self) -> list[tuple[str, str]]:
+        spec = [("ml_l", "ml_l"), ("ml_m", "ml_m")]
+        if self.score == "IV-type" or (callable(self.score) and self.ml_g is not None):
+            spec.append(("ml_g", "ml_g"))
+        return spec
 
     def __init__(
         self,
         ml_l: Any,
         ml_m: Any,
         ml_g: Any = None,
-        score: Literal["partialling out", "IV-type"] = "partialling out",
+        score: Union[Literal["partialling out", "IV-type"], Callable[..., Any]] = "partialling out",
         n_folds: int = 5,
         n_rep: int = 1,
         random_state: int = 0,
@@ -424,6 +437,7 @@ class PLR(_HeterogeneityMixin, _DMLEstimator):
         self.random_state = random_state
 
     @accepts_data("x", "y", "d", cluster=True)
+    @nuisance_fit
     def fit(
         self,
         X: ArrayLike,
@@ -432,6 +446,7 @@ class PLR(_HeterogeneityMixin, _DMLEstimator):
         folds: Optional[Folds] = None,
         cluster: Optional[ArrayLike] = None,
         external_predictions: Optional[dict[Any, Any]] = None,
+        store_models: bool = False,
     ) -> Self:
         """Fit on covariates ``X``, outcome ``y`` and treatment(s) ``d``.
 
@@ -442,7 +457,21 @@ class PLR(_HeterogeneityMixin, _DMLEstimator):
         clustering, as Chiang et al. 2022): whole clusters are then assigned to folds and
         the standard errors are cluster-robust. Accepted by PLR, IRM, PLIV, IIVM, DID and
         DIDCS; the multiplier bootstrap is not available with clusters (as in DoubleML).
+
+        ``store_models=True`` keeps the fitted learners in ``models_`` (``{learner: {treatment:
+        [[model per fold] per repetition]}}``, as DoubleML's ``models``); folds are then fitted one
+        after the other.
         """
+        if callable(self.score):
+            y_arr, d_arr = _as_1d(y, "y"), _as_2d(d, "d")
+            score = self.score
+            return fit_callable_score(
+                self, "IV-type" if self.ml_g is not None else "partialling out",
+                lambda j, p, smpls: score(y=y_arr, d=d_arr[:, j], l_hat=p["ml_l"], m_hat=p["ml_m"],
+                                          g_hat=p.get("ml_g"), smpls=smpls),
+                lambda reps: self.fit(X, y, d, folds=reps, external_predictions=external_predictions,
+                                      store_models=store_models),
+                folds, cluster, len(y_arr))
         self._remember(X, y, d, folds=folds, cluster=cluster)
         result = _dml_rs.fit_plr(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), self.ml_l, self.ml_m, self.ml_g,
@@ -460,7 +489,9 @@ class IRM(_HeterogeneityMixin, _DMLEstimator):
     ----------
     ml_g : regressor for ``E[Y | D, X]`` (fitted separately on treated and controls).
     ml_m : classifier for the propensity ``P(D = 1 | X)`` with ``predict_proba``.
-    score : ``"ATE"`` or ``"ATTE"``.
+    score : ``"ATE"``, ``"ATTE"`` or a callable ``score(y, d, g_hat0, g_hat1, m_hat, smpls)
+        -> (psi_a, psi_b)`` returning the elements of a linear score, as DoubleML (``m_hat`` is
+        the clipped and, with ``normalize_ipw``, normalised propensity).
     clipping_threshold : propensities are clipped to ``[t, 1 - t]``.
     normalize_ipw : normalise the inverse-probability weights.
     weights : weighted average effect, as DoubleML: an array ``w`` (ATE score: ``E[w (g1 - g0)] /
@@ -468,11 +499,17 @@ class IRM(_HeterogeneityMixin, _DMLEstimator):
         ``weights`` and ``weights_bar`` of shape ``(n, n_rep)`` (ATE score).
     """
 
+    _override_learners = True
+    _tuning_kind = "IRM"
+
+    def _nuisance_spec(self) -> list[tuple[str, str]]:
+        return [("ml_g0", "ml_g"), ("ml_g1", "ml_g"), ("ml_m", "ml_m")]
+
     def __init__(
         self,
         ml_g: Any,
         ml_m: Any,
-        score: Literal["ATE", "ATTE"] = "ATE",
+        score: Union[Literal["ATE", "ATTE"], Callable[..., Any]] = "ATE",
         clipping_threshold: float = 1e-2,
         calibration: Optional[Literal["isotonic", "isotonic_cv"]] = None,
         normalize_ipw: bool = False,
@@ -493,6 +530,7 @@ class IRM(_HeterogeneityMixin, _DMLEstimator):
         self.weights = weights
 
     @accepts_data("x", "y", "d", cluster=True)
+    @nuisance_fit
     def fit(
         self,
         X: ArrayLike,
@@ -501,7 +539,27 @@ class IRM(_HeterogeneityMixin, _DMLEstimator):
         folds: Optional[Folds] = None,
         cluster: Optional[ArrayLike] = None,
         external_predictions: Optional[dict[Any, Any]] = None,
+        store_models: bool = False,
     ) -> Self:
+        """Fit on covariates ``X``, outcome ``y`` and binary treatment ``d``.
+
+        ``store_models=True`` keeps the fitted learners in ``models_`` (``{learner: {treatment:
+        [[model per fold] per repetition]}}``, as DoubleML's ``models``); folds are then fitted one
+        after the other.
+        """
+        if callable(self.score):
+            y_arr, d_arr = _as_1d(y, "y"), _as_1d(d, "d")
+            score, normalize = self.score, self.normalize_ipw
+
+            def call(j: int, p: dict[str, Any], smpls: Any) -> Any:
+                m_hat = normalize_ipw(p["ml_m"], d_arr) if normalize else p["ml_m"]
+                return score(y=y_arr, d=d_arr, g_hat0=p["ml_g0"], g_hat1=p["ml_g1"], m_hat=m_hat, smpls=smpls)
+
+            return fit_callable_score(
+                self, "ATE", call,
+                lambda reps: self.fit(X, y, d, folds=reps, external_predictions=external_predictions,
+                                      store_models=store_models),
+                folds, cluster, len(y_arr))
         self._remember(X, y, d, folds=folds, cluster=cluster)
         result = _dml_rs.fit_irm(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), self.ml_g, self.ml_m,
@@ -510,6 +568,7 @@ class IRM(_HeterogeneityMixin, _DMLEstimator):
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
             **_weights_args(self.weights),
             external_predictions=_external_args(external_predictions, d),
+            nuisance=self._nuisance_overrides,
         )
         return self._store(result)
 
@@ -536,7 +595,15 @@ class IIVM(_DMLEstimator):
         to False under one-sided non-compliance.
     clipping_threshold : instrument propensities are clipped to ``[t, 1 - t]``.
     normalize_ipw : normalise the inverse-probability weights within instrument arms.
+    score : ``"LATE"`` or a callable ``score(y, z, d, g_hat0, g_hat1, m_hat, r_hat0, r_hat1, smpls)
+        -> (psi_a, psi_b)`` returning the elements of a linear score, as DoubleML.
     """
+
+    _override_learners = True
+    _tuning_kind = "IIVM"
+
+    def _nuisance_spec(self) -> list[tuple[str, str]]:
+        return [("ml_g0", "ml_g"), ("ml_g1", "ml_g"), ("ml_m", "ml_m"), ("ml_r0", "ml_r"), ("ml_r1", "ml_r")]
 
     def __init__(
         self,
@@ -550,10 +617,12 @@ class IIVM(_DMLEstimator):
         n_folds: int = 5,
         n_rep: int = 1,
         random_state: int = 0,
+        score: Union[Literal["LATE"], Callable[..., Any]] = "LATE",
     ) -> None:
         self.ml_g = ml_g
         self.ml_m = ml_m
         self.ml_r = ml_r
+        self.score = score
         self.subgroups = subgroups
         self.clipping_threshold = clipping_threshold
         self.calibration = calibration
@@ -563,6 +632,7 @@ class IIVM(_DMLEstimator):
         self.random_state = random_state
 
     @accepts_data("x", "y", "d", "z", cluster=True)
+    @nuisance_fit
     def fit(
         self,
         X: ArrayLike,
@@ -572,7 +642,30 @@ class IIVM(_DMLEstimator):
         folds: Optional[Folds] = None,
         cluster: Optional[ArrayLike] = None,
         external_predictions: Optional[dict[Any, Any]] = None,
+        store_models: bool = False,
     ) -> Self:
+        """Fit on covariates ``X``, outcome ``y``, binary treatment ``d`` and binary instrument ``z``.
+
+        ``store_models=True`` keeps the fitted learners in ``models_`` (``{learner: {treatment:
+        [[model per fold] per repetition]}}``, as DoubleML's ``models``); folds are then fitted one
+        after the other.
+        """
+        if callable(self.score):
+            y_arr, d_arr, z_arr = _as_1d(y, "y"), _as_1d(d, "d"), _as_1d(z, "z")
+            score, normalize = self.score, self.normalize_ipw
+
+            def call(j: int, p: dict[str, Any], smpls: Any) -> Any:
+                m_hat = normalize_ipw(p["ml_m"], z_arr) if normalize else p["ml_m"]
+                return score(y=y_arr, z=z_arr, d=d_arr, g_hat0=p["ml_g0"], g_hat1=p["ml_g1"], m_hat=m_hat,
+                             r_hat0=p["ml_r0"], r_hat1=p["ml_r1"], smpls=smpls)
+
+            return fit_callable_score(
+                self, "LATE", call,
+                lambda reps: self.fit(X, y, d, z, folds=reps, external_predictions=external_predictions,
+                                      store_models=store_models),
+                folds, cluster, len(y_arr))
+        if self.score != "LATE":
+            raise ValueError(f"unknown IIVM score {self.score!r}")
         subgroups = {"always_takers": True, "never_takers": True, **(self.subgroups or {})}
         result = _dml_rs.fit_iivm(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), _as_1d(z, "z"), self.ml_g, self.ml_m, self.ml_r,
@@ -581,11 +674,14 @@ class IIVM(_DMLEstimator):
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
             external_predictions=_external_args(external_predictions, d),
+            nuisance=self._nuisance_overrides,
         )
         return self._store(result)
 
 
 class _DIDBase(_DMLEstimator):
+    _override_learners = True
+
     def __init__(
         self,
         ml_g: Any,
@@ -620,6 +716,7 @@ class _DIDBase(_DMLEstimator):
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
             external_predictions=_external_args(external_predictions, d),
+            nuisance=self._nuisance_overrides,
         )
         return self._store(result)
 
@@ -637,7 +734,14 @@ class DID(_DIDBase):
     in_sample_normalization : normalise the weights by their sample means (DoubleML default).
     """
 
+    _tuning_kind = "DID"
+
+    def _nuisance_spec(self) -> list[tuple[str, str]]:
+        spec = [("ml_g0", "ml_g"), ("ml_g1", "ml_g")]
+        return spec + [("ml_m", "ml_m")] if self.score == "observational" else spec
+
     @accepts_data("x", "y", "d", cluster=True)
+    @nuisance_fit
     def fit(
         self,
         X: ArrayLike,
@@ -646,7 +750,14 @@ class DID(_DIDBase):
         folds: Optional[Folds] = None,
         cluster: Optional[ArrayLike] = None,
         external_predictions: Optional[dict[Any, Any]] = None,
+        store_models: bool = False,
     ) -> Self:
+        """Fit on covariates ``X``, outcome change ``y`` and binary treatment ``d``.
+
+        ``store_models=True`` keeps the fitted learners in ``models_`` (``{learner: {treatment:
+        [[model per fold] per repetition]}}``, as DoubleML's ``models``); folds are then fitted one
+        after the other.
+        """
         return self._fit(X, y, d, None, folds, cluster, external_predictions)
 
 
@@ -657,7 +768,14 @@ class DIDCS(_DIDBase):
     Parameters as `DID`, with ``ml_g`` fitted in each treatment-group x period cell.
     """
 
+    _tuning_kind = "DIDCS"
+
+    def _nuisance_spec(self) -> list[tuple[str, str]]:
+        spec = [(f"ml_g_d{dv}_t{tv}", "ml_g") for dv in (0, 1) for tv in (0, 1)]
+        return spec + [("ml_m", "ml_m")] if self.score == "observational" else spec
+
     @accepts_data("x", "y", "d", "t", cluster=True)
+    @nuisance_fit
     def fit(
         self,
         X: ArrayLike,
@@ -667,7 +785,14 @@ class DIDCS(_DIDBase):
         folds: Optional[Folds] = None,
         cluster: Optional[ArrayLike] = None,
         external_predictions: Optional[dict[Any, Any]] = None,
+        store_models: bool = False,
     ) -> Self:
+        """Fit on covariates ``X``, outcome ``y``, binary treatment ``d`` and period indicator ``t``.
+
+        ``store_models=True`` keeps the fitted learners in ``models_`` (``{learner: {treatment:
+        [[model per fold] per repetition]}}``, as DoubleML's ``models``); folds are then fitted one
+        after the other.
+        """
         return self._fit(X, y, d, t, folds, cluster, external_predictions)
 
 
@@ -996,9 +1121,22 @@ class PLIV(_DMLEstimator):
     ml_r : regressor for ``E[D | X]``; with ``partial="Z"`` for ``E[D | X, Z]``; with ``"XZ"`` for
         the projection of ``ml_m``'s in-sample predictions on ``X``.
     ml_g : regressor for ``E[Y - θD | X]``, used by ``score="IV-type"`` (default: a copy of ``ml_l``).
-    score : ``"partialling out"`` or ``"IV-type"`` (one instrument, ``partial="X"``).
+    score : ``"partialling out"``, ``"IV-type"`` (one instrument, ``partial="X"``), or a callable
+        ``score(y, z, d, l_hat, m_hat, r_hat, g_hat, smpls) -> (psi_a, psi_b)`` returning the
+        elements of a linear score, as DoubleML (one instrument, ``partial="X"``).
     partial : ``"X"``, ``"Z"`` or ``"XZ"``.
     """
+
+    _learner_fallback = {"ml_g": "ml_l"}
+    _tuning_kind = "PLIV"
+
+    def _nuisance_spec(self) -> list[tuple[str, str]]:
+        if self.partial == "Z":
+            return [("ml_r", "ml_r")]
+        spec = [("ml_l", "ml_l"), ("ml_m", "ml_m"), ("ml_r", "ml_r")]
+        if self.partial == "X" and (self.score == "IV-type" or (callable(self.score) and self.ml_g is not None)):
+            spec.append(("ml_g", "ml_g"))
+        return spec
 
     def __init__(
         self,
@@ -1006,7 +1144,7 @@ class PLIV(_DMLEstimator):
         ml_m: Any,
         ml_r: Any,
         ml_g: Any = None,
-        score: Literal["partialling out", "IV-type"] = "partialling out",
+        score: Union[Literal["partialling out", "IV-type"], Callable[..., Any]] = "partialling out",
         partial: Literal["X", "Z", "XZ"] = "X",
         n_folds: int = 5,
         n_rep: int = 1,
@@ -1023,6 +1161,7 @@ class PLIV(_DMLEstimator):
         self.random_state = random_state
 
     @accepts_data("x", "y", "d", "z", cluster=True)
+    @nuisance_fit
     def fit(
         self,
         X: ArrayLike,
@@ -1032,7 +1171,27 @@ class PLIV(_DMLEstimator):
         folds: Optional[Folds] = None,
         cluster: Optional[ArrayLike] = None,
         external_predictions: Optional[dict[Any, Any]] = None,
+        store_models: bool = False,
     ) -> Self:
+        """Fit on covariates ``X``, outcome ``y``, treatment(s) ``d`` and instrument(s) ``z``.
+
+        ``store_models=True`` keeps the fitted learners in ``models_`` (``{learner: {treatment:
+        [[model per fold] per repetition]}}``, as DoubleML's ``models``); folds are then fitted one
+        after the other.
+        """
+        if callable(self.score):
+            z2 = _as_2d(z, "z")
+            if self.partial != "X" or z2.shape[1] != 1:
+                raise NotImplementedError("callable PLIV scores need partial='X' and one instrument (as DoubleML)")
+            y_arr, d_arr, z_arr = _as_1d(y, "y"), _as_2d(d, "d"), z2[:, 0]
+            score = self.score
+            return fit_callable_score(
+                self, "IV-type" if self.ml_g is not None else "partialling out",
+                lambda j, p, smpls: score(y=y_arr, z=z_arr, d=d_arr[:, j], l_hat=p["ml_l"], m_hat=p["ml_m"],
+                                          r_hat=p["ml_r"], g_hat=p.get("ml_g"), smpls=smpls),
+                lambda reps: self.fit(X, y, d, z, folds=reps, external_predictions=external_predictions,
+                                      store_models=store_models),
+                folds, cluster, len(y_arr))
         result = _dml_rs.fit_pliv(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), _as_2d(z, "z"), self.ml_l, self.ml_m, self.ml_r,
             ml_g=self.ml_g, score=self.score, partial=self.partial,
@@ -1056,6 +1215,15 @@ class APO(_DMLEstimator):
     clipping_threshold : propensities are clipped to ``[t, 1 - t]``.
     normalize_ipw : normalise the inverse-probability weights.
     """
+
+    _override_learners = True
+    _tuning_kind = "APO"
+
+    def _nuisance_spec(self) -> list[tuple[str, str]]:
+        return [("ml_g_d_lvl0", "ml_g"), ("ml_g_d_lvl1", "ml_g"), ("ml_m", "ml_m")]
+
+    def _strata(self, a: dict[str, Any]) -> Optional[list[int]]:
+        return np.unique(a["d"][:, 0], return_inverse=True)[1].ravel().tolist()  # type: ignore[no-any-return]
 
     def __init__(
         self,
@@ -1082,6 +1250,7 @@ class APO(_DMLEstimator):
         self.random_state = random_state
 
     @accepts_data("x", "y", "d", cluster=True)
+    @nuisance_fit
     def fit(
         self,
         X: ArrayLike,
@@ -1090,7 +1259,14 @@ class APO(_DMLEstimator):
         folds: Optional[Folds] = None,
         cluster: Optional[ArrayLike] = None,
         external_predictions: Optional[dict[Any, Any]] = None,
+        store_models: bool = False,
     ) -> Self:
+        """Fit on covariates ``X``, outcome ``y`` and discrete treatment ``d``.
+
+        ``store_models=True`` keeps the fitted learners in ``models_`` (``{learner: {treatment:
+        [[model per fold] per repetition]}}``, as DoubleML's ``models``); folds are then fitted one
+        after the other.
+        """
         self._remember(X, y, d, folds=folds, cluster=cluster)
         result = _dml_rs.fit_apo(
             _as_1d(y, "y"), _as_2d(_as_1d(d, "d"), "d"), _as_2d(X, "X"), self.ml_g, self.ml_m,
@@ -1099,6 +1275,7 @@ class APO(_DMLEstimator):
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
             **_weights_args(self.weights),
             external_predictions=_external_args(external_predictions, d),
+            nuisance=self._nuisance_overrides,
         )
         return self._store(result)
 
@@ -1275,6 +1452,12 @@ class PLPR(_DMLEstimator):
         unit means of the covariates added).
     """
 
+    _learner_fallback = {"ml_g": "ml_l"}
+
+    def _nuisance_spec(self) -> list[tuple[str, str]]:
+        spec = [("ml_l", "ml_l"), ("ml_m", "ml_m")]
+        return spec + [("ml_g", "ml_g")] if self.score == "IV-type" else spec
+
     def __init__(
         self,
         ml_l: Any,
@@ -1296,6 +1479,7 @@ class PLPR(_DMLEstimator):
         self.random_state = random_state
 
     @accepts_data("x", "y", "d", "id", "t")
+    @nuisance_fit
     def fit(
         self,
         X: ArrayLike,
@@ -1305,9 +1489,15 @@ class PLPR(_DMLEstimator):
         t: ArrayLike,
         folds: Optional[Folds] = None,
         external_predictions: Optional[dict[Any, Any]] = None,
+        store_models: bool = False,
     ) -> Self:
         """``folds`` (optional) index the rows of the transformed panel, sorted by unit and period,
-        as DoubleML's ``smpls``; each test set should hold whole units."""
+        as DoubleML's ``smpls``; each test set should hold whole units.
+
+        ``store_models=True`` keeps the fitted learners in ``models_`` (``{learner: {treatment:
+        [[model per fold] per repetition]}}``, as DoubleML's ``models``); folds are then fitted one
+        after the other.
+        """
         result = _dml_rs.fit_plpr(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), _codes(id, "id"),
             _codes(t, "t").astype(np.float64), self.ml_l, self.ml_m, _is_classifier(self.ml_m), self.ml_g,
@@ -1464,6 +1654,11 @@ class LPLR(_DMLEstimator):
     n_folds_inner : inner folds of the double cross-fitting.
     """
 
+    _learner_fallback = {"ml_a": "ml_m"}
+
+    def _nuisance_spec(self) -> list[tuple[str, str]]:
+        return [("ml_M", "ml_M"), ("ml_t", "ml_t"), ("ml_m", "ml_m"), ("ml_a", "ml_a")]
+
     def __init__(
         self,
         ml_M: Any,
@@ -1487,6 +1682,7 @@ class LPLR(_DMLEstimator):
         self.random_state = random_state
 
     @accepts_data("x", "y", "d")
+    @nuisance_fit
     def fit(
         self,
         X: ArrayLike,
@@ -1495,12 +1691,19 @@ class LPLR(_DMLEstimator):
         folds: Optional[Folds] = None,
         inner_folds: Optional[Sequence[Any]] = None,
         external_predictions: Any = None,
+        store_models: bool = False,
     ) -> Self:
         """``inner_folds`` (with ``folds``) fixes the inner splits in DoubleML's ``smpls_inner``
         layout: per repetition, per outer fold, a list of ``(train, test)`` index pairs within that
         fold's training set. ``external_predictions`` as DoubleML: external ``ml_M`` and ``ml_a``
         also need their inner predictions ``ml_M_inner_k`` / ``ml_a_inner_k`` for every outer fold
-        ``k`` (a fit reports them in ``predictions_``)."""
+        ``k`` (a fit reports them in ``predictions_``).
+
+        ``store_models=True`` keeps the fitted learners in ``models_`` (``{learner: {treatment:
+        [[model per fold] per repetition]}}``, as DoubleML's ``models``); folds are then fitted one
+        after the other. ``ml_M`` and ``ml_a`` are fitted on every inner fold and
+        on the outer fold, so their entries are lists.
+        """
         splits = _splits(folds)
         inner = None
         if inner_folds is not None:
@@ -1540,6 +1743,15 @@ class SSM(_DMLEstimator):
     normalize_ipw : normalise the inverse-probability weights.
     """
 
+    _override_learners = True
+    _tuning_kind = "SSM"
+
+    def _nuisance_spec(self) -> list[tuple[str, str]]:
+        return [("ml_g_d0", "ml_g"), ("ml_g_d1", "ml_g"), ("ml_pi", "ml_pi"), ("ml_m", "ml_m")]
+
+    def _strata(self, a: dict[str, Any]) -> Optional[list[int]]:
+        return (a["d"][:, 0] + 2 * a["s"]).astype(int).tolist()  # type: ignore[no-any-return]
+
     def __init__(
         self,
         ml_g: Any,
@@ -1565,6 +1777,7 @@ class SSM(_DMLEstimator):
         self.random_state = random_state
 
     @accepts_data("x", "y", "d", "s", "z?", cluster=True)
+    @nuisance_fit
     def fit(
         self,
         X: ArrayLike,
@@ -1574,13 +1787,22 @@ class SSM(_DMLEstimator):
         z: Optional[ArrayLike] = None,
         folds: Optional[Folds] = None,
         cluster: Optional[ArrayLike] = None,
+        store_models: bool = False,
     ) -> Self:
+        """Fit on covariates ``X``, outcome ``y``, binary treatment ``d``, selection indicator ``s``
+        and (nonignorable score) instrument ``z``.
+
+        ``store_models=True`` keeps the fitted learners in ``models_`` (``{learner: {treatment:
+        [[model per fold] per repetition]}}``, as DoubleML's ``models``); folds are then fitted one
+        after the other.
+        """
         result = _dml_rs.fit_ssm(
             _as_1d(y, "y"), _as_2d(d, "d"), _as_2d(X, "X"), _as_1d(s, "s"), self.ml_g, self.ml_pi, self.ml_m,
             z=None if z is None else _as_1d(z, "z"), score=self.score,
             clipping_threshold=self.clipping_threshold, calibration=self.calibration, normalize_ipw=self.normalize_ipw,
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state, splits=_splits(folds),
             treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
+            nuisance=self._nuisance_overrides,
         )
         return self._store(result)
 

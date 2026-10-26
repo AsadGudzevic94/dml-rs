@@ -14,7 +14,10 @@
 use ndarray::Array1;
 
 use super::irm::{ipw_residual, normalize_propensity};
-use super::{dml_model_api, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput};
+use super::{
+    dml_model_api, nuisance_api, LinearScoreModel, NuisanceLearners, NuisanceTarget, ScoreEstimate,
+    ScoreInput,
+};
 use crate::crossfit::{
     cross_fit_predict_proba, cross_fit_predict_proba_subset, cross_fit_predict_subset, Fold,
     SampleSplitting,
@@ -30,6 +33,7 @@ use crate::score::LinearScore;
 /// `P(Z = 1 | X)`, and `ml_r` the treatment probability `P(D = 1 | Z, X)`
 /// (again per instrument arm).
 pub struct Iivm {
+    nuisance: NuisanceLearners,
     ml_g: Box<dyn Regressor>,
     ml_m: Box<dyn Classifier>,
     ml_r: Box<dyn Classifier>,
@@ -56,6 +60,7 @@ impl Iivm {
         ml_r: Box<dyn Classifier>,
     ) -> Self {
         Self {
+            nuisance: NuisanceLearners::default(),
             ml_g,
             ml_m,
             ml_r,
@@ -104,6 +109,7 @@ impl Iivm {
     }
 
     dml_model_api!();
+    nuisance_api!();
 }
 
 impl LinearScoreModel for Iivm {
@@ -112,6 +118,8 @@ impl LinearScoreModel for Iivm {
     }
 
     fn validate(&self, data: &DmlData) -> Result<()> {
+        self.nuisance
+            .check("IIVM", &["ml_g0", "ml_g1"], &["ml_m", "ml_r0", "ml_r1"])?;
         if data.n_treat() != 1 || !data.is_binary_treatment(0) {
             return Err(DmlError::InvalidArgument(
                 "IIVM requires exactly one binary (0/1) treatment".into(),
@@ -145,25 +153,28 @@ impl LinearScoreModel for Iivm {
         let z0: Vec<bool> = z1.iter().map(|b| !b).collect();
         let n = y.len();
 
-        let ml_g = self.ml_g.as_ref();
-        let g0 =
-            input.predictions_or("ml_g0", || cross_fit_predict_subset(ml_g, x, y, folds, &z0))?;
-        let g1 =
-            input.predictions_or("ml_g1", || cross_fit_predict_subset(ml_g, x, y, folds, &z1))?;
+        let nu = &self.nuisance;
+        let (ml_g, ml_r) = (self.ml_g.as_ref(), self.ml_r.as_ref());
+        let g0 = input.predictions_or("ml_g0", || {
+            cross_fit_predict_subset(nu.regressor("ml_g0", ml_g), x, y, folds, &z0)
+        })?;
+        let g1 = input.predictions_or("ml_g1", || {
+            cross_fit_predict_subset(nu.regressor("ml_g1", ml_g), x, y, folds, &z1)
+        })?;
         let m_raw = input.predictions_or("ml_m", || {
-            cross_fit_predict_proba(self.ml_m.as_ref(), x, z, folds)
+            cross_fit_predict_proba(nu.classifier("ml_m", self.ml_m.as_ref()), x, z, folds)
         })?;
         let m = adjust_propensity(m_raw, z, folds, self.clipping_threshold, self.calibration)?;
         let r0 = if self.always_takers {
             input.predictions_or("ml_r0", || {
-                cross_fit_predict_proba_subset(self.ml_r.as_ref(), x, d, folds, &z0)
+                cross_fit_predict_proba_subset(nu.classifier("ml_r0", ml_r), x, d, folds, &z0)
             })?
         } else {
             Array1::zeros(n)
         };
         let r1 = if self.never_takers {
             input.predictions_or("ml_r1", || {
-                cross_fit_predict_proba_subset(self.ml_r.as_ref(), x, d, folds, &z1)
+                cross_fit_predict_proba_subset(nu.classifier("ml_r1", ml_r), x, d, folds, &z1)
             })?
         } else {
             Array1::ones(n)

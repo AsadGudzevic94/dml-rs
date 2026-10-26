@@ -52,6 +52,84 @@ built-in ones because each fold calls back into Python, but the DML algebra stil
 
 ## Tuning
 
+### DoubleML's `tune` and `tune_ml_models`
+
+The models with named nuisance learners (PLR, LPLR, PLPR, IRM, APO, SSM, PLIV, IIVM, DID and
+DIDCS) have DoubleML's tuning methods. They take the arguments of `fit` (the data, or a
+`DmlData`), tune every nuisance learner on its own training data (for IRM, `ml_g` is tuned
+separately for `ml_g0` on the untreated and `ml_g1` on the treated), and set the best parameters
+for the next `fit`. Tuning needs scikit-learn estimators (the built-in learners take their
+parameters in the constructor; use `GridSearchRegressor` below to tune them). `tune` and
+`tune_ml_models` are implemented for PLR, IRM, APO, IIVM, DID, DIDCS, SSM (missing at random) and
+PLIV (partial `X` with one instrument, or partial `Z`).
+
+`tune` is a grid search (`search_mode="grid_search"`, scikit-learn's `GridSearchCV`) or a
+randomized search (`"randomized_search"`), with `param_grids` keyed by learner name. As in
+DoubleML, the search folds are shuffled with NumPy's global random state, so
+`np.random.seed(...)` makes it reproducible, and the same seed gives the same parameters as
+DoubleML. With `tune_on_folds=True` the search runs on each cross-fitting training fold and the
+parameters are fold-specific.
+
+```python
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LogisticRegression
+
+model = dml_rs.IRM(RandomForestRegressor(n_estimators=200), LogisticRegression())
+np.random.seed(42)
+model.tune(X, y, d, param_grids={"ml_g": {"max_depth": [3, 5, 8]}, "ml_m": {"C": [0.1, 1, 10]}})
+model.params["ml_g1"]   # {'d': [[{'max_depth': 5}, ...]]}: per treatment, repetition and fold
+model.fit(X, y, d)
+```
+
+`tune_ml_models` uses [Optuna](https://optuna.org) (`pip install optuna`). Each parameter space
+is a function of an Optuna trial; a space given for a learner name (`ml_g`) applies to all its
+nuisance models, one given for a nuisance name (`ml_g1`) takes precedence. Each nuisance learner
+is tuned once on its training data in the whole sample, by cross-validation (`cv`, default five
+shuffled folds with `random_state=42`), maximising the negative RMSE (regressors) or negative log
+loss (classifiers) unless `scoring_methods` says otherwise. `optuna_settings` takes DoubleML's
+settings (`n_trials`, default 100, `sampler`, `timeout`, `study_kwargs`, ..., also per learner or
+nuisance name). With `return_tune_res=True` both methods return the search results instead of the
+model.
+
+```python
+def forest(trial):
+    return {"max_depth": trial.suggest_int("max_depth", 2, 10),
+            "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 20)}
+
+def logit(trial):
+    return {"C": trial.suggest_float("C", 1e-3, 1e2, log=True)}
+
+res = model.tune_ml_models(X, y, d, ml_param_space={"ml_g": forest, "ml_m": logit},
+                           optuna_settings={"n_trials": 50, "sampler": optuna.samplers.TPESampler(seed=1)},
+                           return_tune_res=True)
+res[0]["ml_g1"].best_params   # OptunaResult per treatment and nuisance model
+```
+
+### Parameters per nuisance model
+
+`set_ml_nuisance_params(name, treatment, params)` sets parameters of one nuisance model, as
+DoubleML: `name` is one of `model.params_names` (for IRM `ml_g0`, `ml_g1`, `ml_m`), `treatment` a
+treatment name (`"d"` for a single unnamed treatment; `None` for all treatments), and `params` a
+dict for every fold or, for fold-specific parameters, one list of `n_folds` dicts per repetition.
+Later calls update earlier ones. `model.params` shows what is set.
+
+```python
+model.set_ml_nuisance_params("ml_g1", "d", {"max_depth": 3})
+model.set_ml_nuisance_params("ml_g0", "d", [[{"max_depth": 2}, {"max_depth": 4}, {"max_depth": 3},
+                                             {"max_depth": 3}, {"max_depth": 5}]])  # one repetition
+```
+
+In Rust, any nuisance model can get its own learner with `nuisance_regressor(name, learner)` or
+`nuisance_classifier(name, learner)` (IRM, APO, IIVM, DID, DIDCS and SSM, whose nuisance models
+share a learner argument):
+
+```rust
+let model = Irm::new(RandomForestRegressor::new(), LogisticRegression::default())
+    .nuisance_regressor("ml_g1", RandomForestRegressor::new().max_depth(Some(3)));
+```
+
+### Searching inside every fold
+
 `GridSearchRegressor` and `GridSearchClassifier` choose the best of several candidate learners by
 5-fold cross-validation (mean squared error, or log loss with stratified folds) and refit it.
 Candidates can be built-in or scikit-learn learners. As a nuisance learner the search runs inside
@@ -100,6 +178,18 @@ model.evaluate_learners(metric=mae)
 ```
 
 See the [clustered data and diagnostics example](../examples/05_clusters_and_diagnostics.ipynb).
+
+## Stored learners
+
+`fit(..., store_models=True)` keeps every fitted nuisance learner in `models_`, in DoubleML's
+layout `models_[name][treatment][repetition][fold]` (models that fit a learner several times per
+fold, such as LPLR's double cross-fitting, store a list per fold). The folds are then fitted one
+after the other. Available for the models with named nuisance learners.
+
+```python
+model.fit(X, y, d, store_models=True)
+model.models_["ml_g1"]["d"][0][2].feature_importances_   # repetition 0, fold 2
+```
 
 ## External predictions
 

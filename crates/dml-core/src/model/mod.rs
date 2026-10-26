@@ -431,3 +431,128 @@ macro_rules! dml_model_api {
     };
 }
 pub(crate) use dml_model_api;
+
+/// Learners for individual nuisance functions that replace a model's default
+/// learner for them, e.g. different settings for `ml_g0` and `ml_g1` in
+/// [`Irm`] (DoubleML's per-nuisance parameters, `set_ml_nuisance_params`).
+/// Set through the models' `nuisance_regressor` / `nuisance_classifier`.
+#[derive(Default)]
+pub struct NuisanceLearners {
+    regressors: Vec<(String, Box<dyn crate::learner::Regressor>)>,
+    classifiers: Vec<(String, Box<dyn crate::learner::Classifier>)>,
+}
+
+impl NuisanceLearners {
+    pub(crate) fn set_regressor(
+        &mut self,
+        name: &str,
+        learner: Box<dyn crate::learner::Regressor>,
+    ) {
+        self.regressors.retain(|(n, _)| n != name);
+        self.regressors.push((name.to_string(), learner));
+    }
+
+    pub(crate) fn set_classifier(
+        &mut self,
+        name: &str,
+        learner: Box<dyn crate::learner::Classifier>,
+    ) {
+        self.classifiers.retain(|(n, _)| n != name);
+        self.classifiers.push((name.to_string(), learner));
+    }
+
+    /// The learner for nuisance `name`, or `default`.
+    pub(crate) fn regressor<'a>(
+        &'a self,
+        name: &str,
+        default: &'a dyn crate::learner::Regressor,
+    ) -> &'a dyn crate::learner::Regressor {
+        self.regressors
+            .iter()
+            .find(|(n, _)| n == name)
+            .map_or(default, |(_, l)| l.as_ref())
+    }
+
+    /// The learner for nuisance `name`, or `default`.
+    pub(crate) fn classifier<'a>(
+        &'a self,
+        name: &str,
+        default: &'a dyn crate::learner::Classifier,
+    ) -> &'a dyn crate::learner::Classifier {
+        self.classifiers
+            .iter()
+            .find(|(n, _)| n == name)
+            .map_or(default, |(_, l)| l.as_ref())
+    }
+
+    /// Error unless every overridden name is one of the model's regression
+    /// (`regressors`) or classification (`classifiers`) nuisances.
+    pub(crate) fn check(
+        &self,
+        model: &str,
+        regressors: &[&str],
+        classifiers: &[&str],
+    ) -> Result<()> {
+        for (name, valid) in self
+            .regressors
+            .iter()
+            .map(|(n, _)| (n, regressors))
+            .chain(self.classifiers.iter().map(|(n, _)| (n, classifiers)))
+        {
+            if !valid.contains(&name.as_str()) {
+                return Err(DmlError::InvalidArgument(format!(
+                    "{model} has no nuisance {name:?} for this learner type (valid: {})",
+                    valid.join(", ")
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Builder methods for per-nuisance learners (a field `nuisance:
+/// NuisanceLearners`).
+macro_rules! nuisance_api {
+    () => {
+        /// Use `learner` for the regression nuisance `name` (DoubleML's name,
+        /// e.g. `"ml_g1"`) instead of the model's default learner for it.
+        pub fn nuisance_regressor(
+            self,
+            name: &str,
+            learner: impl $crate::learner::Regressor + 'static,
+        ) -> Self {
+            self.nuisance_regressor_boxed(name, Box::new(learner))
+        }
+
+        /// As [`nuisance_regressor`](Self::nuisance_regressor), boxed.
+        pub fn nuisance_regressor_boxed(
+            mut self,
+            name: &str,
+            learner: Box<dyn $crate::learner::Regressor>,
+        ) -> Self {
+            self.nuisance.set_regressor(name, learner);
+            self
+        }
+
+        /// Use `learner` for the classification nuisance `name` instead of the
+        /// model's default learner for it.
+        pub fn nuisance_classifier(
+            self,
+            name: &str,
+            learner: impl $crate::learner::Classifier + 'static,
+        ) -> Self {
+            self.nuisance_classifier_boxed(name, Box::new(learner))
+        }
+
+        /// As [`nuisance_classifier`](Self::nuisance_classifier), boxed.
+        pub fn nuisance_classifier_boxed(
+            mut self,
+            name: &str,
+            learner: Box<dyn $crate::learner::Classifier>,
+        ) -> Self {
+            self.nuisance.set_classifier(name, learner);
+            self
+        }
+    };
+}
+pub(crate) use nuisance_api;

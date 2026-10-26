@@ -371,16 +371,7 @@ impl Lplr {
             }
             Ok((outer / inner[k].len() as f64, inner_pred))
         };
-        #[cfg(feature = "parallel")]
-        let results: Vec<_> = {
-            use rayon::prelude::*;
-            (0..folds.len())
-                .into_par_iter()
-                .map(per_fold)
-                .collect::<Result<_>>()?
-        };
-        #[cfg(not(feature = "parallel"))]
-        let results: Vec<_> = (0..folds.len()).map(per_fold).collect::<Result<_>>()?;
+        let results: Vec<_> = crate::crossfit::map_folds(folds.len(), per_fold)?;
         let mut outer = Array1::from_elem(n, f64::NAN);
         let mut inner_preds = Vec::with_capacity(folds.len());
         for (fold, (pred, inner_pred)) in folds.iter().zip(results) {

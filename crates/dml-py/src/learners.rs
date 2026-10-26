@@ -30,6 +30,15 @@ pub struct PyOls {
 
 #[pymethods]
 impl PyOls {
+    /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
+    fn __copy__(&self) -> Self {
+        self.clone()
+    }
+
+    fn __deepcopy__(&self, _memo: &Bound<'_, PyAny>) -> Self {
+        self.clone()
+    }
+
     #[new]
     #[pyo3(signature = (ridge = 0.0))]
     fn new(ridge: f64) -> Self {
@@ -77,6 +86,15 @@ pub struct PyLasso {
 
 #[pymethods]
 impl PyLasso {
+    /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
+    fn __copy__(&self) -> Self {
+        self.clone()
+    }
+
+    fn __deepcopy__(&self, _memo: &Bound<'_, PyAny>) -> Self {
+        self.clone()
+    }
+
     #[new]
     #[pyo3(signature = (alpha = 1.0, tol = 1e-4, max_iter = 100_000))]
     fn new(alpha: f64, tol: f64, max_iter: usize) -> Self {
@@ -130,6 +148,15 @@ pub struct PyLassoCV {
 
 #[pymethods]
 impl PyLassoCV {
+    /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
+    fn __copy__(&self) -> Self {
+        self.clone()
+    }
+
+    fn __deepcopy__(&self, _memo: &Bound<'_, PyAny>) -> Self {
+        self.clone()
+    }
+
     #[new]
     #[pyo3(signature = (alphas = None, eps = 1e-3, cv = 5, tol = 1e-4, max_iter = 100_000))]
     fn new(
@@ -235,6 +262,15 @@ pub struct PyLogisticRegressionCV {
 
 #[pymethods]
 impl PyLogisticRegressionCV {
+    /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
+    fn __copy__(&self) -> Self {
+        self.clone()
+    }
+
+    fn __deepcopy__(&self, _memo: &Bound<'_, PyAny>) -> Self {
+        self.clone()
+    }
+
     #[new]
     #[pyo3(signature = (Cs = None, cv = 5, scoring = "neg_log_loss", tol = 1e-10, max_iter = 100))]
     #[allow(non_snake_case)] // keep scikit-learn's parameter name
@@ -361,6 +397,15 @@ pub struct PyLogisticRegression {
 
 #[pymethods]
 impl PyLogisticRegression {
+    /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
+    fn __copy__(&self) -> Self {
+        self.clone()
+    }
+
+    fn __deepcopy__(&self, _memo: &Bound<'_, PyAny>) -> Self {
+        self.clone()
+    }
+
     #[new]
     #[pyo3(signature = (C = 1.0, tol = 1e-10, max_iter = 100))]
     #[allow(non_snake_case)] // keep scikit-learn's parameter name
@@ -471,6 +516,15 @@ macro_rules! forest_pyclass {
 
         #[pymethods]
         impl $py_ty {
+            /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
+            fn __copy__(&self) -> Self {
+                self.clone()
+            }
+
+            fn __deepcopy__(&self, _memo: &Bound<'_, PyAny>) -> Self {
+                self.clone()
+            }
+
             #[new]
             #[pyo3(signature = (n_estimators = 100, max_depth = None, min_samples_split = 2,
                                 min_samples_leaf = 1, max_features = None, bootstrap = true,
@@ -579,6 +633,15 @@ macro_rules! boosting_pyclass {
 
         #[pymethods]
         impl $py_ty {
+            /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
+            fn __copy__(&self) -> Self {
+                self.clone()
+            }
+
+            fn __deepcopy__(&self, _memo: &Bound<'_, PyAny>) -> Self {
+                self.clone()
+            }
+
             #[new]
             #[pyo3(signature = (n_estimators = 100, learning_rate = 0.1, max_depth = Some(3),
                                 min_samples_split = 2, min_samples_leaf = 1, max_features = None,
@@ -879,6 +942,15 @@ pub struct PyGridSearchRegressor {
 
 #[pymethods]
 impl PyGridSearchRegressor {
+    /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
+    fn __copy__(&self) -> Self {
+        self.clone()
+    }
+
+    fn __deepcopy__(&self, _memo: &Bound<'_, PyAny>) -> Self {
+        self.clone()
+    }
+
     #[new]
     #[pyo3(signature = (candidates, cv = 5))]
     fn new(candidates: Vec<Bound<'_, PyAny>>, cv: usize) -> PyResult<Self> {
@@ -950,6 +1022,15 @@ pub struct PyGridSearchClassifier {
 
 #[pymethods]
 impl PyGridSearchClassifier {
+    /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
+    fn __copy__(&self) -> Self {
+        self.clone()
+    }
+
+    fn __deepcopy__(&self, _memo: &Bound<'_, PyAny>) -> Self {
+        self.clone()
+    }
+
     #[new]
     #[pyo3(signature = (candidates, cv = 5))]
     fn new(candidates: Vec<Bound<'_, PyAny>>, cv: usize) -> PyResult<Self> {

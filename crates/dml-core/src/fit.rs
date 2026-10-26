@@ -674,6 +674,76 @@ impl DmlFit {
         }
     }
 
+    /// A fit from the elements `ψ_a`, `ψ_b` of a linear score computed
+    /// elsewhere, each of shape `(n, n_treat, n_rep)` (DoubleML's callable
+    /// scores): θ solves `mean(ψ_a)·θ + mean(ψ_b) = 0` for every estimate and
+    /// repetition, the standard errors are DoubleML's and repetitions are
+    /// aggregated by the median.
+    ///
+    /// ```
+    /// # use dml_core::DmlFit;
+    /// # use ndarray::Array3;
+    /// let psi_a = Array3::from_elem((4, 1, 1), -1.0);
+    /// let psi_b = Array3::from_shape_vec((4, 1, 1), vec![1.0, 2.0, 3.0, 2.0]).unwrap();
+    /// let fit = DmlFit::from_linear_scores("mean", vec!["y".into()], 2, psi_a, psi_b).unwrap();
+    /// assert_eq!(fit.coef()[0], 2.0);
+    /// ```
+    pub fn from_linear_scores(
+        model: impl Into<String>,
+        treatment_names: Vec<String>,
+        n_folds: usize,
+        psi_a: Array3<f64>,
+        psi_b: Array3<f64>,
+    ) -> Result<DmlFit> {
+        let (n, k, n_rep) = psi_a.dim();
+        if psi_b.dim() != psi_a.dim() || n == 0 || k == 0 || n_rep == 0 {
+            return Err(DmlError::DimensionMismatch(format!(
+                "psi_a {:?} and psi_b {:?} need the same non-empty shape (n, n_treat, n_rep)",
+                psi_a.dim(),
+                psi_b.dim()
+            )));
+        }
+        if treatment_names.len() != k {
+            return Err(DmlError::DimensionMismatch(format!(
+                "{} names for {k} estimates",
+                treatment_names.len()
+            )));
+        }
+        if !psi_a.iter().chain(psi_b.iter()).all(|v| v.is_finite()) {
+            return Err(DmlError::InvalidArgument(
+                "score elements must be finite".into(),
+            ));
+        }
+        let mut all_coef = Array2::<f64>::zeros((k, n_rep));
+        let mut psi = Array3::<f64>::zeros((n, k, n_rep));
+        for j in 0..k {
+            for r in 0..n_rep {
+                let a = psi_a.slice(ndarray::s![.., j, r]);
+                let b = psi_b.slice(ndarray::s![.., j, r]);
+                let mean_a = a.mean().expect("n > 0");
+                if mean_a == 0.0 {
+                    return Err(DmlError::InvalidArgument(
+                        "mean(psi_a) is zero: the score does not identify theta".into(),
+                    ));
+                }
+                let theta = -b.mean().expect("n > 0") / mean_a;
+                all_coef[[j, r]] = theta;
+                psi.slice_mut(ndarray::s![.., j, r])
+                    .assign(&(&a * theta + b));
+            }
+        }
+        Ok(Self::from_scores(
+            model.into(),
+            treatment_names,
+            n_folds,
+            all_coef,
+            psi,
+            psi_a,
+            psi_b,
+            Vec::new(),
+        ))
+    }
+
     /// Linear combinations `Σ_j w_cj θ_j` of the estimates, one per row of
     /// `weights` (shape `(n_combinations, n_treat)`), named `names`. The
     /// influence functions are combined the same way, so standard errors,

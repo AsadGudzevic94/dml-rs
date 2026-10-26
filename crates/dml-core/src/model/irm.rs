@@ -11,7 +11,8 @@
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 
 use super::{
-    dml_model_api, CateSignal, LinearScoreModel, NuisanceTarget, ScoreEstimate, ScoreInput,
+    dml_model_api, nuisance_api, CateSignal, LinearScoreModel, NuisanceLearners, NuisanceTarget,
+    ScoreEstimate, ScoreInput,
 };
 use crate::compat::np_mean;
 use crate::crossfit::{cross_fit_predict_proba, cross_fit_predict_subset, Fold, SampleSplitting};
@@ -36,6 +37,7 @@ pub enum IrmScore {
 /// treated and control rows of each training fold), `ml_m` learns the
 /// propensity score `P(D = 1 | X)`.
 pub struct Irm {
+    nuisance: NuisanceLearners,
     ml_g: Box<dyn Regressor>,
     ml_m: Box<dyn Classifier>,
     score: IrmScore,
@@ -122,6 +124,7 @@ impl Irm {
 
     pub fn from_boxed(ml_g: Box<dyn Regressor>, ml_m: Box<dyn Classifier>) -> Self {
         Self {
+            nuisance: NuisanceLearners::default(),
             ml_g,
             ml_m,
             score: IrmScore::default(),
@@ -180,6 +183,7 @@ impl Irm {
     }
 
     dml_model_api!();
+    nuisance_api!();
 }
 
 /// DoubleML's `_normalize_ipw`: rescale `m̂` so that `mean(D/m̂)` and
@@ -209,6 +213,7 @@ impl LinearScoreModel for Irm {
     }
 
     fn validate(&self, data: &DmlData) -> Result<()> {
+        self.nuisance.check("IRM", &["ml_g0", "ml_g1"], &["ml_m"])?;
         if data.n_treat() != 1 || !data.is_binary_treatment(0) {
             return Err(DmlError::InvalidArgument(
                 "IRM requires exactly one binary (0/1) treatment".into(),
@@ -236,15 +241,16 @@ impl LinearScoreModel for Irm {
         let ScoreInput { y, d, x, rep, .. } = *input;
         let treated: Vec<bool> = d.iter().map(|&v| v == 1.0).collect();
         let control: Vec<bool> = treated.iter().map(|t| !t).collect();
+        let nu = &self.nuisance;
         let ml_g = self.ml_g.as_ref();
         let g0 = input.predictions_or("ml_g0", || {
-            cross_fit_predict_subset(ml_g, x, y, folds, &control)
+            cross_fit_predict_subset(nu.regressor("ml_g0", ml_g), x, y, folds, &control)
         })?;
         let g1 = input.predictions_or("ml_g1", || {
-            cross_fit_predict_subset(ml_g, x, y, folds, &treated)
+            cross_fit_predict_subset(nu.regressor("ml_g1", ml_g), x, y, folds, &treated)
         })?;
         let m_raw = input.predictions_or("ml_m", || {
-            cross_fit_predict_proba(self.ml_m.as_ref(), x, d, folds)
+            cross_fit_predict_proba(nu.classifier("ml_m", self.ml_m.as_ref()), x, d, folds)
         })?;
         let m = adjust_propensity(m_raw, d, folds, self.clipping_threshold, self.calibration)?;
         let d = d.to_owned();

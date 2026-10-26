@@ -616,6 +616,26 @@ macro_rules! run_model {
     }};
 }
 
+/// Per-nuisance learners from a `{name: learner}` dict (DoubleML's nuisance
+/// names, e.g. `"ml_g1"`), replacing the model's default learner for each
+/// name; the names in `$classifiers` take classifiers.
+macro_rules! with_nuisance {
+    ($model:expr, $nuisance:expr, $classifiers:expr) => {{
+        let mut model = $model;
+        if let Some(dict) = $nuisance {
+            for (name, learner) in dict.iter() {
+                let name: String = name.extract()?;
+                model = if $classifiers.contains(&name.as_str()) {
+                    model.nuisance_classifier_boxed(&name, to_classifier(&learner)?)
+                } else {
+                    model.nuisance_regressor_boxed(&name, to_regressor(&learner)?)
+                };
+            }
+        }
+        model
+    }};
+}
+
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_l, ml_m, ml_g = None, score = "partialling out",
                     n_folds = 5, n_rep = 1, seed = 0, splits = None, treatment_names = None, cluster = None, external_predictions = None))]
@@ -662,7 +682,8 @@ fn fit_plr(
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g, ml_m, score = "ATE", clipping_threshold = 1e-2, calibration = None,
                     normalize_ipw = false, n_folds = 5, n_rep = 1, seed = 0, splits = None,
-                    treatment_names = None, cluster = None, weights = None, weights_bar = None, external_predictions = None))]
+                    treatment_names = None, cluster = None, weights = None, weights_bar = None, external_predictions = None,
+                    nuisance = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_irm(
     py: Python<'_>,
@@ -684,6 +705,7 @@ fn fit_irm(
     weights: Option<PyReadonlyArray1<'_, f64>>,
     weights_bar: Option<PyReadonlyArray2<'_, f64>>,
     external_predictions: Option<PyExternal<'_>>,
+    nuisance: Option<Bound<'_, PyDict>>,
 ) -> PyResult<PyDmlResult> {
     let score = match score {
         "ATE" => IrmScore::Ate,
@@ -705,6 +727,7 @@ fn fit_irm(
         .n_rep(n_rep)
         .seed(seed);
     let model = with_weights!(model, weights, weights_bar);
+    let model = with_nuisance!(model, nuisance, ["ml_m"]);
     run_model!(py, model, data, splits)
 }
 
@@ -790,7 +813,8 @@ fn fit_pliv(
 #[pyfunction]
 #[pyo3(signature = (y, d, x, z, ml_g, ml_m, ml_r, always_takers = true, never_takers = true,
                     clipping_threshold = 1e-2, calibration = None, normalize_ipw = false, n_folds = 5, n_rep = 1,
-                    seed = 0, splits = None, treatment_names = None, cluster = None, external_predictions = None))]
+                    seed = 0, splits = None, treatment_names = None, cluster = None, external_predictions = None,
+                    nuisance = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_iivm(
     py: Python<'_>,
@@ -813,6 +837,7 @@ fn fit_iivm(
     treatment_names: Option<Vec<String>>,
     cluster: Option<PyReadonlyArray2<'_, i64>>,
     external_predictions: Option<PyExternal<'_>>,
+    nuisance: Option<Bound<'_, PyDict>>,
 ) -> PyResult<PyDmlResult> {
     let data = build_data(y, d, x, Some(z), None, treatment_names, cluster)?;
     let data = attach_external(data, external_predictions);
@@ -828,6 +853,7 @@ fn fit_iivm(
     .n_folds(n_folds)
     .n_rep(n_rep)
     .seed(seed);
+    let model = with_nuisance!(model, nuisance, ["ml_m", "ml_r0", "ml_r1"]);
     run_model!(py, model, data, splits)
 }
 
@@ -835,7 +861,8 @@ fn fit_iivm(
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g, ml_m, treatment_level, clipping_threshold = 1e-2, calibration = None,
                     normalize_ipw = false, n_folds = 5, n_rep = 1, seed = 0, splits = None,
-                    treatment_names = None, cluster = None, weights = None, weights_bar = None, external_predictions = None))]
+                    treatment_names = None, cluster = None, weights = None, weights_bar = None, external_predictions = None,
+                    nuisance = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_apo(
     py: Python<'_>,
@@ -857,6 +884,7 @@ fn fit_apo(
     weights: Option<PyReadonlyArray1<'_, f64>>,
     weights_bar: Option<PyReadonlyArray2<'_, f64>>,
     external_predictions: Option<PyExternal<'_>>,
+    nuisance: Option<Bound<'_, PyDict>>,
 ) -> PyResult<PyDmlResult> {
     let data = build_data(y, d, x, None, None, treatment_names, cluster)?;
     let data = attach_external(data, external_predictions);
@@ -868,6 +896,7 @@ fn fit_apo(
         .n_rep(n_rep)
         .seed(seed);
     let model = with_weights!(model, weights, weights_bar);
+    let model = with_nuisance!(model, nuisance, ["ml_m"]);
     run_model!(py, model, data, splits)
 }
 
@@ -1448,7 +1477,7 @@ fn fit_lplr(
 #[pyfunction]
 #[pyo3(signature = (y, d, x, s, ml_g, ml_pi, ml_m, z = None, score = "missing-at-random",
                     clipping_threshold = 1e-2, calibration = None, normalize_ipw = false, n_folds = 5, n_rep = 1,
-                    seed = 0, splits = None, treatment_names = None, cluster = None))]
+                    seed = 0, splits = None, treatment_names = None, cluster = None, nuisance = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_ssm(
     py: Python<'_>,
@@ -1470,6 +1499,7 @@ fn fit_ssm(
     splits: Option<PySplits>,
     treatment_names: Option<Vec<String>>,
     cluster: Option<PyReadonlyArray2<'_, i64>>,
+    nuisance: Option<Bound<'_, PyDict>>,
 ) -> PyResult<PyDmlResult> {
     let score = match score {
         "missing-at-random" => SsmScore::MissingAtRandom,
@@ -1495,6 +1525,7 @@ fn fit_ssm(
     .n_folds(n_folds)
     .n_rep(n_rep)
     .seed(seed);
+    let model = with_nuisance!(model, nuisance, ["ml_pi", "ml_m"]);
     run_model!(py, model, data, splits)
 }
 
@@ -1683,7 +1714,8 @@ pub(crate) fn did_score(score: &str) -> PyResult<DidScore> {
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g, ml_m = None, t = None, score = "observational",
                     in_sample_normalization = true, clipping_threshold = 1e-2, calibration = None, n_folds = 5,
-                    n_rep = 1, seed = 0, splits = None, treatment_names = None, cluster = None, external_predictions = None))]
+                    n_rep = 1, seed = 0, splits = None, treatment_names = None, cluster = None, external_predictions = None,
+                    nuisance = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_did(
     py: Python<'_>,
@@ -1704,6 +1736,7 @@ fn fit_did(
     treatment_names: Option<Vec<String>>,
     cluster: Option<PyReadonlyArray2<'_, i64>>,
     external_predictions: Option<PyExternal<'_>>,
+    nuisance: Option<Bound<'_, PyDict>>,
 ) -> PyResult<PyDmlResult> {
     let score = did_score(score)?;
     let ml_m = ml_m.map(to_classifier).transpose()?;
@@ -1719,6 +1752,7 @@ fn fit_did(
             .n_folds(n_folds)
             .n_rep(n_rep)
             .seed(seed);
+        let model = with_nuisance!(model, nuisance, ["ml_m"]);
         run_model!(py, model, data, splits)
     } else {
         let model = Did::from_boxed(to_regressor(ml_g)?, ml_m)
@@ -1729,21 +1763,103 @@ fn fit_did(
             .n_folds(n_folds)
             .n_rep(n_rep)
             .seed(seed);
+        let model = with_nuisance!(model, nuisance, ["ml_m"]);
         run_model!(py, model, data, splits)
     }
+}
+
+/// Run the cross-fitting folds in parallel (the default) or one after the
+/// other, process-wide. Sequential folds fit every learner in the order
+/// treatment, repetition, fold (used by `store_models` and fold-specific
+/// learner parameters).
+#[pyfunction]
+fn set_parallel_folds(on: bool) {
+    dml_core::set_parallel_folds(on);
+}
+
+/// A result from linear score elements `psi_a`, `psi_b` of shape
+/// `(n, n_treat, n_rep)`: per treatment and repetition
+/// `θ = -mean(psi_b) / mean(psi_a)`, aggregated over repetitions as DoubleML
+/// (used for callable scores).
+#[pyfunction]
+#[pyo3(signature = (psi_a, psi_b, treatment_names, n_folds, model = "custom"))]
+fn result_from_scores(
+    psi_a: numpy::PyReadonlyArray3<'_, f64>,
+    psi_b: numpy::PyReadonlyArray3<'_, f64>,
+    treatment_names: Vec<String>,
+    n_folds: usize,
+    model: &str,
+) -> PyResult<PyDmlResult> {
+    DmlFit::from_linear_scores(
+        model,
+        treatment_names,
+        n_folds,
+        psi_a.as_array().to_owned(),
+        psi_b.as_array().to_owned(),
+    )
+    .map(|fit| PyDmlResult { fit })
+    .map_err(to_py_err)
+}
+
+/// The sample splits a model draws by default: one list per repetition of
+/// `(train, test)` index arrays, stratified by `strata` (integer codes) when
+/// given, as APO and SSM do.
+#[pyfunction]
+#[pyo3(signature = (n, n_folds = 5, n_rep = 1, seed = 0, strata = None))]
+#[allow(clippy::type_complexity)]
+fn draw_folds<'py>(
+    py: Python<'py>,
+    n: usize,
+    n_folds: usize,
+    n_rep: usize,
+    seed: u64,
+    strata: Option<Vec<usize>>,
+) -> PyResult<Vec<Vec<(Bound<'py, PyArray1<i64>>, Bound<'py, PyArray1<i64>>)>>> {
+    let splitting = dml_core::SampleSplitting {
+        n_folds,
+        n_rep,
+        seed,
+    };
+    let reps = match strata {
+        Some(s) => {
+            if s.len() != n {
+                return Err(PyValueError::new_err(
+                    "strata needs one code per observation",
+                ));
+            }
+            splitting.draw_stratified(&s)
+        }
+        None => splitting.draw(n),
+    }
+    .map_err(to_py_err)?;
+    let index = |v: &[usize]| {
+        v.iter()
+            .map(|&i| i as i64)
+            .collect::<Vec<_>>()
+            .into_pyarray(py)
+    };
+    Ok(reps
+        .iter()
+        .map(|rep| {
+            rep.iter()
+                .map(|f| (index(&f.train), index(&f.test)))
+                .collect()
+        })
+        .collect())
 }
 
 #[pymodule(name = "_dml_rs")]
 mod dml_rs_native {
     #[pymodule_export]
     use super::{
-        concat, fit_apo, fit_apos, fit_cate, fit_did, fit_iivm, fit_irm, fit_lplr, fit_pliv,
-        fit_plpr, fit_plr, fit_qte, fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did, simulate,
-        PyAposResult, PyBlp, PyBootstrap, PyCateResult, PyDmlResult, PyGradientBoostingClassifier,
-        PyGradientBoostingRegressor, PyGridSearchClassifier, PyGridSearchRegressor, PyLasso,
-        PyLassoCV, PyLogisticRegression, PyLogisticRegressionCV, PyOls, PyPolicyTree, PyQteResult,
-        PyRandomForestClassifier, PyRandomForestRegressor, PyRdFlexResult, PySensitivityBenchmark,
-        PySensitivityResult, PyStaggeredResult,
+        concat, draw_folds, fit_apo, fit_apos, fit_cate, fit_did, fit_iivm, fit_irm, fit_lplr,
+        fit_pliv, fit_plpr, fit_plr, fit_qte, fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did,
+        result_from_scores, set_parallel_folds, simulate, PyAposResult, PyBlp, PyBootstrap,
+        PyCateResult, PyDmlResult, PyGradientBoostingClassifier, PyGradientBoostingRegressor,
+        PyGridSearchClassifier, PyGridSearchRegressor, PyLasso, PyLassoCV, PyLogisticRegression,
+        PyLogisticRegressionCV, PyOls, PyPolicyTree, PyQteResult, PyRandomForestClassifier,
+        PyRandomForestRegressor, PyRdFlexResult, PySensitivityBenchmark, PySensitivityResult,
+        PyStaggeredResult,
     };
 
     #[pymodule_init]

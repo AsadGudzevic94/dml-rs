@@ -407,13 +407,7 @@ fn adjust(
             }
         }
     };
-    #[cfg(feature = "parallel")]
-    let per_fold: Vec<_> = {
-        use rayon::prelude::*;
-        folds.par_iter().map(fit_fold).collect::<Result<_>>()?
-    };
-    #[cfg(not(feature = "parallel"))]
-    let per_fold: Vec<_> = folds.iter().map(fit_fold).collect::<Result<_>>()?;
+    let per_fold: Vec<_> = crate::crossfit::map_folds(folds.len(), |k| fit_fold(&folds[k]))?;
     let mut eta = Array1::from_elem(n, f64::NAN);
     for (fold, (left, right)) in folds.iter().zip(per_fold) {
         for (k, &i) in fold.test.iter().enumerate() {

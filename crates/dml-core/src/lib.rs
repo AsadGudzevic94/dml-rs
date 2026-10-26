@@ -42,7 +42,9 @@
 //!   ([`Ols`], [`Lasso`], [`LassoCV`], [`LogisticRegression`], [`LogisticRegressionCV`],
 //!   [`RandomForestRegressor`],
 //!   [`RandomForestClassifier`], [`GradientBoostingRegressor`], [`GradientBoostingClassifier`]
-//!   built in)
+//!   built in); models whose nuisance models share a learner argument (IRM, APO, IIVM, DID,
+//!   SSM) also take a learner per nuisance model (`nuisance_regressor("ml_g1", ...)`, see
+//!   [`NuisanceLearners`])
 //! - [`KFold`] / [`SampleSplitting`]: reproducible sample splitting
 //!
 //! ```
@@ -88,7 +90,7 @@ pub use cate::{CateFit, DrLearner, RLearner, SLearner, TLearner, XLearner};
 pub use cluster::ClusterFold;
 pub use crossfit::{
     cross_fit_predict, cross_fit_predict_proba, cross_fit_predict_proba_subset,
-    cross_fit_predict_subset, Fold, KFold, SampleSplitting,
+    cross_fit_predict_subset, set_parallel_folds, Fold, KFold, SampleSplitting,
 };
 pub use data::DmlData;
 pub use error::{DmlError, Result};
@@ -101,9 +103,10 @@ pub use learner::{
 };
 pub use model::{
     Apo, Apos, AposFit, CateSignal, Cvar, Did, DidCs, DidScore, ExternalPredictions, FirstStage,
-    Iivm, Irm, IrmScore, LinearScoreModel, LossKind, Lplr, LplrScore, Lpq, Name, NuisanceTarget,
-    PanelApproach, Pliv, PlivScore, PlivVariant, Plpr, Plr, PlrScore, Pq, Qte, QteFit, RdFlex,
-    RdFlexFit, RdKernel, ScoreEstimate, ScoreInput, Ssm, SsmScore, StaticPanel, TreatmentLearner,
+    Iivm, Irm, IrmScore, LinearScoreModel, LossKind, Lplr, LplrScore, Lpq, Name, NuisanceLearners,
+    NuisanceTarget, PanelApproach, Pliv, PlivScore, PlivVariant, Plpr, Plr, PlrScore, Pq, Qte,
+    QteFit, RdFlex, RdFlexFit, RdKernel, ScoreEstimate, ScoreInput, Ssm, SsmScore, StaticPanel,
+    TreatmentLearner,
 };
 pub use policy::{PolicyNode, PolicyTree};
 pub use propensity::{Calibration, IsotonicRegression};

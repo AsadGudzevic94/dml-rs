@@ -280,17 +280,36 @@ pub fn cross_fit_predict_proba(
 /// With the `parallel` feature (on by default) folds run on rayon's thread
 /// pool; results are identical to the sequential order because every fold
 /// writes to disjoint rows.
+static PARALLEL_FOLDS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Run the folds of cross-fitting in parallel (the default with the
+/// `parallel` feature) or one after the other. Sequential folds make learners
+/// see the folds in order, which the Python package uses to record the fitted
+/// learners (`store_models`). The setting is process-wide.
+pub fn set_parallel_folds(on: bool) {
+    PARALLEL_FOLDS.store(on, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// `f(0), …, f(count − 1)`, on rayon's thread pool unless folds are set to run
+/// sequentially (see [`set_parallel_folds`]).
+pub(crate) fn map_folds<T, F>(count: usize, f: F) -> Result<Vec<T>>
+where
+    T: Send,
+    F: Fn(usize) -> Result<T> + Sync,
+{
+    #[cfg(feature = "parallel")]
+    if PARALLEL_FOLDS.load(std::sync::atomic::Ordering::SeqCst) {
+        use rayon::prelude::*;
+        return (0..count).into_par_iter().map(&f).collect();
+    }
+    (0..count).map(f).collect()
+}
+
 pub(crate) fn cross_fit_with<F>(n: usize, folds: &[Fold], fit_predict: F) -> Result<Array1<f64>>
 where
     F: Fn(&Fold) -> Result<Array1<f64>> + Sync,
 {
-    #[cfg(feature = "parallel")]
-    let preds: Vec<Array1<f64>> = {
-        use rayon::prelude::*;
-        folds.par_iter().map(&fit_predict).collect::<Result<_>>()?
-    };
-    #[cfg(not(feature = "parallel"))]
-    let preds: Vec<Array1<f64>> = folds.iter().map(&fit_predict).collect::<Result<_>>()?;
+    let preds: Vec<Array1<f64>> = map_folds(folds.len(), |k| fit_predict(&folds[k]))?;
 
     let mut out = Array1::<f64>::from_elem(n, f64::NAN);
     for (fold, pred) in folds.iter().zip(preds) {

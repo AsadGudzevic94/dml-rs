@@ -25,6 +25,18 @@ All classes are available from the top-level package, e.g. `dml_rs.PLR`.
 ::: dml_rs.DIDAggregation
 ::: dml_rs.RDFlex
 
+## Tuning and learner parameters
+
+PLR, LPLR, PLPR, IRM, APO, SSM, PLIV, IIVM, DID and DIDCS share these methods, and their `fit`
+takes `store_models=True` to keep the fitted learners in `models_`.
+
+::: dml_rs._tuning.TuningMixin
+    options:
+      show_root_heading: false
+      members: ["params_names", "learner_names", "params", "set_ml_nuisance_params", "tune", "tune_ml_models"]
+
+::: dml_rs.OptunaResult
+
 ## Data
 
 ::: dml_rs.DmlData
