@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-26
+
 ### Added
 - The RD back end now ports `rdrobust` 2.1.1's options: `dml_core::rd::rd_estimate` and
   `rd_bandwidths` with `RdOptions` (polynomial orders `p` / `q`, `Kernel`, all ten `BwSelect`
@@ -343,7 +345,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.11.0...v0.12.0
