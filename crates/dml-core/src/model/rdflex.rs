@@ -4,9 +4,11 @@
 //! The outcome (and, in a fuzzy design, the treatment) is adjusted by a
 //! cross-fitted prediction from the covariates `X` evaluated at the cutoff,
 //! `η(X) = (μ(X; left) + μ(X; right)) / 2`, learned with kernel weights
-//! around the cutoff. A local linear RD estimator ([`rdrobust`]) is then run
-//! on the adjusted outcome. The kernel bandwidth of the first stage is
-//! updated from the RD bandwidth over `n_iterations` rounds.
+//! around the cutoff. A local polynomial RD estimator ([`rd_estimate`], with
+//! `rdrobust`'s options in [`RdOptions`]) is then run on the adjusted
+//! outcome. The kernel bandwidth of the first stage is updated from the RD
+//! bandwidth over `n_iterations` rounds. A binary outcome can be learned with
+//! a classifier ([`RdFlex::sharp_binary`], [`RdFlex::fuzzy_binary`]).
 
 use std::fmt;
 
@@ -16,7 +18,7 @@ use crate::crossfit::{Fold, SampleSplitting};
 use crate::data::{gather, DmlData};
 use crate::error::{DmlError, Result};
 use crate::learner::{Classifier, Regressor};
-use crate::rd::{rdbwselect, rdrobust, RdEstimate};
+use crate::rd::{rd_estimate, rdbwselect, RdBandwidths, RdData, RdEstimate, RdOptions};
 use crate::stats::{median, norm_cdf, norm_ppf};
 
 /// Regressors of the first stage besides the covariates.
@@ -65,16 +67,25 @@ impl RdKernel {
     }
 }
 
+/// Learner of the outcome: a regressor, or a classifier for a binary outcome.
+enum OutcomeLearner {
+    Regressor(Box<dyn Regressor>),
+    Classifier(Box<dyn Classifier>),
+}
+
 /// RD with flexible covariate adjustment. A fuzzy design ([`RdFlex::fuzzy`])
 /// also adjusts the treatment with a classifier.
 pub struct RdFlex {
-    ml_g: Box<dyn Regressor>,
+    ml_g: OutcomeLearner,
     ml_m: Option<Box<dyn Classifier>>,
     cutoff: f64,
     h_fs: Option<f64>,
     first_stage: FirstStage,
     kernel: RdKernel,
     n_iterations: usize,
+    rd_options: RdOptions,
+    rd_covariates: Option<Array2<f64>>,
+    rd_clusters: Option<Vec<i64>>,
     splitting: SampleSplitting,
 }
 
@@ -92,6 +103,27 @@ impl RdFlex {
 
     /// `ml_m = Some(_)` fits a fuzzy design.
     pub fn from_boxed(ml_g: Box<dyn Regressor>, ml_m: Option<Box<dyn Classifier>>) -> Self {
+        Self::with_outcome(OutcomeLearner::Regressor(ml_g), ml_m)
+    }
+
+    /// Sharp design with a binary (0/1) outcome learned by the classifier
+    /// `ml_g` (its class-1 probability), as DoubleML with a classifier.
+    pub fn sharp_binary(ml_g: impl Classifier + 'static) -> Self {
+        Self::from_boxed_binary(Box::new(ml_g), None)
+    }
+
+    /// Fuzzy design with a binary outcome learned by the classifier `ml_g`.
+    pub fn fuzzy_binary(ml_g: impl Classifier + 'static, ml_m: impl Classifier + 'static) -> Self {
+        Self::from_boxed_binary(Box::new(ml_g), Some(Box::new(ml_m)))
+    }
+
+    /// Binary outcome with a boxed classifier; `ml_m = Some(_)` fits a fuzzy
+    /// design.
+    pub fn from_boxed_binary(ml_g: Box<dyn Classifier>, ml_m: Option<Box<dyn Classifier>>) -> Self {
+        Self::with_outcome(OutcomeLearner::Classifier(ml_g), ml_m)
+    }
+
+    fn with_outcome(ml_g: OutcomeLearner, ml_m: Option<Box<dyn Classifier>>) -> Self {
         Self {
             ml_g,
             ml_m,
@@ -100,8 +132,33 @@ impl RdFlex {
             first_stage: FirstStage::default(),
             kernel: RdKernel::default(),
             n_iterations: 2,
+            rd_options: RdOptions::default(),
+            rd_covariates: None,
+            rd_clusters: None,
             splitting: SampleSplitting::default(),
         }
+    }
+
+    /// Options of the RD estimator (`rdrobust`'s keyword arguments in
+    /// DoubleML: polynomial order, kernel, bandwidth selector, variance, ...).
+    /// The initial first-stage bandwidth is always selected with the defaults.
+    pub fn rd_options(mut self, options: RdOptions) -> Self {
+        self.rd_options = options;
+        self
+    }
+
+    /// Covariates for the RD estimator itself (`rdrobust`'s `covs`), one row
+    /// per observation; the first stage uses the data's covariates.
+    pub fn rd_covariates(mut self, covs: Array2<f64>) -> Self {
+        self.rd_covariates = Some(covs);
+        self
+    }
+
+    /// Cluster labels for cluster-robust RD standard errors (`rdrobust`'s
+    /// `cluster`); the sample splits are not clustered, as in DoubleML.
+    pub fn rd_clusters(mut self, labels: Vec<i64>) -> Self {
+        self.rd_clusters = Some(labels);
+        self
     }
 
     pub fn cutoff(mut self, cutoff: f64) -> Self {
@@ -185,20 +242,16 @@ impl RdFlex {
         let w0: Array1<f64> = score.mapv(|s| self.kernel.weight(s, h_fs));
 
         let mut reps = Vec::with_capacity(splits.len());
+        let outcome = match &self.ml_g {
+            OutcomeLearner::Regressor(r) => Nuisance::Regressor(r.as_ref()),
+            OutcomeLearner::Classifier(c) => Nuisance::Classifier(c.as_ref()),
+        };
         for folds in splits {
             let mut weights = w0.clone();
             let mut bandwidth = None;
             let mut last = None;
             for iteration in 0..self.n_iterations {
-                let eta_y = adjust(
-                    Nuisance::Regressor(self.ml_g.as_ref()),
-                    &zx,
-                    &zx_left,
-                    &zx_right,
-                    y,
-                    &weights,
-                    folds,
-                )?;
+                let eta_y = adjust(outcome, &zx, &zx_left, &zx_right, y, &weights, folds)?;
                 let m_y = &y - &eta_y;
                 let m_d = match &self.ml_m {
                     Some(m) => {
@@ -215,16 +268,19 @@ impl RdFlex {
                     }
                     None => None,
                 };
-                let m_d = m_d.as_ref().map(|t| t.view());
+                let mut rd_data = RdData::new(m_y.view(), score.view());
+                rd_data.fuzzy = m_d.as_ref().map(|t| t.view());
+                rd_data.covs = self.rd_covariates.as_ref().map(|z| z.view());
+                rd_data.cluster = self.rd_clusters.as_deref();
                 if iteration + 1 < self.n_iterations {
                     // Intermediate rounds select the RD bandwidth afresh and
                     // update the first-stage weights with it (DoubleML).
-                    let est = rdrobust(m_y.view(), score.view(), m_d, 0.0, None)?;
+                    let est = rd_estimate(&rd_data, &self.rd_options, None)?;
                     let (h, b) = (est.h.0.max(est.h.1), est.b.0.max(est.b.1));
                     weights = score.mapv(|s| self.kernel.weight(s, h));
-                    bandwidth = Some((h, b));
+                    bandwidth = Some(RdBandwidths::common(h, b));
                 } else {
-                    last = Some(rdrobust(m_y.view(), score.view(), m_d, 0.0, bandwidth)?);
+                    last = Some(rd_estimate(&rd_data, &self.rd_options, bandwidth)?);
                 }
             }
             reps.push(last.expect("n_iterations >= 1"));
@@ -265,6 +321,21 @@ impl RdFlex {
         }
         if self.h_fs.is_some_and(|h| !(h.is_finite() && h > 0.0)) {
             return Err(DmlError::InvalidArgument("h_fs must be positive".into()));
+        }
+        if matches!(self.ml_g, OutcomeLearner::Classifier(_))
+            && !data.y().iter().all(|&v| v == 0.0 || v == 1.0)
+        {
+            return Err(DmlError::InvalidArgument(
+                "a classifier for the outcome needs a binary (0/1) outcome".into(),
+            ));
+        }
+        let n = data.n_obs();
+        if self.rd_covariates.as_ref().is_some_and(|z| z.nrows() != n)
+            || self.rd_clusters.as_ref().is_some_and(|c| c.len() != n)
+        {
+            return Err(DmlError::DimensionMismatch(
+                "RD covariates and clusters need one row per observation".into(),
+            ));
         }
         Ok(())
     }

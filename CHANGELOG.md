@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- The RD back end now ports `rdrobust` 2.1.1's options: `dml_core::rd::rd_estimate` and
+  `rd_bandwidths` with `RdOptions` (polynomial orders `p` / `q`, `Kernel`, all ten `BwSelect`
+  bandwidth selectors, `Vce` nearest-neighbour or HC0–HC3, `nnmatch`, `level`, `MassPoints`,
+  `bwcheck`, `bwrestrict`, `stdvars`, `scaleregul`, `sharpbw`, `rho`, `scalepar`, `covs_drop`) and
+  `RdData` with covariates and cluster labels (cluster-robust `cr1`). `rdrobust` and `rdbwselect`
+  remain as shortcuts with the defaults. A fixture with 42 option sets matches `rdrobust` to `1e-9`.
+- RDFlex passes these options to the RD stage, as DoubleML's `RDFlex(**kwargs)`:
+  `RdFlex::rd_options`, `rd_covariates`, `rd_clusters`, and a classifier for a binary outcome
+  (`RdFlex::sharp_binary`, `fuzzy_binary`, `from_boxed_binary`). Python: `RDFlex(..., p=2,
+  kernel="epa", covs=Z, cluster=g, ...)`, and a classifier `ml_g` for a binary outcome. Four parity
+  fixtures; the Python tests match DoubleML to `1e-9`.
+
 ## [0.14.0] - 2026-10-26
 
 ### Added

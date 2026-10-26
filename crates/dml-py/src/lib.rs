@@ -1065,12 +1065,102 @@ impl PyRdFlexResult {
     }
 }
 
+/// `rdrobust` keyword arguments (as in DoubleML's `RDFlex(**kwargs)`) as
+/// [`RdOptions`](dml_core::rd::RdOptions). `level` is in percent, as in
+/// `rdrobust`.
+fn parse_rd_options(options: Option<&Bound<'_, PyDict>>) -> PyResult<dml_core::rd::RdOptions> {
+    use dml_core::rd::{BwSelect, Kernel, MassPoints, RdOptions, Vce};
+    let mut opts = RdOptions::default();
+    let Some(options) = options else {
+        return Ok(opts);
+    };
+    let bad = |key: &str, value: &str| {
+        PyValueError::new_err(format!(
+            "rdrobust option {key} = {value:?} is not supported"
+        ))
+    };
+    for (key, value) in options.iter() {
+        let key: String = key.extract()?;
+        let text =
+            || -> PyResult<String> { Ok(value.extract::<String>()?.trim().to_ascii_lowercase()) };
+        match key.as_str() {
+            "p" => opts.p = value.extract()?,
+            "q" => opts.q = value.extract()?,
+            "kernel" => {
+                let v = text()?;
+                opts.kernel = match v.as_str() {
+                    "tri" | "triangular" => Kernel::Triangular,
+                    "epa" | "epanechnikov" => Kernel::Epanechnikov,
+                    "uni" | "uniform" => Kernel::Uniform,
+                    _ => return Err(bad(&key, &v)),
+                }
+            }
+            "bwselect" => {
+                let v = text()?;
+                opts.bwselect = match v.as_str() {
+                    "mserd" => BwSelect::Mserd,
+                    "msetwo" => BwSelect::Msetwo,
+                    "msesum" => BwSelect::Msesum,
+                    "msecomb1" => BwSelect::Msecomb1,
+                    "msecomb2" => BwSelect::Msecomb2,
+                    "cerrd" => BwSelect::Cerrd,
+                    "certwo" => BwSelect::Certwo,
+                    "cersum" => BwSelect::Cersum,
+                    "cercomb1" => BwSelect::Cercomb1,
+                    "cercomb2" => BwSelect::Cercomb2,
+                    _ => return Err(bad(&key, &v)),
+                }
+            }
+            "vce" => {
+                let v = text()?;
+                opts.vce = match v.as_str() {
+                    "nn" => Vce::Nn,
+                    "hc0" => Vce::Hc0,
+                    "hc1" | "cr1" => Vce::Hc1,
+                    "hc2" => Vce::Hc2,
+                    "hc3" => Vce::Hc3,
+                    _ => return Err(bad(&key, &v)),
+                }
+            }
+            "masspoints" => {
+                let v = text()?;
+                opts.masspoints = match v.as_str() {
+                    "adjust" => MassPoints::Adjust,
+                    "check" => MassPoints::Check,
+                    "off" => MassPoints::Off,
+                    _ => return Err(bad(&key, &v)),
+                }
+            }
+            "nnmatch" => opts.nnmatch = value.extract()?,
+            "level" => opts.level = value.extract::<f64>()? / 100.0,
+            "bwcheck" => opts.bwcheck = value.extract()?,
+            "bwrestrict" => opts.bwrestrict = value.extract()?,
+            "stdvars" => opts.stdvars = value.extract()?,
+            "scaleregul" => opts.scaleregul = value.extract()?,
+            "sharpbw" => opts.sharpbw = value.extract()?,
+            "rho" => opts.rho = value.extract()?,
+            "scalepar" => opts.scalepar = value.extract()?,
+            "covs_drop" => opts.covs_drop = value.extract()?,
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "unknown or unsupported rdrobust option {other:?}"
+                )))
+            }
+        }
+    }
+    Ok(opts)
+}
+
 /// Regression discontinuity with flexible covariate adjustment (sharp, or
-/// fuzzy when `ml_m` is given). `score` is the running variable.
+/// fuzzy when `ml_m` is given). `score` is the running variable; `ml_g` is a
+/// classifier for a binary outcome when `g_classifier`. `rd_options` holds
+/// `rdrobust` keyword arguments, `rd_covs` and `rd_cluster` the RD stage's
+/// covariates and cluster labels.
 #[pyfunction]
 #[pyo3(signature = (y, d, x, score, ml_g, ml_m = None, cutoff = 0.0, h_fs = None,
                     fs_specification = "cutoff", fs_kernel = "triangular", n_iterations = 2,
-                    n_folds = 5, n_rep = 1, seed = 0, splits = None))]
+                    n_folds = 5, n_rep = 1, seed = 0, splits = None, g_classifier = false,
+                    rd_options = None, rd_covs = None, rd_cluster = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_rdflex(
     py: Python<'_>,
@@ -1089,6 +1179,10 @@ fn fit_rdflex(
     n_rep: usize,
     seed: u64,
     splits: Option<PySplits>,
+    g_classifier: bool,
+    rd_options: Option<&Bound<'_, PyDict>>,
+    rd_covs: Option<PyReadonlyArray2<'_, f64>>,
+    rd_cluster: Option<PyReadonlyArray1<'_, i64>>,
 ) -> PyResult<PyRdFlexResult> {
     let first_stage = match fs_specification {
         "cutoff" => dml_core::FirstStage::Cutoff,
@@ -1112,7 +1206,19 @@ fn fit_rdflex(
     };
     let data = build_data(y, d, x, None, None, None, None)?;
     let ml_m = ml_m.map(to_classifier).transpose()?;
-    let mut model = dml_core::RdFlex::from_boxed(to_regressor(ml_g)?, ml_m)
+    let model = if g_classifier {
+        dml_core::RdFlex::from_boxed_binary(to_classifier(ml_g)?, ml_m)
+    } else {
+        dml_core::RdFlex::from_boxed(to_regressor(ml_g)?, ml_m)
+    };
+    let mut model = model.rd_options(parse_rd_options(rd_options)?);
+    if let Some(z) = rd_covs {
+        model = model.rd_covariates(z.as_array().to_owned());
+    }
+    if let Some(cl) = rd_cluster {
+        model = model.rd_clusters(cl.as_array().to_vec());
+    }
+    let mut model = model
         .cutoff(cutoff)
         .first_stage(first_stage)
         .kernel(kernel)

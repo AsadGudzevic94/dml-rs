@@ -1099,6 +1099,147 @@ fn rd_matches_rdrobust() {
     check_rd("rd_masspoints", TOL);
 }
 
+/// `rdrobust` keyword arguments as [`RdOptions`] and manual bandwidths.
+fn rd_options_from(kw: &serde_json::Value) -> (dml_core::rd::RdOptions, Option<f64>, Option<f64>) {
+    use dml_core::rd::{BwSelect, Kernel, MassPoints, RdOptions, Vce};
+    let mut opts = RdOptions::default();
+    let (mut h, mut b) = (None, None);
+    for (key, v) in kw.as_object().unwrap() {
+        match key.as_str() {
+            "p" => opts.p = v.as_u64().unwrap() as usize,
+            "q" => opts.q = Some(v.as_u64().unwrap() as usize),
+            "kernel" => {
+                opts.kernel = match v.as_str().unwrap() {
+                    "epa" => Kernel::Epanechnikov,
+                    "uni" => Kernel::Uniform,
+                    _ => Kernel::Triangular,
+                }
+            }
+            "bwselect" => {
+                opts.bwselect = match v.as_str().unwrap() {
+                    "msetwo" => BwSelect::Msetwo,
+                    "msesum" => BwSelect::Msesum,
+                    "msecomb1" => BwSelect::Msecomb1,
+                    "msecomb2" => BwSelect::Msecomb2,
+                    "cerrd" => BwSelect::Cerrd,
+                    "certwo" => BwSelect::Certwo,
+                    "cersum" => BwSelect::Cersum,
+                    "cercomb1" => BwSelect::Cercomb1,
+                    "cercomb2" => BwSelect::Cercomb2,
+                    _ => BwSelect::Mserd,
+                }
+            }
+            "vce" => {
+                opts.vce = match v.as_str().unwrap() {
+                    "hc0" => Vce::Hc0,
+                    "hc1" => Vce::Hc1,
+                    "hc2" => Vce::Hc2,
+                    "hc3" => Vce::Hc3,
+                    _ => Vce::Nn,
+                }
+            }
+            "nnmatch" => opts.nnmatch = v.as_u64().unwrap() as usize,
+            "level" => opts.level = v.as_f64().unwrap() / 100.0,
+            "stdvars" => opts.stdvars = v.as_bool().unwrap(),
+            "bwrestrict" => opts.bwrestrict = v.as_bool().unwrap(),
+            "scaleregul" => opts.scaleregul = v.as_f64().unwrap(),
+            "rho" => opts.rho = Some(v.as_f64().unwrap()),
+            "scalepar" => opts.scalepar = v.as_f64().unwrap(),
+            "bwcheck" => opts.bwcheck = Some(v.as_u64().unwrap() as usize),
+            "sharpbw" => opts.sharpbw = v.as_bool().unwrap(),
+            "masspoints" => {
+                opts.masspoints = match v.as_str().unwrap() {
+                    "off" => MassPoints::Off,
+                    "check" => MassPoints::Check,
+                    _ => MassPoints::Adjust,
+                }
+            }
+            "h" => h = v.as_f64(),
+            "b" => b = v.as_f64(),
+            other => panic!("unknown option {other}"),
+        }
+    }
+    (opts, h, b)
+}
+
+/// `rdrobust`'s options, covariates and clusters, case by case.
+#[test]
+fn rd_options_match_rdrobust() {
+    use dml_core::rd::{rd_estimate, RdBandwidths, RdData};
+    let fx = Fixture::load("rd_options");
+    let cluster: Vec<i64> = fx.0["cluster"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_i64().unwrap())
+        .collect();
+    let (x, x_grid) = (fx.vec("x"), fx.vec("x_grid"));
+    let (y_sharp, y_fuzzy, d_fuzzy) = (fx.vec("y_sharp"), fx.vec("y_fuzzy"), fx.vec("d_fuzzy"));
+    let (z, z_collinear) = (fx.matrix("z"), fx.matrix("z_collinear"));
+    let cases = fx.expected("cases").as_array().unwrap();
+    assert_eq!(cases.len(), 42);
+    let mut checked = 0;
+    for case in cases {
+        checked += 1;
+        let kw = &case["kwargs"];
+        let what = format!("rd_options {case}");
+        let (opts, h, b) = rd_options_from(kw);
+        let (y, xv, t) = match case["data"].as_str().unwrap_or("sharp") {
+            "fuzzy" => (&y_fuzzy, &x, Some(&d_fuzzy)),
+            "grid" => (&y_sharp, &x_grid, None),
+            _ => (&y_sharp, &x, None),
+        };
+        let mut data = RdData::new(y.view(), xv.view());
+        if let Some(t) = t {
+            data = data.fuzzy(t.view());
+        }
+        match case["covs"].as_str() {
+            Some("z") => data = data.covariates(z.view()),
+            Some(_) => data = data.covariates(z_collinear.view()),
+            None => {}
+        }
+        if case["cluster"].as_bool() == Some(true) {
+            data = data.clusters(&cluster);
+        }
+        // rdrobust: a manual h without b sets b = h.
+        let bws = h.map(|h| RdBandwidths::common(h, b.unwrap_or(h)));
+        let est = rd_estimate(&data, &opts, bws).unwrap_or_else(|e| panic!("{what}: {e}"));
+        assert_all_close(
+            &format!("{what} coef"),
+            &Array1::from(est.coef.to_vec()),
+            &to_vec(&case["coef"]),
+            TOL,
+        );
+        assert_all_close(
+            &format!("{what} se"),
+            &Array1::from(est.se.to_vec()),
+            &to_vec(&case["se"]),
+            TOL,
+        );
+        let ci = to_matrix(&case["ci"]);
+        for k in 0..3 {
+            assert_close(
+                &format!("{what} ci lower {k}"),
+                est.ci[k][0],
+                ci[[k, 0]],
+                TOL,
+            );
+            assert_close(
+                &format!("{what} ci upper {k}"),
+                est.ci[k][1],
+                ci[[k, 1]],
+                TOL,
+            );
+        }
+        let (eh, eb) = (to_vec(&case["h"]), to_vec(&case["b"]));
+        assert_close(&format!("{what} h left"), est.h.0, eh[0], TOL);
+        assert_close(&format!("{what} h right"), est.h.1, eh[1], TOL);
+        assert_close(&format!("{what} b left"), est.b.0, eb[0], TOL);
+        assert_close(&format!("{what} b right"), est.b.1, eb[1], TOL);
+    }
+    assert_eq!(checked, cases.len());
+}
+
 fn check_rdflex(name: &str, tol: f64) {
     let fx = Fixture::load(name);
     let o = &fx.0["options"];
@@ -1113,7 +1254,20 @@ fn check_rdflex(name: &str, tol: f64) {
         _ => dml_core::RdKernel::Epanechnikov,
     };
     let ml_m = o["fuzzy"].as_bool().unwrap().then(|| fx.classifier("ml_m"));
-    let mut model = dml_core::RdFlex::from_boxed(fx.regressor("ml_g"), ml_m)
+    let model = if o["binary_outcome"].as_bool() == Some(true) {
+        dml_core::RdFlex::from_boxed_binary(fx.classifier("ml_g"), ml_m)
+    } else {
+        dml_core::RdFlex::from_boxed(fx.regressor("ml_g"), ml_m)
+    };
+    let (rd_options, _, _) = rd_options_from(&o["rd_kwargs"]);
+    let mut model = model.rd_options(rd_options);
+    if fx.0.get("rd_covs").is_some() {
+        model = model.rd_covariates(fx.matrix("rd_covs"));
+    }
+    if let Some(cl) = fx.0["rd_cluster"].as_array() {
+        model = model.rd_clusters(cl.iter().map(|v| v.as_i64().unwrap()).collect());
+    }
+    let mut model = model
         .cutoff(o["cutoff"].as_f64().unwrap())
         .first_stage(first_stage)
         .kernel(kernel)
@@ -1201,4 +1355,14 @@ fn rdflex_sharp_designs() {
 fn rdflex_fuzzy_designs() {
     check_rdflex("rdflex_fuzzy_rep2", TOL_ITERATIVE);
     check_rdflex("rdflex_fuzzy_interacted_epa", TOL_ITERATIVE);
+}
+
+/// rdrobust options passed through RDFlex (DoubleML's `**kwargs`), RD
+/// covariates and clusters, and a classifier for a binary outcome.
+#[test]
+fn rdflex_with_rd_options_and_binary_outcomes() {
+    check_rdflex("rdflex_sharp_rd_options", TOL_ITERATIVE);
+    check_rdflex("rdflex_fuzzy_covs_cluster", TOL_ITERATIVE);
+    check_rdflex("rdflex_binary_outcome", TOL_ITERATIVE);
+    check_rdflex("rdflex_fuzzy_binary_rho", TOL_ITERATIVE);
 }

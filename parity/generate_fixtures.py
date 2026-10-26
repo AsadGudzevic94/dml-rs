@@ -699,21 +699,92 @@ def rd_case(name, seed, fuzzy=False, grid=None, manual=(0.3, 0.5)):
             "expected": {"bws": bw.tolist(), "auto": res(auto), "manual": res(man)}, "_model": None}
 
 
+def rd_options_case(name, seed):
+    """rdrobust's options: polynomial orders, kernels, every bandwidth selector, HC variances,
+    mass points, covariates (one collinear) and clusters, in sharp and fuzzy designs."""
+    import rdrobust
+    rng = np.random.default_rng(seed)
+    n = 1000
+    x = rng.uniform(-1, 1, n)
+    z = rng.normal(size=(n, 2))
+    cluster = rng.integers(0, 60, n)
+    d_sharp = (x >= 0).astype(float)
+    flip = rng.random(n) < 0.25
+    d_fuzzy = np.where(flip, 1 - d_sharp, d_sharp)
+    noise = rng.normal(0, 0.5, n) + 0.3 * rng.normal(size=60)[cluster]
+    y_sharp = 1 + 0.8 * x - 0.5 * x**2 + 1.5 * d_sharp + z @ [0.6, -0.4] + noise
+    y_fuzzy = 1 + 0.8 * x - 0.5 * x**2 + 1.5 * d_fuzzy + z @ [0.6, -0.4] + noise
+    x_grid = np.round(x / 0.02) * 0.02
+    x_grid[x_grid == 0] = 0.02
+    data = {"sharp": (y_sharp, x, None), "fuzzy": (y_fuzzy, x, d_fuzzy), "grid": (y_sharp, x_grid, None)}
+    z_collinear = np.column_stack([z, 2 * z[:, 0] - z[:, 1]])
+    cases = [{"kwargs": {"p": 2}}, {"kwargs": {"q": 3}}, {"kwargs": {"kernel": "epa"}},
+             {"kwargs": {"kernel": "uni"}, "data": "fuzzy"}]
+    cases += [{"kwargs": {"bwselect": sel}} for sel in
+              ["msetwo", "msesum", "msecomb1", "msecomb2", "cerrd", "certwo", "cersum", "cercomb1", "cercomb2"]]
+    cases += [{"kwargs": {"bwselect": "msetwo", "kernel": "epa"}, "data": "fuzzy"}]
+    cases += [{"kwargs": {"vce": v}} for v in ["hc0", "hc1", "hc2", "hc3"]]
+    cases += [{"kwargs": {"vce": "hc3"}, "data": "fuzzy"}, {"kwargs": {"nnmatch": 5}},
+              {"kwargs": {"level": 90}}, {"kwargs": {"stdvars": False}}, {"kwargs": {"bwrestrict": False}},
+              {"kwargs": {"scaleregul": 0}}, {"kwargs": {"rho": 1.5}}, {"kwargs": {"scalepar": 2.0}},
+              {"kwargs": {"bwcheck": 25}}, {"kwargs": {"sharpbw": True}, "data": "fuzzy"},
+              {"kwargs": {"masspoints": "off"}, "data": "grid"}, {"kwargs": {"masspoints": "check"}, "data": "grid"},
+              {"kwargs": {"vce": "hc2"}, "data": "grid"}]
+    cases += [{"kwargs": {}, "covs": "z"}, {"kwargs": {}, "covs": "z", "data": "fuzzy"},
+              {"kwargs": {"vce": "hc2"}, "covs": "z_collinear"}, {"kwargs": {"bwselect": "msetwo"}, "covs": "z"},
+              {"kwargs": {}, "cluster": True}, {"kwargs": {}, "cluster": True, "data": "fuzzy"},
+              {"kwargs": {"bwselect": "cerrd"}, "cluster": True}, {"kwargs": {"vce": "hc1"}, "cluster": True, "covs": "z"},
+              {"kwargs": {"h": 0.4}, "cluster": True}, {"kwargs": {"h": 0.3, "b": 0.5}, "cluster": True},
+              {"kwargs": {"h": 0.3, "rho": 0.6}}]
+    covs_map = {"z": z, "z_collinear": z_collinear}
+    out = []
+    for case in cases:
+        y, xv, t = data[case.get("data", "sharp")]
+        kwargs = dict(case["kwargs"])
+        if "covs" in case:
+            kwargs["covs"] = covs_map[case["covs"]]
+        if case.get("cluster"):
+            kwargs["cluster"] = cluster
+        with warnings.catch_warnings(), __import__("contextlib").redirect_stdout(__import__("io").StringIO()):
+            warnings.simplefilter("ignore")
+            r = rdrobust.rdrobust(y=y, x=xv, fuzzy=t, **kwargs)
+        out.append({**{k: v for k, v in case.items() if k != "kwargs"}, "kwargs": case["kwargs"],
+                    "coef": r.coef.values.flatten().tolist(), "se": r.se.values.flatten().tolist(),
+                    "ci": r.ci.values.tolist(), "h": r.bws.loc["h"].tolist(), "b": r.bws.loc["b"].tolist()})
+    return {"name": name, "model": "rd_options", "x": x.tolist(), "x_grid": x_grid.tolist(),
+            "y_sharp": y_sharp.tolist(), "y_fuzzy": y_fuzzy.tolist(), "d_fuzzy": d_fuzzy.tolist(),
+            "z": z.tolist(), "z_collinear": z_collinear.tolist(), "cluster": cluster.tolist(),
+            "expected": {"coef": out[0]["coef"], "cases": out}, "_model": None}
+
+
 def rdflex_case(name, seed, fuzzy, n_rep=1, cutoff=0.0, h_fs=None, fs_specification="cutoff",
-                fs_kernel="triangular", n_iterations=2):
-    """RDFlex draws its own (treatment-stratified) splits; the fixture records them."""
+                fs_kernel="triangular", n_iterations=2, rd_kwargs=None, rd_covs=False, rd_cluster=False,
+                binary_outcome=False):
+    """RDFlex draws its own (treatment-stratified) splits; the fixture records them. ``rd_kwargs`` are
+    passed on to rdrobust, with optional RD covariates (two of the covariates) and cluster labels; a
+    binary outcome is learned with a classifier."""
     from doubleml.rdd import RDFlex
     from doubleml.rdd.datasets import make_simple_rdd_data
     np.random.seed(seed)
     data = make_simple_rdd_data(n_obs=1000, fuzzy=fuzzy, cutoff=cutoff)
     x, y, d, score = data["X"], data["Y"], data["D"].astype(float), data["score"]
+    if binary_outcome:
+        y = (y > np.median(y)).astype(float)
     obj = dml.DoubleMLRDDData.from_arrays(x=x, y=y, d=d, score=score)
-    learners = {"ml_g": OLS, **({"ml_m": LOGIT} if fuzzy else {})}
+    ml_g = LOGIT if binary_outcome else OLS
+    learners = {"ml_g": ml_g, **({"ml_m": LOGIT} if fuzzy else {})}
+    kwargs = dict(rd_kwargs or {})
+    covs = x[:, :2] if rd_covs else None
+    cluster = np.random.default_rng(seed).integers(0, 50, len(y)) if rd_cluster else None
+    if covs is not None:
+        kwargs["covs"] = covs
+    if cluster is not None:
+        kwargs["cluster"] = cluster
     np.random.seed(seed + 1)
-    with warnings.catch_warnings():
+    with warnings.catch_warnings(), __import__("contextlib").redirect_stdout(__import__("io").StringIO()):
         warnings.simplefilter("ignore")
-        model = RDFlex(obj, learner(OLS), learner(LOGIT) if fuzzy else None, fuzzy=fuzzy, cutoff=cutoff, n_rep=n_rep,
-                       h_fs=h_fs, fs_specification=fs_specification, fs_kernel=fs_kernel)
+        model = RDFlex(obj, learner(ml_g), learner(LOGIT) if fuzzy else None, fuzzy=fuzzy, cutoff=cutoff, n_rep=n_rep,
+                       h_fs=h_fs, fs_specification=fs_specification, fs_kernel=fs_kernel, **kwargs)
         model.fit(n_iterations=n_iterations)
     expected = {
         "coef": model.coef.tolist(), "se": model.se.tolist(), "ci": np.asarray(model.ci).tolist(),
@@ -724,9 +795,15 @@ def rdflex_case(name, seed, fuzzy, n_rep=1, cutoff=0.0, h_fs=None, fs_specificat
         "confint90": model.confint(level=0.9).to_numpy().tolist(),
     }
     options = {"fuzzy": fuzzy, "cutoff": cutoff, "h_fs": h_fs, "fs_specification": fs_specification,
-               "fs_kernel": fs_kernel, "n_iterations": n_iterations}
+               "fs_kernel": fs_kernel, "n_iterations": n_iterations, "rd_kwargs": rd_kwargs or {},
+               "binary_outcome": binary_outcome}
+    extra = {}
+    if covs is not None:
+        extra["rd_covs"] = covs.tolist()
+    if cluster is not None:
+        extra["rd_cluster"] = cluster.tolist()
     return {
-        "name": name, "model": "rdflex", "options": options, "learners": learners,
+        "name": name, "model": "rdflex", "options": options, "learners": learners, **extra,
         "x": x.tolist(), "y": y.tolist(), "d": d.tolist(), "score": score.tolist(),
         "folds": [[{"train": tr.tolist(), "test": te.tolist()} for tr, te in rep] for rep in model._smpls],
         "expected": expected, "_model": model,
@@ -854,6 +931,14 @@ CASES = [
                         fs_specification="cutoff and score", fs_kernel="uniform", n_iterations=1),
     lambda: rd_case("rd_fuzzy", 92, fuzzy=True),
     lambda: rd_case("rd_masspoints", 93, grid=0.02),
+    lambda: rd_options_case("rd_options", 98),
+    lambda: rdflex_case("rdflex_sharp_rd_options", 99, fuzzy=False,
+                        rd_kwargs={"p": 2, "kernel": "epa", "bwselect": "msetwo", "vce": "hc1"}),
+    lambda: rdflex_case("rdflex_fuzzy_covs_cluster", 100, fuzzy=True, rd_covs=True, rd_cluster=True,
+                        rd_kwargs={"bwselect": "cerrd"}),
+    lambda: rdflex_case("rdflex_binary_outcome", 101, fuzzy=False, binary_outcome=True),
+    lambda: rdflex_case("rdflex_fuzzy_binary_rho", 102, fuzzy=True, binary_outcome=True, n_rep=2,
+                        rd_kwargs={"rho": 1.25, "vce": "hc3", "masspoints": "off"}),
     lambda: plpr_case("plpr_fd_exact_rep2", 79, "fd_exact", n_rep=2),
     lambda: plpr_case("plpr_fd_exact_unbalanced", 80, "fd_exact", drop=25),
     lambda: plpr_case("plpr_wg_approx_unbalanced", 83, "wg_approx", drop=25),

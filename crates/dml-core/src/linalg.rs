@@ -64,6 +64,72 @@ pub(crate) fn spd_inverse(a: &Array2<f64>) -> Result<Array2<f64>> {
     Ok(inv)
 }
 
+/// Eigen-decomposition `A = V diag(λ) Vᵀ` of a small symmetric matrix by
+/// cyclic Jacobi rotations; returns `(λ, V)` with eigenvectors in columns.
+pub(crate) fn sym_eigen(a: &Array2<f64>) -> (Array1<f64>, Array2<f64>) {
+    let n = a.nrows();
+    let mut m = a.clone();
+    let mut v = Array2::<f64>::eye(n);
+    for _sweep in 0..100 {
+        let off: f64 = (0..n)
+            .flat_map(|i| (0..n).filter(move |&j| j != i).map(move |j| (i, j)))
+            .map(|(i, j)| m[[i, j]] * m[[i, j]])
+            .sum();
+        let scale: f64 = m.iter().map(|x| x * x).sum();
+        if off <= f64::EPSILON * f64::EPSILON * scale || off == 0.0 {
+            break;
+        }
+        for p in 0..n {
+            for q in (p + 1)..n {
+                if m[[p, q]] == 0.0 {
+                    continue;
+                }
+                // Rotation angle that zeroes m[p, q] (Golub & Van Loan 8.4).
+                let theta = (m[[q, q]] - m[[p, p]]) / (2.0 * m[[p, q]]);
+                let t = theta.signum() / (theta.abs() + (theta * theta + 1.0).sqrt());
+                let t = if theta == 0.0 { 1.0 } else { t };
+                let c = 1.0 / (t * t + 1.0).sqrt();
+                let s = t * c;
+                for k in 0..n {
+                    let (mkp, mkq) = (m[[k, p]], m[[k, q]]);
+                    m[[k, p]] = c * mkp - s * mkq;
+                    m[[k, q]] = s * mkp + c * mkq;
+                }
+                for k in 0..n {
+                    let (mpk, mqk) = (m[[p, k]], m[[q, k]]);
+                    m[[p, k]] = c * mpk - s * mqk;
+                    m[[q, k]] = s * mpk + c * mqk;
+                }
+                for k in 0..n {
+                    let (vkp, vkq) = (v[[k, p]], v[[k, q]]);
+                    v[[k, p]] = c * vkp - s * vkq;
+                    v[[k, q]] = s * vkp + c * vkq;
+                }
+            }
+        }
+    }
+    (Array1::from_iter((0..n).map(|i| m[[i, i]])), v)
+}
+
+/// Moore–Penrose pseudo-inverse of a symmetric matrix, dropping eigenvalues
+/// below `1e-15 · max|λ|` (NumPy's `pinv` default cutoff).
+pub(crate) fn sym_pinv(a: &Array2<f64>) -> Array2<f64> {
+    let (lambda, v) = sym_eigen(a);
+    let cutoff = 1e-15 * lambda.iter().fold(0.0_f64, |m, l| m.max(l.abs()));
+    let n = a.nrows();
+    let mut out = Array2::<f64>::zeros((n, n));
+    for (k, &l) in lambda.iter().enumerate() {
+        if l.abs() > cutoff {
+            for i in 0..n {
+                for j in 0..n {
+                    out[[i, j]] += v[[i, k]] * v[[j, k]] / l;
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Lower-triangular Cholesky factor `L` with `A = L Lᵀ`.
 pub(crate) fn cholesky_factor(a: &Array2<f64>) -> Result<Array2<f64>> {
     let n = a.nrows();

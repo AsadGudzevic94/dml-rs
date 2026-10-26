@@ -30,9 +30,10 @@ def fit_doubleml(x, y, d, score, n_iterations=2, **kwargs):
 def assert_same(ours, ref, tol=TOL):
     np.testing.assert_allclose(ours.coef_, ref.coef, rtol=tol)
     np.testing.assert_allclose(ours.se_, ref.se, rtol=tol)
-    np.testing.assert_allclose(ours.ci_, ref.ci, rtol=tol)
+    # Interval bounds near zero lose relative precision to cancellation.
+    np.testing.assert_allclose(ours.ci_, ref.ci, rtol=tol, atol=1e-10)
     np.testing.assert_allclose(ours.all_coef_, ref.all_coef, rtol=tol)
-    np.testing.assert_allclose(ours.confint(0.9), ref.confint(level=0.9).to_numpy(), rtol=tol)
+    np.testing.assert_allclose(ours.confint(0.9), ref.confint(level=0.9).to_numpy(), rtol=tol, atol=1e-10)
     np.testing.assert_allclose(ours.h_fs_, ref.h_fs, rtol=tol)
 
 
@@ -64,9 +65,58 @@ def test_rdflex_defaults_and_errors():
     assert "Robust" in str(fit)
     with pytest.raises(ValueError, match="fuzzy design needs"):
         dml_rs.RDFlex(LinearRegression(), fuzzy=True).fit(x, y, d, score)
-    with pytest.raises(TypeError, match="regressor"):
+    with pytest.raises(ValueError, match="binary"):
         dml_rs.RDFlex(LOGIT).fit(x, y, d, score)
     with pytest.raises(ValueError, match="cutoff"):
         dml_rs.RDFlex(LinearRegression(), cutoff=50.0).fit(x, y, d, score)
     with pytest.raises(ValueError, match="fs_kernel"):
         dml_rs.RDFlex(LinearRegression(), fs_kernel="gaussian").fit(x, y, d, score)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("kwargs", [{"p": 2, "kernel": "epa", "bwselect": "msetwo", "vce": "hc1"},
+                                    {"bwselect": "cercomb2", "vce": "hc3", "level": 90},
+                                    {"rho": 1.5, "masspoints": "off", "q": 3}])
+def test_rdflex_rdrobust_options_match_doubleml(kwargs):
+    x, y, d, score = rdd(24, fuzzy=False)
+    ref = fit_doubleml(x, y, d, score, ml_g=LinearRegression(), **kwargs)
+    ours = dml_rs.RDFlex(LinearRegression(), **kwargs).fit(x, y, d, score, folds=ref._smpls)
+    assert_same(ours, ref)
+    np.testing.assert_allclose(ours.h_, ref.h, rtol=TOL)
+
+
+def test_rdflex_covariates_clusters_and_binary_outcome_match_doubleml():
+    x, y, d, score = rdd(25, fuzzy=True)
+    cluster = np.random.default_rng(3).integers(0, 40, len(y))
+    kwargs = {"covs": x[:, :2], "cluster": cluster}
+    ref = fit_doubleml(x, y, d, score, ml_g=LinearRegression(), ml_m=LOGIT, fuzzy=True, **kwargs)
+    ours = dml_rs.RDFlex(LinearRegression(), LOGIT, fuzzy=True, **kwargs).fit(x, y, d, score, folds=ref._smpls)
+    assert_same(ours, ref)
+    # Cluster labels of any type.
+    labels = np.array([f"g{c}" for c in cluster])
+    again = dml_rs.RDFlex(LinearRegression(), LOGIT, fuzzy=True, covs=x[:, :2], cluster=labels).fit(
+        x, y, d, score, folds=ref._smpls)
+    np.testing.assert_allclose(again.se_, ours.se_, rtol=1e-12)
+
+    y_bin = (y > np.median(y)).astype(float)
+    ref = fit_doubleml(x, y_bin, d, score, ml_g=LOGIT, ml_m=LOGIT, fuzzy=True)
+    ours = dml_rs.RDFlex(LOGIT, LOGIT, fuzzy=True).fit(x, y_bin, d, score, folds=ref._smpls)
+    assert_same(ours, ref)
+
+
+def test_rdflex_rdrobust_options_are_parameters():
+    from sklearn.base import clone
+    model = dml_rs.RDFlex(LinearRegression(), p=2, kernel="uni")
+    assert model.get_params()["p"] == 2
+    copy = clone(model)
+    assert copy.get_params()["kernel"] == "uni"
+    model.set_params(p=3, n_folds=4)
+    assert model.get_params()["p"] == 3 and model.n_folds == 4
+    with pytest.raises(TypeError, match="unknown rdrobust options"):
+        dml_rs.RDFlex(LinearRegression(), bandwith=0.3)
+    with pytest.raises(ValueError, match="selects the bandwidths"):
+        dml_rs.RDFlex(LinearRegression(), h=0.3)
+    x, y, d, score = rdd(26, fuzzy=False)
+    with pytest.raises(ValueError, match="cr2"):
+        dml_rs.RDFlex(LinearRegression(), vce="hc2", cluster=np.arange(len(y)) % 10).fit(x, y, d, score)
+    with pytest.raises(ValueError, match="kernel"):
+        dml_rs.RDFlex(LinearRegression(), kernel="gauss").fit(x, y, d, score)

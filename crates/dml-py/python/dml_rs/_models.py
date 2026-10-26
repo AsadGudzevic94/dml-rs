@@ -102,7 +102,8 @@ class _Params:
     @classmethod
     def _get_param_names(cls):
         sig = inspect.signature(cls.__init__)
-        return [p for p in sig.parameters if p != "self"]
+        variadic = (inspect.Parameter.VAR_KEYWORD, inspect.Parameter.VAR_POSITIONAL)
+        return [name for name, p in sig.parameters.items() if name != "self" and p.kind not in variadic]
 
     def get_params(self, deep: bool = True) -> dict[str, Any]:
         return {name: getattr(self, name) for name in self._get_param_names()}
@@ -1156,9 +1157,18 @@ class RDFlex(_Params):
     fs_specification : ``"cutoff"``, ``"cutoff and score"`` or ``"interacted cutoff and score"``.
     fs_kernel : ``"triangular"``, ``"uniform"`` or ``"epanechnikov"``.
     n_iterations : rounds of first-stage fitting and bandwidth updates.
+    **rdrobust_kwargs : options of the RD estimator, as DoubleML passes them to ``rdrobust``:
+        ``p``, ``q``, ``kernel``, ``bwselect`` (all ten selectors), ``vce`` (``"nn"``, ``"hc0"`` to
+        ``"hc3"``), ``nnmatch``, ``level``, ``masspoints``, ``bwcheck``, ``bwrestrict``, ``stdvars``,
+        ``scaleregul``, ``sharpbw``, ``rho``, ``scalepar``, ``covs_drop``, ``covs`` (covariates of the
+        RD stage) and ``cluster`` (labels for cluster-robust standard errors, ``rdrobust``'s
+        ``cr1``).
     """
 
     _ROWS = ["Conventional", "Bias-Corrected", "Robust"]
+    _RD_OPTIONS = ("p", "q", "kernel", "bwselect", "vce", "nnmatch", "level", "masspoints", "bwcheck",
+                   "bwrestrict", "stdvars", "scaleregul", "sharpbw", "rho", "scalepar", "covs_drop", "covs",
+                   "cluster")
 
     def __init__(
         self,
@@ -1173,7 +1183,14 @@ class RDFlex(_Params):
         n_folds: int = 5,
         n_rep: int = 1,
         random_state: int = 0,
+        **rdrobust_kwargs: Any,
     ) -> None:
+        if {"h", "b"} & set(rdrobust_kwargs):
+            raise ValueError("RDFlex selects the bandwidths h and b itself (use rho for b = h / rho)")
+        unknown = set(rdrobust_kwargs) - set(self._RD_OPTIONS)
+        if unknown:
+            raise TypeError(f"unknown rdrobust options {sorted(unknown)}")
+        self._rd_kwargs = dict(rdrobust_kwargs)
         self.ml_g = ml_g
         self.ml_m = ml_m
         self.fuzzy = fuzzy
@@ -1186,17 +1203,30 @@ class RDFlex(_Params):
         self.n_rep = n_rep
         self.random_state = random_state
 
+    def get_params(self, deep: bool = True) -> dict[str, Any]:
+        return {**super().get_params(deep), **self._rd_kwargs}
+
+    def set_params(self, **params: Any) -> Self:
+        for key in [k for k in params if k in self._RD_OPTIONS]:
+            self._rd_kwargs[key] = params.pop(key)
+        return super().set_params(**params)
+
     def fit(self, X: ArrayLike, y: ArrayLike, d: ArrayLike, score: ArrayLike, folds: Optional[Folds] = None) -> Self:
-        if _is_classifier(self.ml_g):
-            raise TypeError("ml_g must be a regressor")
+        """Fit on covariates ``X``, outcome ``y``, treatment ``d`` and running variable ``score``. A
+        classifier ``ml_g`` (with ``predict_proba``) learns a binary outcome, as in DoubleML."""
         if self.fuzzy and self.ml_m is None:
             raise ValueError("a fuzzy design needs a classifier ml_m for the treatment")
+        rd = {k: v for k, v in self._rd_kwargs.items() if k not in ("covs", "cluster")}
+        covs = self._rd_kwargs.get("covs")
+        cluster = self._rd_kwargs.get("cluster")
         result = _dml_rs.fit_rdflex(
             _as_1d(y, "y"), _as_2d(_as_1d(d, "d"), "d"), _as_2d(X, "X"), _as_1d(score, "score"), self.ml_g,
             self.ml_m if self.fuzzy else None, cutoff=float(self.cutoff),
             h_fs=None if self.h_fs is None else float(self.h_fs), fs_specification=self.fs_specification,
             fs_kernel=self.fs_kernel, n_iterations=self.n_iterations, n_folds=self.n_folds, n_rep=self.n_rep,
-            seed=self.random_state, splits=_splits(folds),
+            seed=self.random_state, splits=_splits(folds), g_classifier=_is_classifier(self.ml_g),
+            rd_options=rd or None, rd_covs=None if covs is None else _as_2d(covs, "covs"),
+            rd_cluster=None if cluster is None else _codes(cluster, "cluster"),
         )
         self.result_ = result
         self.coef_ = result.coef

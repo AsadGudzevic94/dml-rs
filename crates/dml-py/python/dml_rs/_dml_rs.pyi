@@ -671,6 +671,10 @@ def fit_rdflex(
     n_rep: int = 1,
     seed: int = 0,
     splits: Optional[_Splits] = None,
+    g_classifier: bool = False,
+    rd_options: Optional[dict[str, Any]] = None,
+    rd_covs: Optional[NDArray[np.float64]] = None,
+    rd_cluster: Optional[NDArray[np.int64]] = None,
 ) -> RdFlexResult: ...
 def fit_ssm(
     y: NDArray[np.float64],

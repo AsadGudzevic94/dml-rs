@@ -409,7 +409,7 @@ $$
 \eta(X) = \tfrac{1}{2}\big(\mu(X;\ \text{left}) + \mu(X;\ \text{right})\big),
 $$
 
-learned with kernel weights around the cutoff. A local linear RD estimator is then run on
+learned with kernel weights around the cutoff. A local polynomial (by default linear) RD estimator is then run on
 $Y - \eta(X)$, with a quadratic bias correction and robust confidence intervals (Calonico,
 Cattaneo and Titiunik, 2014). The first-stage bandwidth is updated from the RD bandwidth over
 `n_iterations` rounds.
@@ -420,21 +420,40 @@ Cattaneo and Titiunik, 2014). The first-stage bandwidth is updated from the RD b
 
 Results have three rows: the conventional estimate, the bias-corrected estimate, and the
 bias-corrected estimate with its robust standard error, which is the one to report. Learners must
-accept sample weights. The RD back end, a port of the `rdrobust` package's defaults, is also
-available on its own in Rust (`dml_core::rd::rdrobust`, `rdbwselect`).
+accept sample weights; a binary outcome can be learned with a classifier.
+
+The RD estimator is a port of the `rdrobust` package (version 2.1.1). Its options are passed as
+keyword arguments, as in DoubleML:
+
+- `p` and `q`: polynomial orders of the estimate and of the bias correction
+- `kernel`
+- `bwselect`: all ten bandwidth selectors (MSE- and CER-optimal; common, two-sided, sum and
+  combinations)
+- `vce`: `"nn"` or `"hc0"` to `"hc3"`
+- `nnmatch`, `level`, `masspoints`, `bwcheck`, `bwrestrict`, `stdvars`, `scaleregul`, `sharpbw`,
+  `rho`, `scalepar`
+- `covs`: covariates of the RD stage
+- `cluster`: labels for cluster-robust standard errors
+
+With clusters the variance is `rdrobust`'s `cr1`; its leverage-adjusted `cr2` and `cr3` are not
+available. In Rust the back end is also available on its own (`dml_core::rd::rd_estimate` and
+`rd_bandwidths` with `RdOptions`).
 
 === "Python"
 
     ```python
     model = dml_rs.RDFlex(ml_g, ml_m, fuzzy=True, cutoff=0.0).fit(X, y, d, score)
     model.summary                        # Conventional, Bias-Corrected, Robust
+    dml_rs.RDFlex(ml_g, p=2, kernel="epa", bwselect="msetwo", covs=Z, cluster=school)
+    dml_rs.RDFlex(LogisticRegression()).fit(X, y01, d, score)   # binary y
     ```
 
 === "Rust"
 
     ```rust
     let fit = RdFlex::fuzzy(ml_g, ml_m).cutoff(0.0).fit(&data, score.view())?;
-    println!("{fit}");
+    let options = RdOptions { p: 2, bwselect: BwSelect::Msetwo, ..RdOptions::default() };
+    let fit = RdFlex::sharp(ml_g).rd_options(options).rd_clusters(school).fit(&data, score.view())?;
     ```
 
 ## Heterogeneous effects
