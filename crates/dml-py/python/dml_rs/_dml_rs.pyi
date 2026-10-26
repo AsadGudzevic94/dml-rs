@@ -13,6 +13,7 @@ from typing_extensions import Self
 __version__: str
 __all__ = [
     "concat",
+    "simulate",
     "fit_apo",
     "fit_apos",
     "fit_cate",
@@ -716,6 +717,7 @@ def fit_quantile(
     external_predictions: Optional[Sequence[tuple[int, str, NDArray[np.float64]]]] = None,
 ) -> DmlResult: ...
 def concat(results: Sequence[DmlResult]) -> DmlResult: ...
+def simulate(name: str, params: dict[str, Any], seed: int) -> dict[str, Any]: ...
 def fit_qte(
     y: NDArray[np.float64],
     d: NDArray[np.float64],

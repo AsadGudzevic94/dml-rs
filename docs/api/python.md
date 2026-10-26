@@ -25,6 +25,14 @@ All classes are available from the top-level package, e.g. `dml_rs.PLR`.
 ::: dml_rs.DIDAggregation
 ::: dml_rs.RDFlex
 
+## Simulated data
+
+::: dml_rs.datasets
+    options:
+      show_root_heading: false
+      members_order: source
+      filters: ["!^_"]
+
 ## Combining estimates
 
 ::: dml_rs.Framework

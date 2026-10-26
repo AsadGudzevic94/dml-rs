@@ -14,11 +14,13 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 mod cate;
+mod datasets;
 mod errors;
 mod learners;
 mod staggered;
 
 use cate::{fit_cate, PyBlp, PyCateResult};
+use datasets::simulate;
 use errors::to_py_err;
 use learners::{
     to_classifier, to_regressor, PyGradientBoostingClassifier, PyGradientBoostingRegressor,
@@ -1706,7 +1708,7 @@ mod dml_rs_native {
     #[pymodule_export]
     use super::{
         concat, fit_apo, fit_apos, fit_cate, fit_did, fit_iivm, fit_irm, fit_lplr, fit_pliv,
-        fit_plpr, fit_plr, fit_qte, fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did,
+        fit_plpr, fit_plr, fit_qte, fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did, simulate,
         PyAposResult, PyBlp, PyBootstrap, PyCateResult, PyDmlResult, PyGradientBoostingClassifier,
         PyGradientBoostingRegressor, PyGridSearchClassifier, PyGridSearchRegressor, PyLasso,
         PyLassoCV, PyLogisticRegression, PyLogisticRegressionCV, PyOls, PyPolicyTree, PyQteResult,

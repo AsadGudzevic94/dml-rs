@@ -68,6 +68,7 @@ pub mod cluster;
 mod compat;
 pub mod crossfit;
 pub mod data;
+pub mod datasets;
 pub mod error;
 pub mod fit;
 pub mod learner;

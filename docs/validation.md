@@ -35,6 +35,12 @@ losses.
 | `plr_cluster_*`, `irm_cluster_one_way`, `pliv_cluster_two_way` | One-way and two-way clustering |
 | all PLR, IRM and DiD fixtures | Sensitivity analysis in two scenarios, and benchmarks |
 
+The simulated data sets (`dml_rs.datasets`) draw from another random generator than DoubleML, so
+their tests compare output formats and, on samples of 20,000, the means and standard deviations of
+the outcomes, treatments, instruments and covariates with DoubleML's generators, as well as the
+oracle confounding strengths; the deterministic effect functions agree exactly. The Rust tests
+check that every design's effect is recovered by the matching estimator.
+
 The Python test suite checks the bindings against DoubleML and scikit-learn (including the
 learners themselves), and the type stubs are checked against the compiled extension with
 `mypy.stubtest`.
@@ -107,6 +113,10 @@ These are deliberate, documented, and covered by tests:
   sensitivity elements (with `ν²` scaled by the squared weight), so benchmarks remain possible;
   DoubleML drops them once frameworks are added, even when all but one weight is zero. The bounds
   are the same.
+- **Staggered DiD data with anticipation.** `make_did_CS2021(anticipation_periods > 0,
+  time_type="float")` in DoubleML 0.11 also drops the never-treated units (its first filter tests
+  `pd.isna`, which is false for the `inf` cohort; the datetime version keeps them). dml-rs keeps
+  them in both versions.
 - **`LogisticRegressionCV`** solves each fit to the exact optimum with Newton's method;
   scikit-learn's default L-BFGS solver stops earlier, so its probabilities can differ by about
   `1e-3` at default settings.

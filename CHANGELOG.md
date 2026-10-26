@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Simulated data sets: the data generating processes of DoubleML's 17 `make_*` functions. Rust:
+  `dml_core::datasets` (`PlrCcddhnr2018`, `PlrTurrell2018`, `ConfoundedPlr`, `PlivChs2015`,
+  `PlivMultiwayClusterCkms2021`, `LplrLzz2020`, `PlprCp2025`, `IrmData`, `ConfoundedIrm`,
+  `IrmDiscreteTreatments`, `IivmData`, `SsmData`, `HeterogeneousData`, `DidSz2020`, `DidCs2021`,
+  `SimpleRdd`): structs with DoubleML's parameters and defaults and `generate(seed)`, with
+  conversions to `DmlData`, `StaticPanel`, `PanelData` and `RepeatedCrossSections`. Python:
+  `dml_rs.datasets` with DoubleML's function names and signatures (`return_type="array"` or
+  `"DataFrame"`, `random_state`). Draws come from a seeded ChaCha generator; the tests compare the
+  distributions with DoubleML's generators.
+
 ## [0.15.0] - 2026-10-26
 
 ### Added

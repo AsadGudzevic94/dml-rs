@@ -12,6 +12,7 @@ Main entry points:
 | [`Apo`](https://docs.rs/dml-core/latest/dml_core/struct.Apo.html), [`Apos`](https://docs.rs/dml-core/latest/dml_core/struct.Apos.html), [`Pq`](https://docs.rs/dml-core/latest/dml_core/struct.Pq.html), [`Lpq`](https://docs.rs/dml-core/latest/dml_core/struct.Lpq.html), [`Cvar`](https://docs.rs/dml-core/latest/dml_core/struct.Cvar.html), [`Qte`](https://docs.rs/dml-core/latest/dml_core/struct.Qte.html) | Average potential outcomes and quantile models |
 | [`RdFlex`](https://docs.rs/dml-core/latest/dml_core/struct.RdFlex.html), [`rd`](https://docs.rs/dml-core/latest/dml_core/rd/index.html) | Regression discontinuity with covariate adjustment, and the `rdrobust` back end |
 | [`StaggeredDid`](https://docs.rs/dml-core/latest/dml_core/struct.StaggeredDid.html) | Staggered difference-in-differences |
+| [`datasets`](https://docs.rs/dml-core/latest/dml_core/datasets/index.html) | Simulated data sets (DoubleML's data generating processes) |
 | [`DmlFit`](https://docs.rs/dml-core/latest/dml_core/struct.DmlFit.html) | Results: estimates, inference, bootstrap, sensitivity analysis, learner losses |
 | [`Regressor`](https://docs.rs/dml-core/latest/dml_core/trait.Regressor.html), [`Classifier`](https://docs.rs/dml-core/latest/dml_core/trait.Classifier.html) | Learner traits, implemented by the built-in learners |
 | [`LinearScoreModel`](https://docs.rs/dml-core/latest/dml_core/trait.LinearScoreModel.html) | Trait for adding a new orthogonal score |
