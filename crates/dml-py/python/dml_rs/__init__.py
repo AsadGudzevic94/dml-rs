@@ -53,6 +53,7 @@ from ._dml_rs import (
     fit_quantile,
     fit_rdflex,
     fit_ssm,
+    fit_autodml,
     fit_staggered_did,
 )
 from . import datasets
@@ -61,6 +62,16 @@ from ._blp import BLP
 from ._cate import DRLearner, RLearner, SLearner, TLearner, XLearner
 from ._policy import PolicyTree
 from ._tuning import OptunaResult
+from ._autodml import (
+    ATE,
+    AutoDML,
+    AverageDerivative,
+    CustomFunctional,
+    Functional,
+    PolicyEffect,
+    RieszLasso,
+    ShiftEffect,
+)
 from ._models import (
     APO,
     APOS,
@@ -101,6 +112,14 @@ __all__ = [
     "Framework",
     "concat",
     "SSM",
+    "AutoDML",
+    "ATE",
+    "AverageDerivative",
+    "ShiftEffect",
+    "PolicyEffect",
+    "CustomFunctional",
+    "Functional",
+    "RieszLasso",
     "LPLR",
     "PLPR",
     "RDFlex",
@@ -150,6 +169,7 @@ __all__ = [
     "fit_rdflex",
     "fit_qte",
     "fit_ssm",
+    "fit_autodml",
     "datasets",
     "DmlData",
     "__version__",

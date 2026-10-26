@@ -1768,6 +1768,125 @@ fn fit_did(
     }
 }
 
+/// A Python error raised inside a callback, as a library error.
+fn callback_err(err: PyErr) -> dml_core::DmlError {
+    dml_core::DmlError::Learner(err.to_string())
+}
+
+/// A functional given by a Python callable `terms(W) -> [(W_k, weight_k), ...]`
+/// (the Python package normalises the output to float arrays).
+fn py_functional(name: String, terms: Py<PyAny>) -> dml_core::CustomFunctional {
+    dml_core::CustomFunctional::new(name, move |w| {
+        Python::attach(|py| -> PyResult<Vec<dml_core::Term>> {
+            let out = terms.bind(py).call1((w.to_owned().into_pyarray(py),))?;
+            let pairs: Vec<(PyReadonlyArray2<'_, f64>, PyReadonlyArray1<'_, f64>)> =
+                out.extract()?;
+            Ok(pairs
+                .into_iter()
+                .map(|(wk, c)| {
+                    dml_core::Term::new(wk.as_array().to_owned(), c.as_array().to_owned())
+                })
+                .collect())
+        })
+        .map_err(callback_err)
+    })
+}
+
+/// Automatic debiased machine learning: `θ = E[m(W; γ)]` for the functional
+/// `functional` (`"ate"`, `"average_derivative"`, `"shift"`, `"policy"` or
+/// `"custom"` with `terms`), Riesz representer by the Lasso on a polynomial
+/// dictionary (or `dictionary(W) -> basis`), penalty by cross-validation unless
+/// `penalty` is given.
+#[pyfunction]
+#[pyo3(signature = (y, d, x, ml_g, functional = "ate", step = None, delta = None, per_unit = false,
+                    policy = None, terms = None, functional_name = None, degree = 2, treatment_degree = 1,
+                    penalty = None, n_alphas = 30, eps = 1e-3, cv = 5, dictionary = None, n_folds = 5,
+                    n_rep = 1, seed = 0, splits = None, treatment_names = None, cluster = None))]
+#[allow(clippy::too_many_arguments)]
+fn fit_autodml(
+    py: Python<'_>,
+    y: PyReadonlyArray1<'_, f64>,
+    d: PyReadonlyArray2<'_, f64>,
+    x: PyReadonlyArray2<'_, f64>,
+    ml_g: &Bound<'_, PyAny>,
+    functional: &str,
+    step: Option<f64>,
+    delta: Option<f64>,
+    per_unit: bool,
+    policy: Option<PyReadonlyArray1<'_, f64>>,
+    terms: Option<Py<PyAny>>,
+    functional_name: Option<String>,
+    degree: usize,
+    treatment_degree: usize,
+    penalty: Option<f64>,
+    n_alphas: usize,
+    eps: f64,
+    cv: usize,
+    dictionary: Option<Py<PyAny>>,
+    n_folds: usize,
+    n_rep: usize,
+    seed: u64,
+    splits: Option<PySplits>,
+    treatment_names: Option<Vec<String>>,
+    cluster: Option<PyReadonlyArray2<'_, i64>>,
+) -> PyResult<PyDmlResult> {
+    let functional: Box<dyn dml_core::LinearFunctional> = match functional {
+        "ate" => Box::new(dml_core::Ate),
+        "average_derivative" => Box::new(dml_core::AverageDerivative { step }),
+        "shift" => Box::new(
+            dml_core::ShiftEffect::new(
+                delta.ok_or_else(|| PyValueError::new_err("the shift effect needs delta"))?,
+            )
+            .per_unit(per_unit),
+        ),
+        "policy" => Box::new(dml_core::PolicyEffect::new(
+            policy
+                .ok_or_else(|| PyValueError::new_err("the policy effect needs the policy treatment"))?
+                .as_array()
+                .to_owned(),
+        )),
+        "custom" => Box::new(py_functional(
+            functional_name.unwrap_or_else(|| "custom functional".into()),
+            terms.ok_or_else(|| PyValueError::new_err("a custom functional needs terms"))?,
+        )),
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown functional {other:?} (use 'ate', 'average_derivative', 'shift', 'policy' or 'custom')"
+            )))
+        }
+    };
+    let dictionary = match dictionary {
+        Some(f) => dml_core::Dictionary::custom(move |w| {
+            Python::attach(|py| -> PyResult<ndarray::Array2<f64>> {
+                let out = f.bind(py).call1((w.to_owned().into_pyarray(py),))?;
+                let arr: PyReadonlyArray2<'_, f64> = out.extract()?;
+                Ok(arr.as_array().to_owned())
+            })
+            .map_err(callback_err)
+        }),
+        None => dml_core::Dictionary::Polynomial {
+            degree,
+            treatment_degree,
+        },
+    };
+    let riesz = dml_core::RieszLasso::new()
+        .dictionary(dictionary)
+        .penalty(match penalty {
+            Some(r) => dml_core::RieszPenalty::Fixed(r),
+            None => dml_core::RieszPenalty::CrossValidated,
+        })
+        .n_alphas(n_alphas)
+        .eps(eps)
+        .cv(cv);
+    let data = build_data(y, d, x, None, None, treatment_names, cluster)?;
+    let model = dml_core::AutoDml::from_boxed(to_regressor(ml_g)?, functional)
+        .riesz(riesz)
+        .n_folds(n_folds)
+        .n_rep(n_rep)
+        .seed(seed);
+    run_model!(py, model, data, splits)
+}
+
 /// Run the cross-fitting folds in parallel (the default) or one after the
 /// other, process-wide. Sequential folds fit every learner in the order
 /// treatment, repetition, fold (used by `store_models` and fold-specific
@@ -1852,14 +1971,14 @@ fn draw_folds<'py>(
 mod dml_rs_native {
     #[pymodule_export]
     use super::{
-        concat, draw_folds, fit_apo, fit_apos, fit_cate, fit_did, fit_iivm, fit_irm, fit_lplr,
-        fit_pliv, fit_plpr, fit_plr, fit_qte, fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did,
-        result_from_scores, set_parallel_folds, simulate, PyAposResult, PyBlp, PyBootstrap,
-        PyCateResult, PyDmlResult, PyGradientBoostingClassifier, PyGradientBoostingRegressor,
-        PyGridSearchClassifier, PyGridSearchRegressor, PyLasso, PyLassoCV, PyLogisticRegression,
-        PyLogisticRegressionCV, PyOls, PyPolicyTree, PyQteResult, PyRandomForestClassifier,
-        PyRandomForestRegressor, PyRdFlexResult, PySensitivityBenchmark, PySensitivityResult,
-        PyStaggeredResult,
+        concat, draw_folds, fit_apo, fit_apos, fit_autodml, fit_cate, fit_did, fit_iivm, fit_irm,
+        fit_lplr, fit_pliv, fit_plpr, fit_plr, fit_qte, fit_quantile, fit_rdflex, fit_ssm,
+        fit_staggered_did, result_from_scores, set_parallel_folds, simulate, PyAposResult, PyBlp,
+        PyBootstrap, PyCateResult, PyDmlResult, PyGradientBoostingClassifier,
+        PyGradientBoostingRegressor, PyGridSearchClassifier, PyGridSearchRegressor, PyLasso,
+        PyLassoCV, PyLogisticRegression, PyLogisticRegressionCV, PyOls, PyPolicyTree, PyQteResult,
+        PyRandomForestClassifier, PyRandomForestRegressor, PyRdFlexResult, PySensitivityBenchmark,
+        PySensitivityResult, PyStaggeredResult,
     };
 
     #[pymodule_init]

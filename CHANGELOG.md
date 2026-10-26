@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Automatic debiased machine learning (Chernozhukov, Newey and Singh, 2022): `AutoDml` (Python
+  `AutoDML`) estimates any mean of a linear functional of the regression `E[Y | D, X]`, with the
+  Riesz representer learned from the functional by the Lasso on a dictionary (`RieszLasso`,
+  penalty by cross-validation of the Riesz loss). Built-in functionals: ATE, average derivative,
+  shift effect, policy effect; your own through `CustomFunctional` (Python: a function returning
+  the evaluation points and weights) or the `LinearFunctional` trait; your own dictionary or Riesz
+  learner through `Dictionary::Custom` and the `RieszLearner` trait. Inference, clustering,
+  sensitivity analysis and `cate` / `gate` work as for the other models.
+
 ## [0.19.0] - 2026-10-26
 
 ### Added

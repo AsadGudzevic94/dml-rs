@@ -24,6 +24,16 @@ All classes are available from the top-level package, e.g. `dml_rs.PLR`.
 ::: dml_rs.StaggeredDID
 ::: dml_rs.DIDAggregation
 ::: dml_rs.RDFlex
+::: dml_rs.AutoDML
+
+## Functionals and Riesz representers
+
+::: dml_rs.ATE
+::: dml_rs.AverageDerivative
+::: dml_rs.ShiftEffect
+::: dml_rs.PolicyEffect
+::: dml_rs.CustomFunctional
+::: dml_rs.RieszLasso
 
 ## Tuning and learner parameters
 

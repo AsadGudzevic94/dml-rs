@@ -10,6 +10,7 @@ use crate::score::LinearScore;
 use crate::sensitivity::SensitivityParts;
 
 mod apo;
+mod autodml;
 pub(crate) mod did;
 mod iivm;
 pub(crate) mod irm;
@@ -23,6 +24,7 @@ mod rdflex;
 mod ssm;
 
 pub use apo::{Apo, Apos, AposFit};
+pub use autodml::AutoDml;
 pub use did::{Did, DidCs, DidScore};
 pub use iivm::Iivm;
 pub use irm::{Irm, IrmScore};

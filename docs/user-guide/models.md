@@ -460,6 +460,95 @@ available on its own (`dml_core::rd::rd_estimate` and `rd_bandwidths` with `RdOp
     let fit = RdFlex::sharp(ml_g).rd_options(options).rd_clusters(school).fit(&data, score.view())?;
     ```
 
+## Automatic debiased ML (AutoDML)
+
+Many effects are a mean of a *linear functional* of the regression
+$\gamma_0(D, X) = E[Y \mid D, X]$:
+
+$$
+\theta_0 = E[m(W; \gamma_0)], \qquad W = (D, X).
+$$
+
+The ATE is $m = \gamma(1, X) - \gamma(0, X)$, the average derivative $m = \partial\gamma(D, X) /
+\partial D$, the effect of shifting everyone's treatment by $\delta$ is $m = \gamma(D + \delta, X) -
+\gamma(D, X)$. The debiased score is
+
+$$
+\psi = m(W; \gamma) + \alpha(W)\,(Y - \gamma(W)) - \theta,
+$$
+
+where $\alpha$ is the *Riesz representer* of the functional: $E[m(W; f)] = E[\alpha(W) f(W)]$ for
+every $f$. For the ATE, $\alpha$ is the familiar inverse propensity weight, but for most functionals
+it has no simple formula. Automatic debiased machine learning (Chernozhukov, Newey and Singh,
+2022) learns it from the functional alone, by minimising the Riesz loss
+$E[\alpha(W)^2 - 2\, m(W; \alpha)]$, so any linear functional can be estimated without deriving
+anything by hand.
+
+`AutoDML` takes a regressor `ml_g` for $\gamma_0$ (fitted on $W$, the treatment first) and a
+functional:
+
+| Functional | $m(W; \gamma)$ | Python | Rust |
+|---|---|---|---|
+| Average treatment effect | $\gamma(1, X) - \gamma(0, X)$ | `"ate"`, `ATE()` | `Ate` |
+| Average derivative | $\partial \gamma(D, X) / \partial D$ (central difference) | `"average_derivative"`, `AverageDerivative()` | `AverageDerivative` |
+| Shift effect | $\gamma(D + \delta, X) - \gamma(D, X)$, optionally divided by $\delta$ | `ShiftEffect(delta, per_unit)` | `ShiftEffect` |
+| Policy effect | $\gamma(d_{\text{new}}, X) - \gamma(D, X)$ | `PolicyEffect(new_d or function)` | `PolicyEffect` |
+| Your own | $\sum_k c_k(W)\, \gamma(W_k)$ | `CustomFunctional(terms)` | `CustomFunctional`, or implement `LinearFunctional` |
+
+The Riesz representer is learned by the Lasso of Chernozhukov, Newey and Singh (`RieszLasso`):
+$\alpha(w) = b(w)'\rho$ for a dictionary $b$, with
+$\hat\rho = \arg\min_\rho\ \rho'\hat G\rho - 2\hat M'\rho + 2r\sum_j \hat\psi_j|\rho_j|$, where
+$\hat G = E_n[b(W)b(W)']$, $\hat M = E_n[m(W; b)]$ and $\hat\psi_j = \hat G_{jj}^{1/2}$ (the
+constant is not penalised). The default dictionary holds all monomials of the covariates up to
+degree 2, each also multiplied by the treatment (`degree`, `treatment_degree`); any basis can be
+passed as `dictionary(W)`. The penalty $r$ is chosen by cross-validation of the Riesz loss, or
+fixed with `penalty` (`0` gives the unpenalised minimum-distance solution). Both nuisances are
+cross-fitted, and repeated splits, clustered data, the bootstrap, sensitivity analysis (with
+$\sigma^2 = E[(Y - \gamma)^2]$ and $\nu^2 = E[2m(W; \alpha) - \alpha^2]$) and `cate` / `gate`
+work as for the other models.
+
+=== "Python"
+
+    ```python
+    # Average derivative of a continuous treatment (a smooth regression in D)
+    dml_rs.AutoDML(LassoCV(), "average_derivative").fit(X, y, d)
+
+    # Effect of raising everyone's treatment by 10%, with a forest
+    model = dml_rs.AutoDML(RandomForestRegressor(), dml_rs.PolicyEffect(lambda W: 1.1 * W[:, 0]))
+    model.fit(X, y, d)
+
+    # A functional of your own: the ATE among units whose first covariate is positive
+    def subgroup_ate(W):
+        w1, w0 = W.copy(), W.copy()
+        w1[:, 0], w0[:, 0] = 1, 0
+        weight = (W[:, 1] > 0) / np.mean(W[:, 1] > 0)
+        return [(w1, weight), (w0, -weight)]
+
+    dml_rs.AutoDML(ml_g, dml_rs.CustomFunctional(subgroup_ate),
+                   riesz=dml_rs.RieszLasso(degree=3)).fit(X, y, d)
+    ```
+
+=== "Rust"
+
+    ```rust
+    use dml_core::{AutoDml, AverageDerivative, Dictionary, RieszLasso, ShiftEffect};
+
+    let fit = AutoDml::new(Lasso::new(0.01), AverageDerivative::new()).fit(&data)?;
+    let shift = AutoDml::new(RandomForestRegressor::new(), ShiftEffect::new(0.5).per_unit(true))
+        .riesz(RieszLasso::new().dictionary(Dictionary::Polynomial { degree: 3, treatment_degree: 2 }))
+        .fit(&data)?;
+    ```
+
+!!! note "When to use it"
+    For the ATE of a binary treatment, `IRM` (with a propensity model) and `AutoDML` give similar
+    estimates in simulations; `AutoDML` is meant for functionals without a built-in model. The
+    average derivative is a central difference, so it needs a regression that is smooth in the
+    treatment (linear or polynomial models, neural networks); with
+    forests use a shift effect instead. As for every DML estimator, valid confidence intervals
+    need both the regression and the Riesz representer to be estimated well; with a misspecified
+    regression the estimate stays consistent if the dictionary is rich enough, but the standard
+    errors can be conservative.
+
 ## Heterogeneous effects
 
 - **Best linear predictor** (`cate`) and **group average treatment effects** (`gate`) give

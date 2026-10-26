@@ -60,6 +60,14 @@ Clustered staggered DiD has no DoubleML counterpart: its tests check that single
 reproduce the iid standard errors exactly and that cluster-robust intervals reach their coverage
 when shocks are shared within clusters.
 
+`AutoDML` has no DoubleML counterpart. Its tests compare it with independent computations of
+the same estimator: with an unpenalised Riesz representer against the closed form
+$\hat\rho = \hat G^{-1}\hat M$, and with a penalty against scikit-learn's `Lasso` (the Riesz
+loss equals a least-squares loss on a transformed outcome), both to `1e-8`; a saturated dictionary
+reproduces the inverse propensity weights exactly. Simulations check that it recovers average
+derivatives, shift and policy effects and the ATE (where it agrees with IRM), that the Riesz
+correction removes the bias of a misspecified regression, and that its confidence intervals cover.
+
 Monte-Carlo tests simulate data with a known effect and check that confidence intervals reach
 their nominal coverage: PLR, LPLR (both scores), PLPR (three approaches, with correlated unit effects), RDFlex (sharp and fuzzy), IRM (ATE and ATTE), PLIV, IIVM, DiD, sample selection (both scores), quantile and CVaR effects, joint bootstrap bands, and
 clustered data (where iid intervals cover about 75% of the time and cluster-robust ones about 95%).

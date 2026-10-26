@@ -10,6 +10,9 @@
 //! - [`Iivm`]: interactive IV model, local average treatment effect (LATE) with a binary instrument
 //! - [`Did`] / [`DidCs`]: doubly robust difference-in-differences for panel data and
 //!   repeated cross-sections (Sant'Anna & Zhao, 2020)
+//! - [`AutoDml`]: automatic debiased ML of any mean of a linear functional of the regression
+//!   (ATE, average derivatives, shift and policy effects, your own), with the Riesz
+//!   representer learned from the functional (see [`riesz`])
 //! - [`StaggeredDid`]: DID with staggered adoption, group-time effects `ATT(g, t)` and their
 //!   aggregation by cohort, calendar time or event time (Callaway & Sant'Anna, 2021)
 //!
@@ -79,6 +82,7 @@ pub mod model;
 pub mod policy;
 pub mod propensity;
 pub mod rd;
+pub mod riesz;
 pub mod score;
 pub mod sensitivity;
 pub mod staggered;
@@ -102,14 +106,18 @@ pub use learner::{
     Regressor,
 };
 pub use model::{
-    Apo, Apos, AposFit, CateSignal, Cvar, Did, DidCs, DidScore, ExternalPredictions, FirstStage,
-    Iivm, Irm, IrmScore, LinearScoreModel, LossKind, Lplr, LplrScore, Lpq, Name, NuisanceLearners,
-    NuisanceTarget, PanelApproach, Pliv, PlivScore, PlivVariant, Plpr, Plr, PlrScore, Pq, Qte,
-    QteFit, RdFlex, RdFlexFit, RdKernel, ScoreEstimate, ScoreInput, Ssm, SsmScore, StaticPanel,
-    TreatmentLearner,
+    Apo, Apos, AposFit, AutoDml, CateSignal, Cvar, Did, DidCs, DidScore, ExternalPredictions,
+    FirstStage, Iivm, Irm, IrmScore, LinearScoreModel, LossKind, Lplr, LplrScore, Lpq, Name,
+    NuisanceLearners, NuisanceTarget, PanelApproach, Pliv, PlivScore, PlivVariant, Plpr, Plr,
+    PlrScore, Pq, Qte, QteFit, RdFlex, RdFlexFit, RdKernel, ScoreEstimate, ScoreInput, Ssm,
+    SsmScore, StaticPanel, TreatmentLearner,
 };
 pub use policy::{PolicyNode, PolicyTree};
 pub use propensity::{Calibration, IsotonicRegression};
+pub use riesz::{
+    Ate, AverageDerivative, CustomFunctional, Dictionary, LinearFunctional, PolicyEffect,
+    RieszLasso, RieszLearner, RieszPenalty, ShiftEffect, Term,
+};
 pub use score::LinearScore;
 pub use sensitivity::{
     Nu2Parts, SensitivityBenchmark, SensitivityParams, SensitivityParts, SensitivityResult,

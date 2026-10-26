@@ -4,7 +4,7 @@ Array arguments are converted to float64 NumPy arrays by the Python layer; the
 estimator classes in ``dml_rs`` are the documented entry points.
 """
 
-from typing import Any, Literal, Optional, Sequence, Union, final
+from typing import Any, Callable, Literal, Optional, Sequence, Union, final
 
 import numpy as np
 from numpy.typing import NDArray
@@ -19,6 +19,7 @@ __all__ = [
     "simulate",
     "fit_apo",
     "fit_apos",
+    "fit_autodml",
     "fit_cate",
     "fit_did",
     "fit_iivm",
@@ -749,6 +750,32 @@ def fit_quantile(
 def concat(results: Sequence[DmlResult]) -> DmlResult: ...
 def simulate(name: str, params: dict[str, Any], seed: int) -> dict[str, Any]: ...
 def set_parallel_folds(on: bool) -> None: ...
+def fit_autodml(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    ml_g: Any,
+    functional: Literal["ate", "average_derivative", "shift", "policy", "custom"] = "ate",
+    step: Optional[float] = None,
+    delta: Optional[float] = None,
+    per_unit: bool = False,
+    policy: Optional[NDArray[np.float64]] = None,
+    terms: Optional[Callable[[NDArray[np.float64]], Any]] = None,
+    functional_name: Optional[str] = None,
+    degree: int = 2,
+    treatment_degree: int = 1,
+    penalty: Optional[float] = None,
+    n_alphas: int = 30,
+    eps: float = 1e-3,
+    cv: int = 5,
+    dictionary: Optional[Callable[[NDArray[np.float64]], NDArray[np.float64]]] = None,
+    n_folds: int = 5,
+    n_rep: int = 1,
+    seed: int = 0,
+    splits: Optional[_Splits] = None,
+    treatment_names: Optional[list[str]] = None,
+    cluster: Optional[NDArray[np.int64]] = None,
+) -> DmlResult: ...
 def result_from_scores(
     psi_a: NDArray[np.float64],
     psi_b: NDArray[np.float64],
