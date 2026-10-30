@@ -88,6 +88,25 @@ Their random number generators differ, so the forests are compared statistically
 The two forests' estimates correlate at 0.998, and the average effect from dml-rs's doubly
 robust scores covers the true average effect in 95% of the replications.
 
+The instrumental, multi-arm causal and regression forests are compared the same way with
+`econml.grf.CausalIVForest`, `CausalForest` (one treatment column per arm) and `RegressionForest`
+(2000 trees, 4000 observations, 20 replications;
+[`parity/compare_grf_forests.py`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/compare_grf_forests.py)).
+The dml-rs times include cross-fitting the nuisance models; EconML's grow only the forest.
+
+| Forest | | RMSE | Coverage of 95% intervals | Mean interval width | Time |
+|---|---|--:|--:|--:|--:|
+| Instrumental | dml-rs | 0.259 | 0.98 | 1.41 | 3.7 s |
+| | EconML | 0.218 | 0.95 | 0.94 | 6.9 s |
+| Multi-arm (two arms) | dml-rs | 0.157 | 0.96 | 0.78 | 2.5 s |
+| | EconML | 0.148 | 0.93 | 0.60 | 7.4 s |
+| Regression | dml-rs | 0.124 | 0.86 | 0.41 | 1.7 s |
+| | EconML | 0.124 | 0.79 | 0.33 | 3.8 s |
+
+The estimates of the two libraries correlate at 0.978 (instrumental), 0.992 (multi-arm) and 0.998
+(regression). dml-rs's intervals are wider and cover more often. The average conditional LATE of
+the instrumental forest has a mean bias of 0.013 and covers in 90% of the replications.
+
 Monte-Carlo tests simulate data with a known effect and check that confidence intervals reach
 their nominal coverage: PLR, LPLR (both scores), PLPR (three approaches, with correlated unit effects), RDFlex (sharp and fuzzy), IRM (ATE and ATTE), PLIV, IIVM, DiD, sample selection (both scores), quantile and CVaR effects, joint bootstrap bands, and
 clustered data (where iid intervals cover about 75% of the time and cluster-robust ones about 95%).

@@ -24,8 +24,10 @@ __all__ = [
     "fit_cate",
     "fit_did",
     "fit_iivm",
+    "fit_instrumental_forest",
     "fit_irm",
     "fit_lplr",
+    "fit_multi_arm_causal_forest",
     "fit_pliv",
     "fit_plpr",
     "fit_plr",
@@ -46,16 +48,20 @@ __all__ = [
     "GridSearchRegressor",
     "HistGradientBoostingClassifier",
     "HistGradientBoostingRegressor",
+    "InstrumentalForestResult",
     "Lasso",
     "LassoCV",
     "LogisticRegression",
     "LogisticRegressionCV",
+    "MultiArmCausalForestResult",
     "Ols",
     "PolicyTree",
     "QteResult",
+    "QuantileForest",
     "RdFlexResult",
     "RandomForestClassifier",
     "RandomForestRegressor",
+    "RegressionForest",
     "SensitivityBenchmark",
     "SensitivityResult",
     "StaggeredResult",
@@ -322,6 +328,59 @@ class CausalForestResult:
     def ate(self) -> DmlResult: ...
     def blp(self, basis: NDArray[np.float64]) -> Blp: ...
     def gate(self, groups: NDArray[np.float64]) -> Blp: ...
+    def policy_tree(self, features: NDArray[np.float64], depth: int, min_samples_leaf: int, ccp_alpha: float) -> PolicyTree: ...
+
+@final
+class InstrumentalForestResult:
+    """A fitted instrumental forest (returned by `fit_instrumental_forest`)."""
+
+    def effect(self, x: NDArray[np.float64]) -> tuple[NDArray[np.float64], NDArray[np.float64]]: ...
+    @property
+    def oob_effect(self) -> NDArray[np.float64]: ...
+    @property
+    def oob_variance(self) -> NDArray[np.float64]: ...
+    @property
+    def y_hat(self) -> NDArray[np.float64]: ...
+    @property
+    def d_hat(self) -> NDArray[np.float64]: ...
+    @property
+    def z_hat(self) -> NDArray[np.float64]: ...
+    @property
+    def compliance(self) -> Optional[NDArray[np.float64]]: ...
+    @property
+    def variable_importance(self) -> NDArray[np.float64]: ...
+    @property
+    def n_trees(self) -> int: ...
+    def dr_scores(self) -> NDArray[np.float64]: ...
+    def ate(self) -> DmlResult: ...
+    def blp(self, basis: NDArray[np.float64]) -> Blp: ...
+    def gate(self, groups: NDArray[np.float64]) -> Blp: ...
+
+@final
+class MultiArmCausalForestResult:
+    """A fitted multi-arm causal forest (returned by `fit_multi_arm_causal_forest`)."""
+
+    def effect(self, x: NDArray[np.float64]) -> tuple[NDArray[np.float64], NDArray[np.float64]]: ...
+    @property
+    def oob_effect(self) -> NDArray[np.float64]: ...
+    @property
+    def oob_variance(self) -> NDArray[np.float64]: ...
+    @property
+    def y_hat(self) -> NDArray[np.float64]: ...
+    @property
+    def propensity(self) -> NDArray[np.float64]: ...
+    @property
+    def levels(self) -> list[float]: ...
+    @property
+    def arm_names(self) -> list[str]: ...
+    @property
+    def variable_importance(self) -> NDArray[np.float64]: ...
+    @property
+    def n_trees(self) -> int: ...
+    def dr_scores(self) -> NDArray[np.float64]: ...
+    def ate(self) -> DmlResult: ...
+    def blp(self, arm: int, basis: NDArray[np.float64]) -> Blp: ...
+    def gate(self, arm: int, groups: NDArray[np.float64]) -> Blp: ...
 
 @final
 class StaggeredResult:
@@ -485,6 +544,61 @@ class RandomForestRegressor:
     def predict(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
     @property
     def feature_importances_(self) -> Optional[NDArray[np.float64]]: ...
+
+@final
+class RegressionForest:
+    """Honest regression forest (grf's `regression_forest`), implemented in Rust."""
+
+    def __new__(
+        cls,
+        n_estimators: int = 2000,
+        sample_fraction: float = 0.5,
+        mtry: Optional[int] = None,
+        min_node_size: int = 5,
+        honesty: bool = True,
+        honesty_fraction: float = 0.5,
+        honesty_prune_leaves: bool = True,
+        alpha: float = 0.05,
+        imbalance_penalty: float = 0.0,
+        ci_group_size: int = 2,
+        random_state: int = 0,
+    ) -> Self: ...
+    def __copy__(self) -> Self: ...
+    def __deepcopy__(self, memo: Any, /) -> Self: ...
+    def fit(self, x: NDArray[np.float64], y: NDArray[np.float64]) -> Self: ...
+    def predict(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
+    def predict_with_variance(self, x: NDArray[np.float64]) -> tuple[NDArray[np.float64], NDArray[np.float64]]: ...
+    def predict_oob(self, x: NDArray[np.float64]) -> tuple[NDArray[np.float64], NDArray[np.float64]]: ...
+    @property
+    def variable_importance_(self) -> Optional[NDArray[np.float64]]: ...
+
+@final
+class QuantileForest:
+    """Quantile forest (grf's `quantile_forest`), implemented in Rust."""
+
+    def __new__(
+        cls,
+        quantiles: Sequence[float] = ...,  # default [0.1, 0.5, 0.9]
+        n_estimators: int = 2000,
+        sample_fraction: float = 0.5,
+        mtry: Optional[int] = None,
+        min_node_size: int = 5,
+        honesty: bool = True,
+        honesty_fraction: float = 0.5,
+        honesty_prune_leaves: bool = True,
+        alpha: float = 0.05,
+        imbalance_penalty: float = 0.0,
+        random_state: int = 0,
+    ) -> Self: ...
+    def __copy__(self) -> Self: ...
+    def __deepcopy__(self, memo: Any, /) -> Self: ...
+    def fit(self, x: NDArray[np.float64], y: NDArray[np.float64]) -> Self: ...
+    def predict(self, x: NDArray[np.float64], quantiles: Optional[Sequence[float]] = None) -> NDArray[np.float64]: ...
+    def predict_oob(self, x: NDArray[np.float64], quantiles: Optional[Sequence[float]] = None) -> NDArray[np.float64]: ...
+    @property
+    def quantiles(self) -> list[float]: ...
+    @property
+    def variable_importance_(self) -> Optional[NDArray[np.float64]]: ...
 
 @final
 class RandomForestClassifier:
@@ -865,6 +979,55 @@ def fit_causal_forest(
     clipping_threshold: float = 1e-2,
     treatment_names: Optional[list[str]] = None,
 ) -> CausalForestResult: ...
+def fit_instrumental_forest(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    z: NDArray[np.float64],
+    x: NDArray[np.float64],
+    ml_y: Any,
+    ml_d: Any,
+    ml_z: Any,
+    num_trees: int = 2000,
+    sample_fraction: float = 0.5,
+    mtry: Optional[int] = None,
+    min_node_size: int = 5,
+    honesty: bool = True,
+    honesty_fraction: float = 0.5,
+    prune_empty_leaves: bool = True,
+    alpha: float = 0.05,
+    imbalance_penalty: float = 0.0,
+    stabilize_splits: bool = True,
+    ci_group_size: int = 2,
+    reduced_form_weight: float = 0.0,
+    forest_seed: int = 0,
+    n_folds: int = 5,
+    seed: int = 0,
+    clipping_threshold: float = 1e-2,
+    treatment_names: Optional[list[str]] = None,
+) -> InstrumentalForestResult: ...
+def fit_multi_arm_causal_forest(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    ml_y: Any,
+    ml_d: Any,
+    num_trees: int = 2000,
+    sample_fraction: float = 0.5,
+    mtry: Optional[int] = None,
+    min_node_size: int = 5,
+    honesty: bool = True,
+    honesty_fraction: float = 0.5,
+    prune_empty_leaves: bool = True,
+    alpha: float = 0.05,
+    imbalance_penalty: float = 0.0,
+    stabilize_splits: bool = True,
+    ci_group_size: int = 2,
+    forest_seed: int = 0,
+    n_folds: int = 5,
+    seed: int = 0,
+    clipping_threshold: float = 1e-2,
+    treatment_name: Optional[str] = None,
+) -> MultiArmCausalForestResult: ...
 def fit_autodml(
     y: NDArray[np.float64],
     d: NDArray[np.float64],

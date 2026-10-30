@@ -19,6 +19,7 @@ The nuisance functions are ordinary prediction problems. dml-rs accepts two kind
 | `RandomForestRegressor(...)` | `RandomForestClassifier(...)` | `RandomForest*` (same parameters) |
 | `GradientBoostingRegressor(...)` | `GradientBoostingClassifier(...)` | `GradientBoosting*` (same parameters) |
 | `HistGradientBoostingRegressor(...)` | `HistGradientBoostingClassifier(...)` | `HistGradientBoosting*` (same parameters) |
+| `RegressionForest(...)` | | R's `grf::regression_forest` (honest, with variances) |
 
 Parameter names follow scikit-learn, so switching between the two is a matter of changing the
 import.

@@ -1275,6 +1275,9 @@ pub fn to_regressor(obj: &Bound<'_, PyAny>) -> PyResult<Box<dyn Regressor>> {
     if let Ok(o) = obj.cast::<PyHistGradientBoostingRegressor>() {
         return Ok(Box::new(o.borrow().inner.clone()));
     }
+    if let Ok(o) = obj.cast::<crate::forest::PyRegressionForest>() {
+        return Ok(Box::new(o.borrow().inner.clone()));
+    }
     Ok(Box::new(PyRegressor::new(obj)?))
 }
 

@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Instrumental forests (`InstrumentalForest` / `InstrumentalForestDml`, R's
+  `grf::instrumental_forest`): conditional local average treatment effects with an instrument,
+  confidence intervals, compliance scores and doubly robust average, BLP and GATE for a binary
+  instrument.
+- Multi-arm causal forests (`MultiArmCausalForest` / `MultiArmCausalForestDml`, R's
+  `grf::multi_arm_causal_forest`): effects of several treatment levels against a baseline in one
+  forest, with variances, doubly robust averages per contrast, BLP and GATE per arm.
+- `RegressionForest` (grf's `regression_forest`, a nuisance learner with variance estimates) and
+  `QuantileForest` (grf's `quantile_forest`).
+- `CausalForest.policy_tree` / `CausalForestFit::policy_tree`: policy trees on the doubly robust
+  scores.
+- Example notebook on causal forests with the 401(k) data.
+
+### Changed
+- All forests share one engine. With `honesty_prune_leaves=False`, a tree whose leaf has no
+  estimation rows is skipped for that point, as in grf (it used to fall back to the parent node).
+  Variable importance no longer counts splits removed by pruning.
+
 ## [0.22.0] - 2026-10-31
 
 ### Added

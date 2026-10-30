@@ -37,9 +37,11 @@ from ._dml_rs import (
     LogisticRegressionCV,
     Ols,
     QteResult,
+    QuantileForest,
     RdFlexResult,
     RandomForestClassifier,
     RandomForestRegressor,
+    RegressionForest,
     __version__,
     fit_apo,
     fit_apos,
@@ -64,7 +66,7 @@ from ._blp import BLP
 from ._cate import DRLearner, RLearner, SLearner, TLearner, XLearner
 from ._policy import PolicyTree
 from ._tuning import OptunaResult
-from ._forest import CausalForest
+from ._forest import CausalForest, InstrumentalForest, MultiArmCausalForest
 from ._autodml import (
     ATE,
     AutoDML,
@@ -117,6 +119,8 @@ __all__ = [
     "SSM",
     "AutoDML",
     "CausalForest",
+    "InstrumentalForest",
+    "MultiArmCausalForest",
     "ATE",
     "AverageDerivative",
     "ShiftEffect",
@@ -147,6 +151,8 @@ __all__ = [
     "LogisticRegressionCV",
     "RandomForestRegressor",
     "RandomForestClassifier",
+    "RegressionForest",
+    "QuantileForest",
     "GradientBoostingRegressor",
     "HistGradientBoostingRegressor",
     "HistGradientBoostingClassifier",

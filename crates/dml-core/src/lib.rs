@@ -11,7 +11,9 @@
 //! - [`Did`] / [`DidCs`]: doubly robust difference-in-differences for panel data and
 //!   repeated cross-sections (Sant'Anna & Zhao, 2020)
 //! - [`CausalForestDml`]: causal forests (generalized random forests, as R's `grf`) for
-//!   individual treatment effects `τ(x)` with confidence intervals
+//!   individual treatment effects `τ(x)` with confidence intervals;
+//!   [`InstrumentalForestDml`] (conditional LATE) and [`MultiArmCausalForestDml`]
+//!   (several treatment arms); [`RegressionForest`] and [`QuantileForest`]
 //! - [`AutoDml`]: automatic debiased ML of any mean of a linear functional of the regression
 //!   (ATE, average derivatives, shift and policy effects, your own), with the Riesz
 //!   representer learned from the functional (see [`riesz`])
@@ -94,7 +96,11 @@ pub mod stats;
 pub use blp::Blp;
 pub use bootstrap::{Bootstrap, BootstrapMethod};
 pub use cate::{CateFit, DrLearner, RLearner, SLearner, TLearner, XLearner};
-pub use causal_forest::{CausalForest, CausalForestDml, CausalForestFit, ForestSettings};
+pub use causal_forest::{
+    CausalForest, CausalForestDml, CausalForestFit, ForestSettings, InstrumentalForest,
+    InstrumentalForestDml, InstrumentalForestFit, MultiArmCausalForest, MultiArmCausalForestDml,
+    MultiArmCausalForestFit, QuantileForest, RegressionForest,
+};
 pub use cluster::ClusterFold;
 pub use crossfit::{
     cross_fit_predict, cross_fit_predict_proba, cross_fit_predict_proba_subset,

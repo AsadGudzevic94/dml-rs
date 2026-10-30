@@ -602,6 +602,60 @@ split-frequency importance. The defaults are grf's (2000 trees, subsamples of ha
     let ate = fit.ate()?;
     ```
 
+`policy_tree(features, depth=2)` turns the doubly robust scores into a treatment rule: a shallow
+tree of `features` that recommends treatment where the effect is positive (as `IRM.policy_tree`).
+
+### Instrumental forests
+
+When the treatment is endogenous but an instrument $Z$ moves it, `InstrumentalForest` (R's
+`grf::instrumental_forest`) estimates the conditional local average treatment effect
+
+$$
+\theta(x) = \frac{\operatorname{Cov}(Z, Y \mid X = x)}{\operatorname{Cov}(Z, D \mid X = x)},
+$$
+
+the effect among compliers with covariates $x$ for a binary instrument. `ml_z` learns
+$E[Z \mid X]$; the trees split on the heterogeneity of $\theta$, and each child keeps a share
+`alpha` of the parent's instrument variation. With a binary instrument, `compliance_` holds
+out-of-bag estimates of $E[D \mid Z = 1, X] - E[D \mid Z = 0, X]$, and `ate()`, `blp` and `gate`
+use grf's doubly robust scores for the average of $\theta(X)$.
+
+```python
+iv = dml_rs.InstrumentalForest(ml_y, ml_d, ml_z).fit(X, y, d, z)
+iv.effect(X_new), iv.effect_interval(X_new)
+iv.ate().summary                      # average conditional LATE
+```
+
+### Multi-arm causal forests
+
+`MultiArmCausalForest` (R's `grf::multi_arm_causal_forest`) takes a treatment of several discrete
+levels and estimates the effect of every level against the smallest (the baseline),
+$\tau_k(x) = E[Y(k) - Y(0) \mid X = x]$, in one forest: $\theta(x) = \operatorname{Var}(W \mid
+x)^{-1} \operatorname{Cov}(W, Y \mid x)$ for the residualised arm indicators $W$. `ml_d` is a
+classifier fitted for each level against the rest. `effect` returns one column per non-baseline
+level, `ate()` one row per contrast, and `blp(basis, level)` / `gate(groups, level)` describe one
+arm.
+
+```python
+ma = dml_rs.MultiArmCausalForest(ml_y, ml_d).fit(X, y, d)   # d in {0, 1, 2}
+ma.effect(X_new)                      # (n, 2): effects of levels 1 and 2 against 0
+ma.ate().summary
+```
+
+### Regression and quantile forests
+
+The same engine gives two learners. `RegressionForest` (grf's `regression_forest`) is an honest
+random forest for $E[Y \mid X]$ with variance estimates (`predict_with_variance`) and out-of-bag
+predictions; it works as a nuisance learner in any model. `QuantileForest` (grf's
+`quantile_forest`) predicts conditional quantiles from the forest weights, with splits chosen to
+separate the quantiles given at construction (default 0.1, 0.5, 0.9):
+
+```python
+qf = dml_rs.QuantileForest(quantiles=[0.1, 0.5, 0.9]).fit(X, y)
+qf.predict(X_new)                     # (n, 3)
+qf.predict(X_new, quantiles=[0.25])   # any quantile
+```
+
 ## Heterogeneous effects
 
 - **Best linear predictor** (`cate`) and **group average treatment effects** (`gate`) give
