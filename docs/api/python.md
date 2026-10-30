@@ -89,3 +89,5 @@ takes `store_models=True` to keep the fitted learners in `models_`.
 ::: dml_rs.RandomForestClassifier
 ::: dml_rs.GradientBoostingRegressor
 ::: dml_rs.GradientBoostingClassifier
+::: dml_rs.HistGradientBoostingRegressor
+::: dml_rs.HistGradientBoostingClassifier

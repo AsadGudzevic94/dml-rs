@@ -47,6 +47,7 @@ nav:
       - Python: api/python.md
       - Rust: api/rust.md
   - Validation: validation.md
+  - Benchmarks: benchmarks.md
   - Changelog: changelog.md
   - Citing: citing.md
 

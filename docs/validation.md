@@ -50,6 +50,12 @@ check that every design's effect is recovered by the matching estimator.
 `fetch_401K` and `fetch_bonus` return the same DataFrames as DoubleML's (the bonus preparation is
 compared on a synthetic raw file, the 401(k) data with a download).
 
+The histogram gradient boosting learners reproduce scikit-learn's `HistGradientBoosting*`
+exactly: with the same `random_state` the number of trees, the early-stopping scores and every
+prediction are identical (also with missing values, sample weights, more than 200 000 rows, where
+the bins come from a random subsample, and early stopping on a validation split), and DML fits
+with them equal fits with scikit-learn's learners to `1e-12`.
+
 The Python test suite checks the bindings against DoubleML and scikit-learn (including the
 learners themselves), and the type stubs are checked against the compiled extension with
 `mypy.stubtest`.

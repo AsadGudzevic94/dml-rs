@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `HistGradientBoostingRegressor` and `HistGradientBoostingClassifier`: histogram-based gradient
+  boosting (LightGBM-style binning and leaf-wise growth) for large data, with scikit-learn's
+  parameters, missing values, sample weights and early stopping. With the same `random_state` the
+  predictions are identical to scikit-learn's `HistGradientBoosting*`. Rust: `EarlyStopping`.
+- Benchmarks page in the documentation and `parity/bench_all.py`, timing dml-rs against DoubleML
+  with the matching scikit-learn learners from 10 000 to 1 000 000 observations.
+
 ## [0.20.0] - 2026-10-27
 
 ### Added

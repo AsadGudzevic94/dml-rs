@@ -57,7 +57,7 @@ impl Mt19937 {
     }
 
     /// NumPy's `random_interval(max)`: uniform on `0..=max` by masked rejection.
-    fn interval(&mut self, max: u64) -> u64 {
+    pub(crate) fn interval(&mut self, max: u64) -> u64 {
         if max == 0 {
             return 0;
         }
@@ -75,6 +75,13 @@ impl Mt19937 {
                 return value;
             }
         }
+    }
+
+    /// `RandomState.random_sample()`: a double in `[0, 1)` from two draws.
+    pub(crate) fn random_sample(&mut self) -> f64 {
+        let a = f64::from(self.next_u32() >> 5);
+        let b = f64::from(self.next_u32() >> 6);
+        (a * 67_108_864.0 + b) / 9_007_199_254_740_992.0
     }
 
     /// Legacy `RandomState.shuffle` of a 1-D sequence (Fisher–Yates from the end).
@@ -159,8 +166,26 @@ pub(crate) fn stratified_train_test_split(
     labels: &[f64],
     seed: u32,
 ) -> Result<(Vec<usize>, Vec<usize>)> {
+    stratified_split(labels, seed, 0.5)
+}
+
+/// `train_test_split(range(n), test_size=test_size, random_state=seed)` without
+/// stratification (scikit-learn's `ShuffleSplit`).
+pub(crate) fn shuffle_split(n: usize, test_size: f64, seed: u32) -> (Vec<usize>, Vec<usize>) {
+    let n_test = (test_size * n as f64).ceil() as usize;
+    let perm = Mt19937::new(seed).permutation(n);
+    (perm[n_test..].to_vec(), perm[..n_test].to_vec())
+}
+
+/// `train_test_split(range(n), test_size=test_size, random_state=seed,
+/// stratify=labels)` (scikit-learn's `StratifiedShuffleSplit`).
+pub(crate) fn stratified_split(
+    labels: &[f64],
+    seed: u32,
+    test_size: f64,
+) -> Result<(Vec<usize>, Vec<usize>)> {
     let n = labels.len();
-    let n_test = (0.5 * n as f64).ceil() as usize;
+    let n_test = (test_size * n as f64).ceil() as usize;
     let n_train = n - n_test;
     let (classes, y_indices) = unique_inverse(labels);
     let mut class_counts = vec![0usize; classes.len()];
@@ -169,7 +194,7 @@ pub(crate) fn stratified_train_test_split(
     }
     if class_counts.iter().any(|&c| c < 2) {
         return Err(DmlError::InvalidArgument(
-            "every treatment / instrument group needs at least two observations per fold".into(),
+            "a stratified split needs at least two observations of every group".into(),
         ));
     }
     if n_train < classes.len() || n_test < classes.len() {

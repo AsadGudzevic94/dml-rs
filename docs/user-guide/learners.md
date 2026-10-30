@@ -18,6 +18,7 @@ The nuisance functions are ordinary prediction problems. dml-rs accepts two kind
 | | `LogisticRegressionCV()` | `LogisticRegressionCV(scoring="neg_log_loss")` |
 | `RandomForestRegressor(...)` | `RandomForestClassifier(...)` | `RandomForest*` (same parameters) |
 | `GradientBoostingRegressor(...)` | `GradientBoostingClassifier(...)` | `GradientBoosting*` (same parameters) |
+| `HistGradientBoostingRegressor(...)` | `HistGradientBoostingClassifier(...)` | `HistGradientBoosting*` (same parameters) |
 
 Parameter names follow scikit-learn, so switching between the two is a matter of changing the
 import.
@@ -36,6 +37,15 @@ import.
   equally well, scikit-learn breaks the tie by a random feature order set by its `random_state`;
   dml-rs breaks it deterministically. Predictions on the training data are identical; on new data
   they agree up to the variation scikit-learn itself shows across seeds.
+- **Histogram gradient boosting** (LightGBM-style) is the learner for large data: every feature is
+  binned once into at most 255 quantile bins, and trees are grown best-first on histograms of the
+  gradients, so a split costs a pass over 255 bins instead of a sort. It follows scikit-learn's
+  `HistGradientBoosting*` step by step (binning, leaf-wise growth with `max_leaf_nodes=31`,
+  `min_samples_leaf=20`, missing values sent to the better side, early stopping on a 10%
+  validation split above 10 000 samples), and with the same `random_state` its predictions are
+  identical to scikit-learn's, bit for bit, also with sample weights and missing values. As a
+  nuisance learner it runs without Python and fits the folds in parallel; see
+  [Benchmarks](../benchmarks.md).
 - **Random forests** follow scikit-learn's parameters and bootstrap scheme with their own random
   number generator, so they are statistically equivalent rather than identical.
 

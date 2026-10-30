@@ -83,8 +83,9 @@ hyperparameter tuning as DoubleML's `tune` (grid or randomized search) and `tune
 DoubleML's tutorials, and the data generating processes of DoubleML's `make_*` functions
 (`dml_rs.datasets`, `dml_core::datasets`).
 
-**Learners:** gradient boosting and random forests (both implemented in Rust; the boosting
-grows the same trees as scikit-learn's), OLS / ridge, Lasso and logistic regression, cross-validated
+**Learners:** gradient boosting, histogram gradient boosting for large data and random forests
+(implemented in Rust; the boosting grows the same trees as scikit-learn's, the histogram boosting
+reproduces scikit-learn's predictions exactly), OLS / ridge, Lasso and logistic regression, cross-validated
 Lasso and logistic regression (`LassoCV`, `LogisticRegressionCV`, which choose their penalty as
 scikit-learn does and reproduce its results), or any scikit-learn estimator from Python. New learners and new orthogonal scores plug in through the
 `Regressor`, `Classifier` and `LinearScoreModel` traits.
@@ -266,32 +267,20 @@ model.p_adjust("romano-wolf")       # also "holm" and "bonferroni"
 
 ## Performance
 
-Partially linear regression with 5-fold cross-fitting, run on the same machine (16 cores).
-DoubleML uses scikit-learn learners with `n_jobs=-1` where available.
+Same models, same data, 5-fold cross-fitting: dml-rs with its built-in learners against DoubleML
+with the matching scikit-learn learners, on a 16-thread laptop (Intel i5-1240P).
 
-| Nuisance learner | n × p | dml-rs | DoubleML | Speed-up |
-|---|---|---|---|---|
-| Linear regression | 10 000 × 20 | 7.5 ms | 54 ms | ~7× |
-| Random forest (100 trees) | 10 000 × 20 | 4.4 s | 12.4 s | ~3× |
-| Gradient boosting (200 stages) | 10 000 × 20 | 10.0 s | 84.9 s | ~8.5× |
-| Cross-validated Lasso (`LassoCV`) | 10 000 × 20 | 65 ms | 650 ms | ~10× |
+| Model | Nuisance learners | n | dml-rs | DoubleML | Speed-up |
+|---|---|--:|--:|--:|--:|
+| PLR | Cross-validated Lasso | 10 000 | 0.05 s | 0.47 s | **9.3×** |
+| PLR | Gradient boosting (100 trees) | 50 000 | 23.1 s | 195.8 s | **8.5×** |
+| PLR | Random forest (100 trees) | 50 000 | 30.6 s | 73.5 s | **2.4×** |
+| IRM | Histogram gradient boosting | 100 000 | 2.5 s | 7.7 s | **3.1×** |
+| IRM | Histogram gradient boosting | 1 000 000 | 20.7 s | 43.2 s | **2.1×** |
 
-<details>
-<summary>All benchmark sizes</summary>
-
-| Nuisance learner | n × p | dml-rs | DoubleML |
-|---|---|---|---|
-| Linear regression | 1 000 × 10 | 0.52 ms | 12.4 ms |
-| Linear regression | 100 000 × 50 | 241 ms | 1 244 ms |
-| Random forest | 2 000 × 10 | 0.30 s | 1.82 s |
-| Gradient boosting | 2 000 × 10 | 0.87 s | 8.1 s |
-
-Scripts: [`parity/bench_doubleml.py`](parity/bench_doubleml.py),
-[`parity/bench_forest.py`](parity/bench_forest.py),
-[`parity/bench_boosting.py`](parity/bench_boosting.py), [`parity/bench_cv.py`](parity/bench_cv.py)
-and `cargo bench -p dml-core`.
-In every comparison the estimates agree.
-</details>
+All 16 configurations, the setup and a discussion are on the
+[benchmarks page](https://asadgudzevic94.github.io/dml-rs/benchmarks/); the script is
+[`parity/bench_all.py`](parity/bench_all.py). In every comparison the estimates agree.
 
 ## Validation
 

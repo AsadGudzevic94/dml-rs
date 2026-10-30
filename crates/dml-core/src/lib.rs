@@ -44,10 +44,10 @@
 //! - [`Regressor`] / [`Classifier`]: plug-in nuisance learners
 //!   ([`Ols`], [`Lasso`], [`LassoCV`], [`LogisticRegression`], [`LogisticRegressionCV`],
 //!   [`RandomForestRegressor`],
-//!   [`RandomForestClassifier`], [`GradientBoostingRegressor`], [`GradientBoostingClassifier`]
-//!   built in); models whose nuisance models share a learner argument (IRM, APO, IIVM, DID,
-//!   SSM) also take a learner per nuisance model (`nuisance_regressor("ml_g1", ...)`, see
-//!   [`NuisanceLearners`])
+//!   [`RandomForestClassifier`], [`GradientBoostingRegressor`], [`GradientBoostingClassifier`],
+//!   [`HistGradientBoostingRegressor`], [`HistGradientBoostingClassifier`] built in); models
+//!   whose nuisance models share a learner argument (IRM, APO, IIVM, DID, SSM) also take a
+//!   learner per nuisance model (`nuisance_regressor("ml_g1", ...)`, see [`NuisanceLearners`])
 //! - [`KFold`] / [`SampleSplitting`]: reproducible sample splitting
 //!
 //! ```
@@ -100,10 +100,10 @@ pub use data::DmlData;
 pub use error::{DmlError, Result};
 pub use fit::{fit_model, fit_model_clustered, DmlFit, PAdjust};
 pub use learner::{
-    Classifier, CvScoring, GradientBoostingClassifier, GradientBoostingRegressor,
-    GridSearchClassifier, GridSearchRegressor, Lasso, LassoCV, LogisticRegression,
-    LogisticRegressionCV, MaxFeatures, Ols, RandomForestClassifier, RandomForestRegressor,
-    Regressor,
+    Classifier, CvScoring, EarlyStopping, GradientBoostingClassifier, GradientBoostingRegressor,
+    GridSearchClassifier, GridSearchRegressor, HistGradientBoostingClassifier,
+    HistGradientBoostingRegressor, Lasso, LassoCV, LogisticRegression, LogisticRegressionCV,
+    MaxFeatures, Ols, RandomForestClassifier, RandomForestRegressor, Regressor,
 };
 pub use model::{
     Apo, Apos, AposFit, AutoDml, CateSignal, Cvar, Did, DidCs, DidScore, ExternalPredictions,

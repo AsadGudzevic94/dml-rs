@@ -42,6 +42,8 @@ __all__ = [
     "GradientBoostingRegressor",
     "GridSearchClassifier",
     "GridSearchRegressor",
+    "HistGradientBoostingClassifier",
+    "HistGradientBoostingRegressor",
     "Lasso",
     "LassoCV",
     "LogisticRegression",
@@ -525,6 +527,70 @@ class GradientBoostingClassifier:
     def predict_proba(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
     @property
     def feature_importances_(self) -> Optional[NDArray[np.float64]]: ...
+
+@final
+class HistGradientBoostingRegressor:
+    """Histogram-based gradient boosting (squared error); matches scikit-learn's
+    `HistGradientBoostingRegressor` with the same `random_state`. `early_stopping=None` means "auto"."""
+
+    def __new__(
+        cls,
+        learning_rate: float = 0.1,
+        max_iter: int = 100,
+        max_leaf_nodes: Optional[int] = ...,  # default 31
+        max_depth: Optional[int] = None,
+        min_samples_leaf: int = 20,
+        l2_regularization: float = 0.0,
+        max_features: float = 1.0,
+        max_bins: int = 255,
+        early_stopping: Union[Literal["auto"], bool, None] = None,
+        validation_fraction: Optional[float] = ...,  # default 0.1
+        n_iter_no_change: int = 10,
+        tol: float = 1e-7,
+        random_state: int = 0,
+    ) -> Self: ...
+    def __copy__(self) -> Self: ...
+    def __deepcopy__(self, memo: Any, /) -> Self: ...
+    def fit(
+        self, x: NDArray[np.float64], y: NDArray[np.float64], sample_weight: Optional[NDArray[np.float64]] = None
+    ) -> Self: ...
+    def predict(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
+    @property
+    def n_iter_(self) -> int: ...
+    @property
+    def validation_score_(self) -> NDArray[np.float64]: ...
+
+@final
+class HistGradientBoostingClassifier:
+    """Histogram-based gradient boosting (log loss, 0/1 labels); matches scikit-learn's
+    `HistGradientBoostingClassifier`. `predict_proba` returns P(Y = 1) only."""
+
+    def __new__(
+        cls,
+        learning_rate: float = 0.1,
+        max_iter: int = 100,
+        max_leaf_nodes: Optional[int] = ...,  # default 31
+        max_depth: Optional[int] = None,
+        min_samples_leaf: int = 20,
+        l2_regularization: float = 0.0,
+        max_features: float = 1.0,
+        max_bins: int = 255,
+        early_stopping: Union[Literal["auto"], bool, None] = None,
+        validation_fraction: Optional[float] = ...,  # default 0.1
+        n_iter_no_change: int = 10,
+        tol: float = 1e-7,
+        random_state: int = 0,
+    ) -> Self: ...
+    def __copy__(self) -> Self: ...
+    def __deepcopy__(self, memo: Any, /) -> Self: ...
+    def fit(
+        self, x: NDArray[np.float64], y: NDArray[np.float64], sample_weight: Optional[NDArray[np.float64]] = None
+    ) -> Self: ...
+    def predict_proba(self, x: NDArray[np.float64]) -> NDArray[np.float64]: ...
+    @property
+    def n_iter_(self) -> int: ...
+    @property
+    def validation_score_(self) -> NDArray[np.float64]: ...
 
 # ---------------------------------------------------------------------------
 # Fitting functions (called by the estimator classes)

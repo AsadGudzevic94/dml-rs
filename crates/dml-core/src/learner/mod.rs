@@ -8,6 +8,7 @@ use crate::error::{DmlError, Result};
 mod boosting;
 mod cv;
 mod forest;
+mod hist_boosting;
 mod lasso;
 mod logistic;
 mod ols;
@@ -17,6 +18,9 @@ pub use boosting::{GradientBoostingClassifier, GradientBoostingRegressor};
 pub use cv::{CvScoring, LassoCV, LogisticRegressionCV};
 pub use forest::{MaxFeatures, RandomForestClassifier, RandomForestRegressor};
 pub(crate) use forest::{Node, Tree, TreeBuilder, TreeParams};
+pub use hist_boosting::{
+    EarlyStopping, HistGradientBoostingClassifier, HistGradientBoostingRegressor,
+};
 pub use lasso::Lasso;
 pub use logistic::LogisticRegression;
 pub use ols::Ols;

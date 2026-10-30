@@ -2,10 +2,11 @@
 //! estimator act as a Rust [`Regressor`] / [`Classifier`].
 
 use dml_core::{
-    Classifier, CvScoring, DmlError, GradientBoostingClassifier, GradientBoostingRegressor,
-    GridSearchClassifier, GridSearchRegressor, Lasso, LassoCV, LogisticRegression,
-    LogisticRegressionCV, MaxFeatures, Ols, RandomForestClassifier, RandomForestRegressor,
-    Regressor,
+    Classifier, CvScoring, DmlError, EarlyStopping, GradientBoostingClassifier,
+    GradientBoostingRegressor, GridSearchClassifier, GridSearchRegressor,
+    HistGradientBoostingClassifier, HistGradientBoostingRegressor, Lasso, LassoCV,
+    LogisticRegression, LogisticRegressionCV, MaxFeatures, Ols, RandomForestClassifier,
+    RandomForestRegressor, Regressor,
 };
 use ndarray::{Array1, ArrayView1, ArrayView2};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
@@ -732,6 +733,166 @@ boosting_pyclass!(
     "Probability of class 1 (a 1-D array, unlike scikit-learn's two columns)."
 );
 
+/// `early_stopping` from Python: `"auto"`, `True` or `False`.
+fn parse_early_stopping(obj: &Bound<'_, PyAny>) -> PyResult<EarlyStopping> {
+    if let Ok(flag) = obj.extract::<bool>() {
+        return Ok(if flag {
+            EarlyStopping::Enabled
+        } else {
+            EarlyStopping::Disabled
+        });
+    }
+    match obj.extract::<String>().as_deref() {
+        Ok("auto") => Ok(EarlyStopping::Auto),
+        _ => Err(PyValueError::new_err(
+            "early_stopping must be 'auto', True or False",
+        )),
+    }
+}
+
+/// Generate a histogram gradient boosting pyclass with scikit-learn's
+/// parameters, `fit` (GIL released, optional `sample_weight`), a prediction
+/// method and `n_iter_`.
+macro_rules! hist_pyclass {
+    ($py_ty:ident, $rust_ty:ty, $name:literal, $predict:ident, $predict_doc:literal) => {
+        #[doc = concat!("Histogram-based gradient boosting implemented in Rust (`fit` releases the GIL). ",
+                        "Parameters and results follow scikit-learn's `", $name, "`.")]
+        #[pyclass(name = $name, module = "dml_rs")]
+        #[derive(Clone)]
+        pub struct $py_ty {
+            pub(crate) inner: $rust_ty,
+            learning_rate: f64,
+            max_iter: usize,
+            max_leaf_nodes: Option<usize>,
+        }
+
+        #[pymethods]
+        impl $py_ty {
+            /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
+            fn __copy__(&self) -> Self {
+                self.clone()
+            }
+
+            fn __deepcopy__(&self, _memo: &Bound<'_, PyAny>) -> Self {
+                self.clone()
+            }
+
+            #[new]
+            #[pyo3(signature = (learning_rate = 0.1, max_iter = 100, max_leaf_nodes = Some(31),
+                                max_depth = None, min_samples_leaf = 20, l2_regularization = 0.0,
+                                max_features = 1.0, max_bins = 255, early_stopping = None,
+                                validation_fraction = Some(0.1), n_iter_no_change = 10, tol = 1e-7,
+                                random_state = 0))]
+            #[allow(clippy::too_many_arguments)]
+            fn new(
+                learning_rate: f64,
+                max_iter: usize,
+                max_leaf_nodes: Option<usize>,
+                max_depth: Option<usize>,
+                min_samples_leaf: usize,
+                l2_regularization: f64,
+                max_features: f64,
+                max_bins: usize,
+                early_stopping: Option<&Bound<'_, PyAny>>,
+                validation_fraction: Option<f64>,
+                n_iter_no_change: usize,
+                tol: f64,
+                random_state: u32,
+            ) -> PyResult<Self> {
+                let early_stopping = match early_stopping {
+                    Some(obj) => parse_early_stopping(obj)?,
+                    None => EarlyStopping::Auto,
+                };
+                Ok(Self {
+                    inner: <$rust_ty>::new()
+                        .learning_rate(learning_rate)
+                        .max_iter(max_iter)
+                        .max_leaf_nodes(max_leaf_nodes)
+                        .max_depth(max_depth)
+                        .min_samples_leaf(min_samples_leaf)
+                        .l2_regularization(l2_regularization)
+                        .max_features(max_features)
+                        .max_bins(max_bins)
+                        .early_stopping(early_stopping)
+                        .validation_fraction(validation_fraction)
+                        .n_iter_no_change(n_iter_no_change)
+                        .tol(tol)
+                        .random_state(random_state),
+                    learning_rate,
+                    max_iter,
+                    max_leaf_nodes,
+                })
+            }
+
+            #[pyo3(signature = (x, y, sample_weight = None))]
+            fn fit<'py>(
+                mut slf: PyRefMut<'py, Self>,
+                x: PyReadonlyArray2<'py, f64>,
+                y: PyReadonlyArray1<'py, f64>,
+                sample_weight: Option<PyReadonlyArray1<'py, f64>>,
+            ) -> PyResult<PyRefMut<'py, Self>> {
+                let (x, y) = (x.as_array().to_owned(), y.as_array().to_owned());
+                let w = sample_weight.map(|w| w.as_array().to_owned());
+                let mut model = slf.inner.clone();
+                slf.py()
+                    .detach(|| match &w {
+                        Some(w) => model.fit_weighted(x.view(), y.view(), w.view()),
+                        None => model.fit(x.view(), y.view()),
+                    })
+                    .map_err(to_py_err)?;
+                slf.inner = model;
+                Ok(slf)
+            }
+
+            #[doc = $predict_doc]
+            fn $predict<'py>(
+                &self,
+                py: Python<'py>,
+                x: PyReadonlyArray2<'py, f64>,
+            ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+                Ok(self.inner.$predict(x.as_array()).map_err(to_py_err)?.into_pyarray(py))
+            }
+
+            /// Number of fitted trees (fewer than `max_iter` after early stopping).
+            #[getter]
+            fn n_iter_(&self) -> usize {
+                self.inner.n_iter()
+            }
+
+            /// Early-stopping scores (negative loss) from the baseline on, as
+            /// scikit-learn's `validation_score_` (or `train_score_` without a
+            /// validation split); empty without early stopping.
+            #[getter]
+            fn validation_score_<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+                self.inner.validation_scores().to_vec().into_pyarray(py)
+            }
+
+            fn __repr__(&self) -> String {
+                format!(
+                    "{}(learning_rate={}, max_iter={}, max_leaf_nodes={:?})",
+                    $name, self.learning_rate, self.max_iter, self.max_leaf_nodes
+                )
+            }
+        }
+    };
+}
+
+hist_pyclass!(
+    PyHistGradientBoostingRegressor,
+    HistGradientBoostingRegressor,
+    "HistGradientBoostingRegressor",
+    predict,
+    "Predicted values."
+);
+
+hist_pyclass!(
+    PyHistGradientBoostingClassifier,
+    HistGradientBoostingClassifier,
+    "HistGradientBoostingClassifier",
+    predict_proba,
+    "Probability of class 1 (a 1-D array, unlike scikit-learn's two columns)."
+);
+
 // ---------------------------------------------------------------------------
 // Adapters for arbitrary Python estimators.
 // ---------------------------------------------------------------------------
@@ -1111,6 +1272,9 @@ pub fn to_regressor(obj: &Bound<'_, PyAny>) -> PyResult<Box<dyn Regressor>> {
     if let Ok(o) = obj.cast::<PyGradientBoostingRegressor>() {
         return Ok(Box::new(o.borrow().inner.clone()));
     }
+    if let Ok(o) = obj.cast::<PyHistGradientBoostingRegressor>() {
+        return Ok(Box::new(o.borrow().inner.clone()));
+    }
     Ok(Box::new(PyRegressor::new(obj)?))
 }
 
@@ -1128,6 +1292,9 @@ pub fn to_classifier(obj: &Bound<'_, PyAny>) -> PyResult<Box<dyn Classifier>> {
         return Ok(Box::new(o.borrow().inner.clone()));
     }
     if let Ok(o) = obj.cast::<PyGradientBoostingClassifier>() {
+        return Ok(Box::new(o.borrow().inner.clone()));
+    }
+    if let Ok(o) = obj.cast::<PyHistGradientBoostingClassifier>() {
         return Ok(Box::new(o.borrow().inner.clone()));
     }
     Ok(Box::new(PyClassifier::new(obj)?))
