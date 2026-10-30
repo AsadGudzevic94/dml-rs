@@ -20,6 +20,7 @@ __all__ = [
     "fit_apo",
     "fit_apos",
     "fit_autodml",
+    "fit_causal_forest",
     "fit_cate",
     "fit_did",
     "fit_iivm",
@@ -37,6 +38,7 @@ __all__ = [
     "Blp",
     "Bootstrap",
     "CateResult",
+    "CausalForestResult",
     "DmlResult",
     "GradientBoostingClassifier",
     "GradientBoostingRegressor",
@@ -296,6 +298,30 @@ class RdFlexResult:
     @property
     def h_fs(self) -> float: ...
     def confint(self, level: float = 0.95) -> NDArray[np.float64]: ...
+
+@final
+class CausalForestResult:
+    """A fitted causal forest (returned by `fit_causal_forest`)."""
+
+    def effect(self, x: NDArray[np.float64]) -> tuple[NDArray[np.float64], NDArray[np.float64]]: ...
+    @property
+    def oob_effect(self) -> NDArray[np.float64]: ...
+    @property
+    def oob_variance(self) -> NDArray[np.float64]: ...
+    @property
+    def y_hat(self) -> NDArray[np.float64]: ...
+    @property
+    def d_hat(self) -> NDArray[np.float64]: ...
+    @property
+    def variable_importance(self) -> NDArray[np.float64]: ...
+    @property
+    def n_trees(self) -> int: ...
+    @property
+    def binary_treatment(self) -> bool: ...
+    def dr_scores(self) -> NDArray[np.float64]: ...
+    def ate(self) -> DmlResult: ...
+    def blp(self, basis: NDArray[np.float64]) -> Blp: ...
+    def gate(self, groups: NDArray[np.float64]) -> Blp: ...
 
 @final
 class StaggeredResult:
@@ -816,6 +842,29 @@ def fit_quantile(
 def concat(results: Sequence[DmlResult]) -> DmlResult: ...
 def simulate(name: str, params: dict[str, Any], seed: int) -> dict[str, Any]: ...
 def set_parallel_folds(on: bool) -> None: ...
+def fit_causal_forest(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    ml_y: Any,
+    ml_d: Any,
+    num_trees: int = 2000,
+    sample_fraction: float = 0.5,
+    mtry: Optional[int] = None,
+    min_node_size: int = 5,
+    honesty: bool = True,
+    honesty_fraction: float = 0.5,
+    prune_empty_leaves: bool = True,
+    alpha: float = 0.05,
+    imbalance_penalty: float = 0.0,
+    stabilize_splits: bool = True,
+    ci_group_size: int = 2,
+    forest_seed: int = 0,
+    n_folds: int = 5,
+    seed: int = 0,
+    clipping_threshold: float = 1e-2,
+    treatment_names: Optional[list[str]] = None,
+) -> CausalForestResult: ...
 def fit_autodml(
     y: NDArray[np.float64],
     d: NDArray[np.float64],

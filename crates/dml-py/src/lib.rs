@@ -16,12 +16,14 @@ use pyo3::types::PyDict;
 mod cate;
 mod datasets;
 mod errors;
+mod forest;
 mod learners;
 mod staggered;
 
 use cate::{fit_cate, PyBlp, PyCateResult};
 use datasets::simulate;
 use errors::to_py_err;
+use forest::{fit_causal_forest, PyCausalForestResult};
 use learners::{
     to_classifier, to_regressor, PyGradientBoostingClassifier, PyGradientBoostingRegressor,
     PyGridSearchClassifier, PyGridSearchRegressor, PyHistGradientBoostingClassifier,
@@ -1972,15 +1974,15 @@ fn draw_folds<'py>(
 mod dml_rs_native {
     #[pymodule_export]
     use super::{
-        concat, draw_folds, fit_apo, fit_apos, fit_autodml, fit_cate, fit_did, fit_iivm, fit_irm,
-        fit_lplr, fit_pliv, fit_plpr, fit_plr, fit_qte, fit_quantile, fit_rdflex, fit_ssm,
-        fit_staggered_did, result_from_scores, set_parallel_folds, simulate, PyAposResult, PyBlp,
-        PyBootstrap, PyCateResult, PyDmlResult, PyGradientBoostingClassifier,
-        PyGradientBoostingRegressor, PyGridSearchClassifier, PyGridSearchRegressor,
-        PyHistGradientBoostingClassifier, PyHistGradientBoostingRegressor, PyLasso, PyLassoCV,
-        PyLogisticRegression, PyLogisticRegressionCV, PyOls, PyPolicyTree, PyQteResult,
-        PyRandomForestClassifier, PyRandomForestRegressor, PyRdFlexResult, PySensitivityBenchmark,
-        PySensitivityResult, PyStaggeredResult,
+        concat, draw_folds, fit_apo, fit_apos, fit_autodml, fit_cate, fit_causal_forest, fit_did,
+        fit_iivm, fit_irm, fit_lplr, fit_pliv, fit_plpr, fit_plr, fit_qte, fit_quantile,
+        fit_rdflex, fit_ssm, fit_staggered_did, result_from_scores, set_parallel_folds, simulate,
+        PyAposResult, PyBlp, PyBootstrap, PyCateResult, PyCausalForestResult, PyDmlResult,
+        PyGradientBoostingClassifier, PyGradientBoostingRegressor, PyGridSearchClassifier,
+        PyGridSearchRegressor, PyHistGradientBoostingClassifier, PyHistGradientBoostingRegressor,
+        PyLasso, PyLassoCV, PyLogisticRegression, PyLogisticRegressionCV, PyOls, PyPolicyTree,
+        PyQteResult, PyRandomForestClassifier, PyRandomForestRegressor, PyRdFlexResult,
+        PySensitivityBenchmark, PySensitivityResult, PyStaggeredResult,
     };
 
     #[pymodule_init]

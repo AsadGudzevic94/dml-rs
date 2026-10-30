@@ -68,6 +68,7 @@ takes `store_models=True` to keep the fitted learners in `models_`.
 
 ## Heterogeneous effects
 
+::: dml_rs.CausalForest
 ::: dml_rs.BLP
 ::: dml_rs.SLearner
 ::: dml_rs.TLearner

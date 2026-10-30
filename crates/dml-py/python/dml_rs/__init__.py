@@ -64,6 +64,7 @@ from ._blp import BLP
 from ._cate import DRLearner, RLearner, SLearner, TLearner, XLearner
 from ._policy import PolicyTree
 from ._tuning import OptunaResult
+from ._forest import CausalForest
 from ._autodml import (
     ATE,
     AutoDML,
@@ -115,6 +116,7 @@ __all__ = [
     "concat",
     "SSM",
     "AutoDML",
+    "CausalForest",
     "ATE",
     "AverageDerivative",
     "ShiftEffect",

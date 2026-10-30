@@ -74,6 +74,20 @@ reproduces the inverse propensity weights exactly. Simulations check that it rec
 derivatives, shift and policy effects and the ATE (where it agrees with IRM), that the Riesz
 correction removes the bias of a misspecified regression, and that its confidence intervals cover.
 
+Causal forests are compared with EconML's port of grf (`econml.grf.CausalForest`, 2000 trees),
+grown on exactly the same residuals, in the design of Wager and Athey (2018) with 4000
+observations and 20 replications
+([`parity/compare_causal_forest.py`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/compare_causal_forest.py)).
+Their random number generators differ, so the forests are compared statistically:
+
+| | RMSE of $\hat\tau(x)$ | Coverage of 95% intervals | Mean interval width | Time per forest |
+|---|--:|--:|--:|--:|
+| dml-rs | 0.182 | 0.93 | 0.78 | 0.9 s |
+| EconML | 0.174 | 0.88 | 0.60 | 3.1 s |
+
+The two forests' estimates correlate at 0.998, and the average effect from dml-rs's doubly
+robust scores covers the true average effect in 95% of the replications.
+
 Monte-Carlo tests simulate data with a known effect and check that confidence intervals reach
 their nominal coverage: PLR, LPLR (both scores), PLPR (three approaches, with correlated unit effects), RDFlex (sharp and fuzzy), IRM (ATE and ATTE), PLIV, IIVM, DiD, sample selection (both scores), quantile and CVaR effects, joint bootstrap bands, and
 clustered data (where iid intervals cover about 75% of the time and cluster-robust ones about 95%).

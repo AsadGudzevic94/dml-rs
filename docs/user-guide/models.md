@@ -549,6 +549,59 @@ work as for the other models.
     regression the estimate stays consistent if the dictionary is rich enough, but the standard
     errors can be conservative.
 
+## Causal forests
+
+$$
+Y = \tau(X)\,D + m(X) + \varepsilon,
+$$
+
+with an effect $\tau(x)$ that may vary arbitrarily with the covariates. `CausalForest`
+estimates $\tau(x)$ at any point, with a confidence interval, following the generalized random
+forests of Athey, Tibshirani and Wager (2019) as implemented in R's `grf::causal_forest`:
+
+1. **Orthogonalisation.** `ml_y` and `ml_d` learn $E[Y \mid X]$ and $E[D \mid X]$ (a classifier
+   for a binary treatment), cross-fitted with any learners; the forest works on the residuals
+   $\tilde Y$, $\tilde D$.
+2. **Honest trees.** Each tree takes a subsample; half of it chooses the splits and the other half
+   estimates the leaves. Splits maximise the heterogeneity of the effect (grf's gradient-based
+   split on the pseudo-outcomes of the parent's local effect), and every child keeps a share
+   `alpha` of the parent's treatment variation.
+3. **Estimation.** $\hat\tau(x)$ is a residual-on-residual regression weighted by how often each
+   training point shares a leaf with $x$. Trees are grown in groups of `ci_group_size` on one
+   half-sample, which gives the variance of $\hat\tau(x)$ (the bootstrap of little bags).
+
+For the training rows, `effect_` holds out-of-bag estimates (each from the trees that did not see
+the row). With a binary treatment, these feed doubly robust (AIPW) scores for the average effect
+(`ate()`), best linear predictors (`blp`), group effects (`gate`) and grf's `test_calibration`,
+which checks whether the forest's heterogeneity is real. `variable_importance_` is grf's
+split-frequency importance. The defaults are grf's (2000 trees, subsamples of half the data,
+`min_node_size=5`, `alpha=0.05`).
+
+=== "Python"
+
+    ```python
+    cf = dml_rs.CausalForest(dml_rs.HistGradientBoostingRegressor(),
+                             dml_rs.HistGradientBoostingClassifier()).fit(X, y, d)
+    cf.effect(X_new)                  # τ̂(x)
+    cf.effect_interval(X_new)         # 95% intervals
+    cf.ate().summary                  # average effect from the doubly robust scores
+    cf.gate(groups).summary           # group average effects
+    cf.test_calibration()             # is the heterogeneity real?
+    cf.variable_importance_
+    ```
+
+=== "Rust"
+
+    ```rust
+    use dml_core::{CausalForestDml, ForestSettings, TreatmentLearner};
+
+    let fit = CausalForestDml::new(ml_y, TreatmentLearner::Classifier(Box::new(ml_d)))
+        .forest(ForestSettings { num_trees: 2000, ..Default::default() })
+        .fit(&data)?;
+    let (tau, variance) = fit.effect(x_new.view())?;
+    let ate = fit.ate()?;
+    ```
+
 ## Heterogeneous effects
 
 - **Best linear predictor** (`cate`) and **group average treatment effects** (`gate`) give
