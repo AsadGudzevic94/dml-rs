@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-30
+
 ### Added
 - `HistGradientBoostingRegressor` and `HistGradientBoostingClassifier`: histogram-based gradient
   boosting (LightGBM-style binning and leaf-wise growth) for large data, with scikit-learn's
@@ -426,7 +428,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.17.0...v0.18.0
