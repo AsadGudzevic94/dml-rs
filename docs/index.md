@@ -20,8 +20,8 @@ tested for numerical agreement with the reference [DoubleML](https://docs.double
 
 - **Fast**
 
-    A pure-Rust core with parallel cross-fitting and built-in learners: typically 3–25× faster than
-    DoubleML with scikit-learn learners.
+    A pure-Rust core with parallel cross-fitting and built-in learners: 1.3–9× faster than DoubleML
+    with scikit-learn learners in the [benchmarks](benchmarks.md).
 
 - **Complete**
 
