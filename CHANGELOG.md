@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-10-31
+
 ### Added
 - Difference-in-differences with a continuous treatment: `ContinuousDID` estimates the
   dose-response `ATT(d | d)`, the average causal response `ACRT(d | d)` and the overall ATT and
@@ -535,7 +537,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.27.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.28.0...HEAD
+[0.28.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.24.0...v0.25.0
