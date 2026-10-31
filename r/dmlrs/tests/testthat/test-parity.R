@@ -12,7 +12,10 @@ read_parity <- function() {
 }
 
 p <- read_parity()
-tol <- 1e-10
+# The fixtures come from Python on one machine. Within a platform the two packages agree to
+# machine precision; across platforms, last-bit differences in the logistic regression fits (and
+# a forest split that depends on them) move the estimates by ~1e-9 relative.
+tol <- 1e-8
 
 test_that("PLR, its intervals and its sensitivity analysis match Python", {
   fit <- dml_plr(p$data[, "y"], p$data[, "dcont"], p$x, ml_l = lrn_lasso_cv(), n_rep = 2)
