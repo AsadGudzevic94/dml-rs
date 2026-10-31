@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-31
+
 ### Added
 - Instrumental forests (`InstrumentalForest` / `InstrumentalForestDml`, R's
   `grf::instrumental_forest`): conditional local average treatment effects with an instrument,
@@ -458,7 +460,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.22.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.23.0...HEAD
+[0.23.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.19.0...v0.20.0
