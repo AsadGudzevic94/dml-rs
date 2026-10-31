@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-31
+
 ### Added
 - R package **dmlrs** (`r/dmlrs`, extendr): `dml_plr()`, `dml_irm()`, `dml_pliv()`, `dml_iivm()`
   and `dml_did()` with the built-in learners (`lrn_lasso_cv()`, `lrn_random_forest()`, ...),
@@ -497,7 +499,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.24.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.25.0...HEAD
+[0.25.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.21.0...v0.22.0
