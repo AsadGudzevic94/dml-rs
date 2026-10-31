@@ -42,9 +42,13 @@ __all__ = [
     "fit_rdflex",
     "fit_ssm",
     "fit_staggered_did",
+    "fit_surrogate_index",
+    "fit_continuous_did",
     "AposResult",
     "DoseResponseResult",
     "MediationResult",
+    "SurrogateResult",
+    "ContinuousDidResult",
     "Blp",
     "Bootstrap",
     "CateResult",
@@ -302,6 +306,33 @@ class MediationResult:
     @property
     def n_trimmed(self) -> list[int]:
         """Trimmed observations per repetition."""
+
+@final
+class SurrogateResult:
+    """Long-term effect from short-term surrogates (surrogate index)."""
+
+    @property
+    def effect(self) -> DmlResult:
+        """The long-term average treatment effect in the experimental population."""
+    @property
+    def potential_outcomes(self) -> DmlResult:
+        """``E[Y(1)]`` and ``E[Y(0)]`` in the experimental population."""
+
+@final
+class ContinuousDidResult:
+    """Difference-in-differences with a continuous treatment: ATT(d), ACRT(d), overall effects."""
+
+    @property
+    def grid(self) -> list[float]: ...
+    @property
+    def att(self) -> DmlResult:
+        """``ATT(d | d)`` at the grid doses."""
+    @property
+    def acrt(self) -> DmlResult:
+        """``ACRT(d | d)`` at the grid doses."""
+    @property
+    def overall(self) -> DmlResult:
+        """Overall ATT and ACRT."""
 
 @final
 class QteResult:
@@ -956,6 +987,39 @@ def fit_mediation(
     seed: int = 0,
     splits: Optional[_Splits] = None,
 ) -> MediationResult: ...
+def fit_surrogate_index(
+    x_exp: NDArray[np.float64],
+    s_exp: NDArray[np.float64],
+    w: NDArray[np.float64],
+    x_obs: NDArray[np.float64],
+    s_obs: NDArray[np.float64],
+    y: NDArray[np.float64],
+    ml_g: Any,
+    ml_m: Any,
+    ml_nested: Any = None,
+    propensity: Optional[float] = None,
+    trimming_threshold: float = 1e-2,
+    n_folds: int = 5,
+    n_rep: int = 1,
+    seed: int = 0,
+    splits: Optional[_Splits] = None,
+) -> SurrogateResult: ...
+def fit_continuous_did(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    ml_g: Any = None,
+    ml_m: Any = None,
+    ml_nested: Any = None,
+    degree: int = 3,
+    num_knots: int = 0,
+    grid: Optional[Sequence[float]] = None,
+    trimming_threshold: float = 1e-2,
+    n_folds: int = 5,
+    n_rep: int = 1,
+    seed: int = 0,
+    splits: Optional[_Splits] = None,
+) -> ContinuousDidResult: ...
 def fit_plpr(
     y: NDArray[np.float64],
     d: NDArray[np.float64],

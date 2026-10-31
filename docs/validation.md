@@ -119,6 +119,38 @@ observations, because medDML's rule drops by $P(D = 1 \mid M, X)$, a function of
 post-treatment mediator, which biases all effects when the mediator predicts the treatment (see
 the warning in the [user guide](user-guide/models.md#causal-mediation-direct-and-indirect-effects)).
 
+`SurrogateIndex` has no reference implementation in DoubleML, R or Python packages. Its tests
+compare it with an independent NumPy / scikit-learn implementation of the Chen and Ritzwoller
+(2023) estimator on the same folds (random forests, learned and known propensity) to `1e-10`, and
+with Athey et al.'s plug-in estimator in a randomised experiment, where both are consistent and
+agree within half a standard error.
+
+A simulation with experimental assignment confounded by a covariate (two surrogates, true
+long-term effect 2.5, 1000 experimental and 2000 observational units,
+[`parity/surrogate_mc.py`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/surrogate_mc.py))
+gives:
+
+| Estimator | Replications | Bias | RMSE | Coverage of 95% intervals |
+|---|--:|--:|--:|--:|
+| `SurrogateIndex`, OLS / logit | 500 | −0.009 | 0.156 | 0.970 |
+| `SurrogateIndex`, random forests | 100 | −0.034 | 0.218 | 0.980 |
+| Plug-in surrogate index (difference of arm means) | 500 | 0.823 | 0.838 | — |
+
+The plug-in ignores that assignment depends on the covariate; the efficient score adjusts for
+it.
+
+`ContinuousDID` reproduces R's `contdid` (version 0.1.2, Callaway, Goodman-Bacon and Sant'Anna's
+package) without covariates: in three spline configurations (cubic; quadratic with two interior
+knots; linear with three) the dose-response $ATT(d)$, the average causal response $ACRT(d)$, the
+overall ATT and ACRT and the analytic standard errors from contdid's influence functions agree to
+`1e-9`
+([`parity/generate_contdid_fixtures.R`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/generate_contdid_fixtures.R)).
+contdid has no covariates; the doubly robust estimator with covariates is checked against a NumPy
+implementation on the same folds (random forests) to `1e-10`, its overall ATT equals the doubly
+robust DiD estimate, and simulations with confounding covariates check coverage. Two contdid
+issues are avoided (see the known differences below); over 300 simulations dml-rs's standard
+error of the overall ACRT matches the spread of the estimates.
+
 Causal forests are compared with EconML's port of grf (`econml.grf.CausalForest`, 2000 trees),
 grown on exactly the same residuals, in the design of Wager and Athey (2018) with 4000
 observations and 20 replications
@@ -159,6 +191,15 @@ clustered data (where iid intervals cover about 75% of the time and cluster-robu
 ## Known differences
 
 These are deliberate, documented, and covered by tests:
+
+- **Continuous-treatment DiD (contdid 0.1.2).** contdid evaluates its spline on the grid with
+  `splines2::bSpline(dvals)`, whose boundary knots come from the grid's range rather than from the
+  treated doses used in the fit, so with its default grid (10%–99% quantiles of the dose) the
+  dose-response curve is off (by up to 0.08 in a simple design with effect $2d^2$); dml-rs uses
+  the fitted basis everywhere, and the two agree when the grid spans the treated doses. contdid
+  also divides the influence function of the overall ACRT, which is on the scale of the $n_1$
+  treated units, by the full sample size $n$, so its standard error is too small by the factor
+  $n_1/n$; dml-rs's matches the sampling spread in simulations.
 
 - **IIVM with `normalize_ipw=True`.** dml-rs normalises the inverse-probability weights with the
   instrument; DoubleML 0.11 used the treatment. The DoubleML maintainers confirmed the instrument

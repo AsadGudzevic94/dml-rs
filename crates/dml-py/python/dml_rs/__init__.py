@@ -78,8 +78,10 @@ from ._autodml import (
     RieszLasso,
     ShiftEffect,
 )
+from ._contdid import ContinuousDID
 from ._dose import DoseResponse
 from ._mediation import Mediation
+from ._surrogate import SurrogateIndex
 from ._models import (
     APO,
     APOS,
@@ -117,8 +119,10 @@ __all__ = [
     "APO",
     "APOS",
     "CausalContrast",
+    "ContinuousDID",
     "DoseResponse",
     "Mediation",
+    "SurrogateIndex",
     "Framework",
     "concat",
     "SSM",

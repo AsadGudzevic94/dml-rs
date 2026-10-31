@@ -59,9 +59,11 @@ tested for numerical agreement with the reference [DoubleML](https://docs.double
 | Interactive IV model | Local average treatment effect (LATE) with a binary instrument | `Iivm` | `IIVM` |
 | Difference-in-differences | ATT for panel data and repeated cross-sections | `Did`, `DidCs` | `DID`, `DIDCS` |
 | Staggered difference-in-differences | Group-time effects ATT(g, t), aggregated by cohort, period or event time | `StaggeredDid` | `StaggeredDID` |
+| Continuous-treatment DiD | Dose-response ATT(d) and average causal response of a continuous treatment in a two-period DiD (Callaway, Goodman-Bacon and Sant'Anna; matches R's `contdid`), doubly robust with covariates | `ContinuousDid` | `ContinuousDID` |
 | Causal forests | Individual treatment effects τ(x) with confidence intervals (generalized random forests, as R's `grf`), average and group effects, calibration test, policy trees; instrumental (conditional LATE) and multi-arm forests; regression and quantile forests | `CausalForestDml`, `InstrumentalForestDml`, `MultiArmCausalForestDml` | `CausalForest`, `InstrumentalForest`, `MultiArmCausalForest` |
 | Continuous treatments | Dose-response curve E[Y(t)] and its derivative, with uniform confidence bands (kernel DML of Colangelo and Lee) | `DoseResponse` | `DoseResponse` |
 | Causal mediation | Natural direct and indirect effects through one or several mediators (Farbmacher et al.; matches R's `causalweight::medDML`) | `Mediation` | `Mediation` |
+| Long-term effects | Effect on an outcome the experiment never observes, from short-term surrogates and an observational sample (surrogate index with the efficient score of Chen and Ritzwoller) | `SurrogateIndex` | `SurrogateIndex` |
 | Automatic debiased ML | Any mean of a linear functional of the regression (ATE, average derivatives, shift and policy effects, your own), with the Riesz representer learned automatically | `AutoDml` | `AutoDML` |
 | Regression discontinuity | Sharp and fuzzy RD effects with flexible covariate adjustment (rdrobust back end with its options, covariates and clusters) | `RdFlex` | `RDFlex` |
 | Heterogeneous effects | CATE meta-learners (S, T, X, R, DR); best linear predictor and group effects (GATE) for PLR, IRM and APO; policy trees | `DrLearner`, `Blp`, `PolicyTree`, … | `DRLearner`, `PLR.cate`, `IRM.policy_tree`, … |

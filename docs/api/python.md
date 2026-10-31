@@ -22,10 +22,12 @@ All classes are available from the top-level package, e.g. `dml_rs.PLR`.
 ::: dml_rs.DID
 ::: dml_rs.DIDCS
 ::: dml_rs.StaggeredDID
+::: dml_rs.ContinuousDID
 ::: dml_rs.DIDAggregation
 ::: dml_rs.RDFlex
 ::: dml_rs.DoseResponse
 ::: dml_rs.Mediation
+::: dml_rs.SurrogateIndex
 ::: dml_rs.AutoDML
 
 ## Functionals and Riesz representers

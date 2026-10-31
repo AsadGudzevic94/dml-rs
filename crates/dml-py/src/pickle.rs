@@ -78,6 +78,8 @@ restorers! {
     "AposResult" => crate::PyAposResult,
     "DoseResponseResult" => crate::PyDoseResponseResult,
     "MediationResult" => crate::PyMediationResult,
+    "SurrogateResult" => crate::PySurrogateResult,
+    "ContinuousDidResult" => crate::PyContinuousDidResult,
     "RdFlexResult" => crate::PyRdFlexResult,
     "QteResult" => crate::PyQteResult,
     "Blp" => crate::cate::PyBlp,

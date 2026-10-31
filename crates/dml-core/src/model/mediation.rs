@@ -563,7 +563,7 @@ fn nested_roles(n: usize, folds: &[Fold], split: bool) -> Result<Vec<(Vec<usize>
         .collect())
 }
 
-fn fit_regressor(
+pub(super) fn fit_regressor(
     proto: &dyn Regressor,
     x: ArrayView2<'_, f64>,
     rows: &[usize],
@@ -593,7 +593,7 @@ fn regress(
     predict_rows(&*model, x, at)
 }
 
-fn predict_rows(
+pub(super) fn predict_rows(
     model: &dyn Regressor,
     x: ArrayView2<'_, f64>,
     rows: &[usize],
@@ -603,7 +603,7 @@ fn predict_rows(
 }
 
 /// Fit the classifier on `rows` (target `d[rows]`) and predict `P(D = 1)` at `at`.
-fn classify(
+pub(super) fn classify(
     proto: &dyn Classifier,
     x: ArrayView2<'_, f64>,
     rows: &[usize],

@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Difference-in-differences with a continuous treatment: `ContinuousDID` estimates the
+  dose-response `ATT(d | d)`, the average causal response `ACRT(d | d)` and the overall ATT and
+  ACRT in a two-period design (Callaway, Goodman-Bacon and Sant'Anna 2024), as a B-spline series
+  in the dose. Without covariates it reproduces R's `contdid` to 1e-9; with covariates the
+  estimate is doubly robust under conditional parallel trends with cross-fitted nuisances.
+  Uniform bands from the multiplier bootstrap, `plot`. Rust: `ContinuousDid` / `ContinuousDidFit`.
+- Long-term effects from surrogates: `SurrogateIndex` combines an experiment (treatment and
+  short-term surrogates, no long-term outcome) with an observational sample (surrogates and the
+  long-term outcome) to estimate the long-term average treatment effect, using the surrogate index
+  of Athey, Chetty, Imbens and Kang (2019) and the efficient score of Chen and Ritzwoller (2023).
+  Known or learned experimental propensity, joint inference with the potential outcomes. Rust:
+  `SurrogateIndex` / `SurrogateData` / `SurrogateFit`.
+
 ## [0.27.0] - 2026-10-31
 
 ### Added

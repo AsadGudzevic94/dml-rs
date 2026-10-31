@@ -3,11 +3,11 @@
 //! `fit_*` functions below.
 
 use dml_core::{
-    Apo, Apos, AposFit, Bandwidth, BootstrapMethod, Cvar, DensityModel, Did, DidCs, DidScore,
-    DmlData, DmlFit, DoseKernel, DoseResponse, DoseResponseFit, ExternalPredictions, Fold, Iivm,
-    Irm, IrmScore, Lplr, LplrScore, Lpq, Mediation, MediationFit, PAdjust, PanelApproach, Pliv,
-    PlivScore, PlivVariant, Plpr, Plr, PlrScore, Pq, Qte, QteFit, Ssm, SsmScore, StaticPanel,
-    TreatmentLearner,
+    Apo, Apos, AposFit, Bandwidth, BootstrapMethod, ContinuousDid, ContinuousDidFit, Cvar,
+    DensityModel, Did, DidCs, DidScore, DmlData, DmlFit, DoseKernel, DoseResponse, DoseResponseFit,
+    ExternalPredictions, Fold, Iivm, Irm, IrmScore, Lplr, LplrScore, Lpq, Mediation, MediationFit,
+    PAdjust, PanelApproach, Pliv, PlivScore, PlivVariant, Plpr, Plr, PlrScore, Pq, Qte, QteFit,
+    Ssm, SsmScore, StaticPanel, SurrogateData, SurrogateFit, SurrogateIndex, TreatmentLearner,
 };
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -1309,6 +1309,182 @@ fn fit_mediation(
         .map_err(to_py_err)
 }
 
+/// Result of `fit_surrogate_index`: the long-term effect and potential outcomes.
+#[pyclass(name = "SurrogateResult", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct PySurrogateResult {
+    inner: SurrogateFit,
+}
+
+#[pymethods]
+impl PySurrogateResult {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "SurrogateResult", self)
+    }
+
+    /// The long-term average treatment effect in the experimental population.
+    #[getter]
+    fn effect(&self) -> PyDmlResult {
+        PyDmlResult::from_fit(self.inner.effect().clone())
+    }
+
+    /// `E[Y(1)]` and `E[Y(0)]` in the experimental population.
+    #[getter]
+    fn potential_outcomes(&self) -> PyDmlResult {
+        PyDmlResult::from_fit(self.inner.potential_outcomes().clone())
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (x_exp, s_exp, w, x_obs, s_obs, y, ml_g, ml_m, ml_nested = None,
+                    propensity = None, trimming_threshold = 1e-2, n_folds = 5, n_rep = 1,
+                    seed = 0, splits = None))]
+#[allow(clippy::too_many_arguments)]
+fn fit_surrogate_index(
+    py: Python<'_>,
+    x_exp: PyReadonlyArray2<'_, f64>,
+    s_exp: PyReadonlyArray2<'_, f64>,
+    w: PyReadonlyArray1<'_, f64>,
+    x_obs: PyReadonlyArray2<'_, f64>,
+    s_obs: PyReadonlyArray2<'_, f64>,
+    y: PyReadonlyArray1<'_, f64>,
+    ml_g: &Bound<'_, PyAny>,
+    ml_m: &Bound<'_, PyAny>,
+    ml_nested: Option<&Bound<'_, PyAny>>,
+    propensity: Option<f64>,
+    trimming_threshold: f64,
+    n_folds: usize,
+    n_rep: usize,
+    seed: u64,
+    splits: Option<PySplits>,
+) -> PyResult<PySurrogateResult> {
+    let data = SurrogateData::new(
+        x_exp.as_array().to_owned(),
+        s_exp.as_array().to_owned(),
+        w.as_array().to_owned(),
+        x_obs.as_array().to_owned(),
+        s_obs.as_array().to_owned(),
+        y.as_array().to_owned(),
+    )
+    .map_err(to_py_err)?;
+    let mut model = SurrogateIndex::from_boxed(to_regressor(ml_g)?, to_classifier(ml_m)?)
+        .trimming_threshold(trimming_threshold)
+        .n_folds(n_folds)
+        .n_rep(n_rep)
+        .seed(seed);
+    if let Some(nested) = ml_nested {
+        model = model.ml_nested_boxed(to_regressor(nested)?);
+    }
+    if let Some(p) = propensity {
+        model = model.propensity(p);
+    }
+    let result = match splits {
+        Some(s) => {
+            let s = to_splits(s);
+            py.detach(|| model.fit_with_folds(&data, &s))
+        }
+        None => py.detach(|| model.fit(&data)),
+    };
+    result
+        .map(|inner| PySurrogateResult { inner })
+        .map_err(to_py_err)
+}
+
+/// Result of `fit_continuous_did`: dose-response ATT(d), ACRT(d) and overall effects.
+#[pyclass(name = "ContinuousDidResult", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct PyContinuousDidResult {
+    inner: ContinuousDidFit,
+}
+
+#[pymethods]
+impl PyContinuousDidResult {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "ContinuousDidResult", self)
+    }
+
+    #[getter]
+    fn grid(&self) -> Vec<f64> {
+        self.inner.grid().to_vec()
+    }
+
+    /// `ATT(d | d)` at the grid doses.
+    #[getter]
+    fn att(&self) -> PyDmlResult {
+        PyDmlResult::from_fit(self.inner.att().clone())
+    }
+
+    /// `ACRT(d | d)` at the grid doses.
+    #[getter]
+    fn acrt(&self) -> PyDmlResult {
+        PyDmlResult::from_fit(self.inner.acrt().clone())
+    }
+
+    /// Overall ATT and ACRT.
+    #[getter]
+    fn overall(&self) -> PyDmlResult {
+        PyDmlResult::from_fit(self.inner.overall().clone())
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (y, d, x, ml_g = None, ml_m = None, ml_nested = None, degree = 3,
+                    num_knots = 0, grid = None, trimming_threshold = 1e-2, n_folds = 5,
+                    n_rep = 1, seed = 0, splits = None))]
+#[allow(clippy::too_many_arguments)]
+fn fit_continuous_did(
+    py: Python<'_>,
+    y: PyReadonlyArray1<'_, f64>,
+    d: PyReadonlyArray2<'_, f64>,
+    x: PyReadonlyArray2<'_, f64>,
+    ml_g: Option<&Bound<'_, PyAny>>,
+    ml_m: Option<&Bound<'_, PyAny>>,
+    ml_nested: Option<&Bound<'_, PyAny>>,
+    degree: usize,
+    num_knots: usize,
+    grid: Option<Vec<f64>>,
+    trimming_threshold: f64,
+    n_folds: usize,
+    n_rep: usize,
+    seed: u64,
+    splits: Option<PySplits>,
+) -> PyResult<PyContinuousDidResult> {
+    let data = build_data(y, d, x, None, None, None, None)?;
+    let mut model = match (ml_g, ml_m) {
+        (Some(g), Some(m)) => ContinuousDid::from_boxed(to_regressor(g)?, to_classifier(m)?),
+        (None, None) => ContinuousDid::new(),
+        _ => {
+            return Err(PyValueError::new_err(
+                "pass both ml_g and ml_m (with covariates) or neither (without)",
+            ))
+        }
+    }
+    .degree(degree)
+    .num_knots(num_knots)
+    .trimming_threshold(trimming_threshold)
+    .n_folds(n_folds)
+    .n_rep(n_rep)
+    .seed(seed);
+    if let Some(nested) = ml_nested {
+        model = model.ml_nested_boxed(to_regressor(nested)?);
+    }
+    if let Some(grid) = grid {
+        model = model.grid(grid);
+    }
+    let result = match splits {
+        Some(s) => {
+            let s = to_splits(s);
+            py.detach(|| model.fit_with_folds(&data, &s))
+        }
+        None => py.detach(|| model.fit(&data)),
+    };
+    result
+        .map(|inner| PyContinuousDidResult { inner })
+        .map_err(to_py_err)
+}
+
 /// `E[D | X]` learner of LPLR: a classifier (probabilities) or a regressor.
 fn to_treatment_learner(obj: &Bound<'_, PyAny>, classifier: bool) -> PyResult<TreatmentLearner> {
     Ok(if classifier {
@@ -2253,18 +2429,19 @@ fn draw_folds<'py>(
 mod dml_rs_native {
     #[pymodule_export]
     use super::{
-        concat, draw_folds, fit_apo, fit_apos, fit_autodml, fit_cate, fit_causal_forest, fit_did,
-        fit_dose_response, fit_iivm, fit_instrumental_forest, fit_irm, fit_lplr, fit_mediation,
-        fit_multi_arm_causal_forest, fit_pliv, fit_plpr, fit_plr, fit_qte, fit_quantile,
-        fit_rdflex, fit_ssm, fit_staggered_did, result_from_scores, set_parallel_folds, simulate,
-        PyAposResult, PyBlp, PyBootstrap, PyCateResult, PyCausalForestResult, PyDmlResult,
+        concat, draw_folds, fit_apo, fit_apos, fit_autodml, fit_cate, fit_causal_forest,
+        fit_continuous_did, fit_did, fit_dose_response, fit_iivm, fit_instrumental_forest, fit_irm,
+        fit_lplr, fit_mediation, fit_multi_arm_causal_forest, fit_pliv, fit_plpr, fit_plr, fit_qte,
+        fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did, fit_surrogate_index,
+        result_from_scores, set_parallel_folds, simulate, PyAposResult, PyBlp, PyBootstrap,
+        PyCateResult, PyCausalForestResult, PyContinuousDidResult, PyDmlResult,
         PyDoseResponseResult, PyGradientBoostingClassifier, PyGradientBoostingRegressor,
         PyGridSearchClassifier, PyGridSearchRegressor, PyHistGradientBoostingClassifier,
         PyHistGradientBoostingRegressor, PyInstrumentalForestResult, PyLasso, PyLassoCV,
         PyLogisticRegression, PyLogisticRegressionCV, PyMediationResult,
         PyMultiArmCausalForestResult, PyOls, PyPolicyTree, PyQteResult, PyQuantileForest,
         PyRandomForestClassifier, PyRandomForestRegressor, PyRdFlexResult, PyRegressionForest,
-        PySensitivityBenchmark, PySensitivityResult, PyStaggeredResult,
+        PySensitivityBenchmark, PySensitivityResult, PyStaggeredResult, PySurrogateResult,
     };
 
     #[pymodule_export]

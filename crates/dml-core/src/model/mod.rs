@@ -11,6 +11,7 @@ use crate::sensitivity::SensitivityParts;
 
 mod apo;
 mod autodml;
+mod contdid;
 pub(crate) mod did;
 mod dose;
 mod iivm;
@@ -24,9 +25,11 @@ mod plr;
 mod quantile;
 mod rdflex;
 mod ssm;
+mod surrogate;
 
 pub use apo::{Apo, Apos, AposFit};
 pub use autodml::AutoDml;
+pub use contdid::{ContinuousDid, ContinuousDidFit};
 pub use did::{Did, DidCs, DidScore};
 pub use dose::{Bandwidth, DensityModel, DoseKernel, DoseResponse, DoseResponseFit};
 pub use iivm::Iivm;
@@ -39,6 +42,7 @@ pub use plr::{Plr, PlrScore};
 pub use quantile::{Cvar, Lpq, Pq, Qte, QteFit};
 pub use rdflex::{FirstStage, RdFlex, RdFlexFit, RdKernel};
 pub use ssm::{Ssm, SsmScore};
+pub use surrogate::{SurrogateData, SurrogateFit, SurrogateIndex};
 
 /// The data a model sees when estimating the effect of one treatment.
 ///

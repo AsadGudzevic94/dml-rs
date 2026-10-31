@@ -531,6 +531,74 @@ with $\eta = h\,n^{-1/6}$ by default.
     treatments; the estimator is validated against an independent implementation and in Colangelo
     and Lee's simulation design (see [Validation](../validation.md)).
 
+## Difference-in-differences with a continuous treatment
+
+Often every treated unit receives a different amount of treatment: a subsidy of varying size, the
+length of a programme, the dose of a policy across regions. With two periods and some untreated
+units ($D = 0$), Callaway, Goodman-Bacon and Sant'Anna (2024) identify, under parallel trends,
+the average effect of dose $d$ on the units that received it,
+
+$$
+ATT(d \mid d) = E[\Delta Y \mid D = d] - E[\Delta Y \mid D = 0],
+$$
+
+and its derivative, the average causal response $ACRT(d \mid d)$. `ContinuousDID` takes one row
+per unit with the outcome change $\Delta Y = Y_{\text{post}} - Y_{\text{pre}}$ and the dose
+$D \ge 0$, and estimates $ATT(d \mid d)$ as a B-spline series in the dose (degree 3, no interior
+knots by default), at a grid of doses, together with the overall ATT and ACRT averaged over the
+treated units. Without covariates this is the estimator of their R package `contdid`, which dml-rs
+reproduces.
+
+With covariates $X$, parallel trends may hold only conditionally:
+$E[\Delta Y(0) \mid D = d, X] = m_0(X) = E[\Delta Y \mid D = 0, X]$. dml-rs then estimates
+$ATT(d \mid d) = E[\Delta Y - m_0(X) \mid D = d] = B(d)'\beta$ with a doubly robust moment,
+
+$$
+\begin{aligned}
+\beta &= Q^{-1}\,\frac1n \sum_i \Bigl[T_i B(D_i) R_i
+- (1 - T_i)\,\frac{p(X_i)}{1 - p(X_i)}\,\bar b(X_i)\,R_i\Bigr], \\
+Q &= \frac1n \sum_i T_i B(D_i)B(D_i)',
+\end{aligned}
+$$
+
+with $T = 1\{D > 0\}$, $R = \Delta Y - m_0(X)$, $p(X) = P(T = 1 \mid X)$ and
+$\bar b(X) = E[B(D) \mid X, T = 1]$, all cross-fitted (`ml_g` for $m_0$ on the untreated units,
+`ml_m` for $p$, `ml_nested` for $\bar b$). The second term removes the first-order effect of
+errors in $m_0$. The overall ATT equals the doubly robust DiD estimate of Sant'Anna and Zhao
+(2020) for the binary indicator $T$. All estimates have explicit influence functions, so
+`bootstrap()` and `confint(joint=True)` give uniform bands over the dose grid.
+
+=== "Python"
+
+    ```python
+    # Without covariates: contdid's estimator.
+    model = dml_rs.ContinuousDID().fit(None, dy, dose)
+    # With covariates: doubly robust.
+    model = dml_rs.ContinuousDID(dml_rs.LassoCV(), dml_rs.LogisticRegressionCV())
+    model.fit(X, dy, dose)
+    model.summary                     # ATT(d) at the grid doses
+    model.acrt().summary              # ACRT(d)
+    model.overall().summary           # overall ATT and ACRT
+    model.bootstrap().plot(joint=True)  # ATT(d) with a uniform 95% band
+    ```
+
+=== "Rust"
+
+    ```rust
+    use dml_core::{ContinuousDid, DmlData, LassoCV, LogisticRegressionCV};
+
+    let data = DmlData::new(dy, dose, x)?;      // x may have zero columns
+    let fit = ContinuousDid::with_learners(LassoCV::new(), LogisticRegressionCV::new())
+        .fit(&data)?;
+    let (att, acrt, overall) = (fit.att(), fit.acrt(), fit.overall());
+    ```
+
+!!! note "Comparing doses"
+    $ATT(d \mid d)$ is the effect of dose $d$ *on the units that chose dose $d$*. Its shape
+    across doses mixes the causal response with differences between those units (selection on
+    gains). Interpreting $ACRT(d \mid d)$ or differences of $ATT$ across doses as the causal
+    effect of more treatment needs the paper's *strong* parallel trends assumption.
+
 ## Causal mediation: direct and indirect effects
 
 When a binary treatment works partly through an intermediate variable (a training programme
@@ -616,6 +684,81 @@ observations with propensity products below 0.05 (`trimming_rule="drop"`,
     learners. Propensities $q(M, X)$ near 0 or 1 (see `predictions_["ml_m_mediator"]`) mean that
     the mediator nearly reveals the treatment, and the cross-world means rest on few
     observations.
+
+## Long-term effects from surrogates
+
+Experiments usually end long before the outcome of interest is observed (earnings years after a
+training programme, retention a year after a product change). The *surrogate index* of Athey,
+Chetty, Imbens and Kang (2019) combines the experiment with an observational sample in which the
+long-term outcome is known:
+
+- the experiment ($G = 1$) has the treatment $W$, short-term outcomes $S$ (the surrogates, as
+  many as useful) and covariates $X$, but not the long-term outcome $Y$;
+- the observational sample ($G = 0$) has $S$, $X$ and $Y$.
+
+Two assumptions identify the long-term effect in the experimental population: **surrogacy**,
+$Y \perp W \mid S, X$ in the experiment (the treatment works on $Y$ only through the surrogates),
+and **comparability**, the distribution of $Y$ given $S, X$ is the same in both samples. The effect
+is then the treatment effect on the surrogate index $\bar\nu(S, X) = E[Y \mid S, X, G = 0]$:
+
+$$
+\tau = E[\bar\mu_1(X) - \bar\mu_0(X) \mid G = 1], \qquad
+\bar\mu_w(X) = E[\bar\nu(S, X) \mid W = w, X, G = 1].
+$$
+
+`SurrogateIndex` estimates it with the efficient score of Chen and Ritzwoller (2023). For
+$E[Y(1) \mid G = 1]$:
+
+$$
+\begin{aligned}
+\psi &= G\,\Bigl(\bar\mu_1(X) + \frac{W}{\pi(X)}\bigl(\bar\nu(S, X) - \bar\mu_1(X)\bigr) - \theta\Bigr) \\
+&\quad + (1 - G)\,\frac{\rho(S, X)}{1 - \rho(S, X)}\,\frac{\gamma(S, X)}{\pi(X)}\,\bigl(Y - \bar\nu(S, X)\bigr),
+\end{aligned}
+$$
+
+with the experiment's propensity score $\pi(X) = P(W = 1 \mid X, G = 1)$, its counterpart given the
+surrogates $\gamma(S, X) = P(W = 1 \mid S, X, G = 1)$ and the probability of belonging to the
+experiment $\rho(S, X) = P(G = 1 \mid S, X)$. The first line is the usual doubly robust score
+applied to the index; the second corrects errors in the learned index with the observational
+residuals, reweighted to the surrogate distribution of the treated experimental units. The naive
+plug-in (predict the index in the experiment, compare the arms) lacks this correction and inherits
+the regularisation bias of the index.
+
+`ml_g` learns the index on the observational sample (on $[S, X]$), `ml_nested` (default: a copy of
+`ml_g`) the arm means $\bar\mu_w$, and `ml_m` the three probabilities, which are clipped to
+$[0.01, 0.99]$. For a completely randomised experiment pass the known `propensity`. The samples are
+stacked (experiment first), and the sample splits are stratified by treated, control and
+observational units.
+
+=== "Python"
+
+    ```python
+    model = dml_rs.SurrogateIndex(dml_rs.LassoCV(), dml_rs.LogisticRegressionCV(),
+                                  propensity=0.5)
+    model.fit(X_exp, S_exp, w, X_obs, S_obs, y_obs)
+    model.summary                       # long-term ATE (experiment)
+    model.potential_outcomes().summary  # E[Y(1)], E[Y(0)]
+    model.predictions_["ml_g"]          # the surrogate index
+    ```
+
+=== "Rust"
+
+    ```rust
+    use dml_core::{LassoCV, LogisticRegressionCV, SurrogateData, SurrogateIndex};
+
+    let data = SurrogateData::new(x_exp, s_exp, w, x_obs, s_obs, y_obs)?;
+    let fit = SurrogateIndex::new(LassoCV::new(), LogisticRegressionCV::new())
+        .propensity(0.5)
+        .fit(&data)?;
+    let effect = fit.effect();                    // a DmlFit: coef, se, confint, bootstrap
+    ```
+
+!!! note "Choosing surrogates"
+    Surrogacy is more plausible with more surrogates: every channel through which the treatment
+    could affect the long-term outcome should be captured by $S$. Comparability fails if the
+    observational population differs from the experimental one in ways that change how $S$
+    predicts $Y$ (for example a different labour market). Neither assumption is testable with
+    these data, so report which surrogates are used and how the estimate changes with them.
 
 ## Automatic debiased ML (AutoDML)
 
