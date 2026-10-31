@@ -32,6 +32,7 @@ __all__ = [
     "fit_instrumental_forest",
     "fit_irm",
     "fit_lplr",
+    "fit_mediation",
     "fit_multi_arm_causal_forest",
     "fit_pliv",
     "fit_plpr",
@@ -43,6 +44,7 @@ __all__ = [
     "fit_staggered_did",
     "AposResult",
     "DoseResponseResult",
+    "MediationResult",
     "Blp",
     "Bootstrap",
     "CateResult",
@@ -286,6 +288,20 @@ class DoseResponseResult:
         """``∂β(t)/∂t`` at the grid points (None unless requested)."""
     def contrast(self, reference: float) -> DmlResult:
         """``β(t) − β(reference)`` for the other grid points."""
+
+@final
+class MediationResult:
+    """Natural direct and indirect effects and the potential outcomes."""
+
+    @property
+    def effects(self) -> DmlResult:
+        """Total, direct (treated, control) and indirect (treated, control) effects."""
+    @property
+    def potential_outcomes(self) -> DmlResult:
+        """``E[Y(1, M(1))]``, ``E[Y(1, M(0))]``, ``E[Y(0, M(1))]``, ``E[Y(0, M(0))]``."""
+    @property
+    def n_trimmed(self) -> list[int]:
+        """Trimmed observations per repetition."""
 
 @final
 class QteResult:
@@ -922,6 +938,24 @@ def fit_dose_response(
     seed: int = 0,
     splits: Optional[_Splits] = None,
 ) -> DoseResponseResult: ...
+def fit_mediation(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    m: NDArray[np.float64],
+    x: NDArray[np.float64],
+    ml_g: Any,
+    ml_m: Any,
+    ml_nested: Any = None,
+    trimming_rule: str = "truncate",
+    trimming_threshold: float = 1e-2,
+    normalize_ipw: bool = True,
+    nested_split: bool = True,
+    debias_nested: bool = True,
+    n_folds: int = 5,
+    n_rep: int = 1,
+    seed: int = 0,
+    splits: Optional[_Splits] = None,
+) -> MediationResult: ...
 def fit_plpr(
     y: NDArray[np.float64],
     d: NDArray[np.float64],

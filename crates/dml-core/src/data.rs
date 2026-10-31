@@ -13,6 +13,7 @@ use crate::error::{DmlError, Result};
 ///   and, binary, [`Iivm`](crate::Iivm))
 /// - `t`: optional 0/1 time-period indicator (for repeated cross-sections, [`DidCs`](crate::DidCs))
 /// - `s`: optional 0/1 selection indicator, 1 where the outcome is observed (for [`Ssm`](crate::Ssm))
+/// - `m`: optional mediator(s), shape `(n, q)` (for [`Mediation`](crate::Mediation))
 ///
 /// With several treatments each one is estimated in turn, and the other
 /// treatments are added to the covariates (as in DoubleML).
@@ -24,6 +25,7 @@ pub struct DmlData {
     z: Option<Array2<f64>>,
     t: Option<Array1<f64>>,
     s: Option<Array1<f64>>,
+    m: Option<Array2<f64>>,
     external: Option<crate::model::ExternalPredictions>,
     clusters: Option<Vec<Array1<i64>>>,
     treatment_names: Vec<String>,
@@ -78,6 +80,7 @@ impl DmlData {
             z: None,
             t: None,
             s: None,
+            m: None,
             external: None,
             clusters: None,
             treatment_names,
@@ -151,6 +154,31 @@ impl DmlData {
             ));
         }
         self.s = Some(s);
+        Ok(self)
+    }
+
+    /// Attach the mediator(s) of [`Mediation`](crate::Mediation), one per
+    /// column: variables on the causal path from the treatment to the outcome
+    /// (binary, categorical or continuous).
+    pub fn with_mediators(mut self, m: Array2<f64>) -> Result<Self> {
+        if m.nrows() != self.n_obs() {
+            return Err(DmlError::DimensionMismatch(format!(
+                "m has {} rows, expected {}",
+                m.nrows(),
+                self.n_obs()
+            )));
+        }
+        if m.ncols() == 0 {
+            return Err(DmlError::InvalidArgument(
+                "need at least one mediator".into(),
+            ));
+        }
+        if !all_finite(m.iter()) {
+            return Err(DmlError::InvalidArgument(
+                "mediator contains NaN or infinite values".into(),
+            ));
+        }
+        self.m = Some(m);
         Ok(self)
     }
 
@@ -279,6 +307,11 @@ impl DmlData {
 
     pub fn external_predictions(&self) -> Option<&crate::model::ExternalPredictions> {
         self.external.as_ref()
+    }
+
+    /// The mediators, if attached.
+    pub fn mediators(&self) -> Option<ArrayView2<'_, f64>> {
+        self.m.as_ref().map(|m| m.view())
     }
 
     /// The 0/1 selection indicator, if attached.

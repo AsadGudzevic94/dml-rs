@@ -79,6 +79,7 @@ from ._autodml import (
     ShiftEffect,
 )
 from ._dose import DoseResponse
+from ._mediation import Mediation
 from ._models import (
     APO,
     APOS,
@@ -117,6 +118,7 @@ __all__ = [
     "APOS",
     "CausalContrast",
     "DoseResponse",
+    "Mediation",
     "Framework",
     "concat",
     "SSM",

@@ -531,6 +531,92 @@ with $\eta = h\,n^{-1/6}$ by default.
     treatments; the estimator is validated against an independent implementation and in Colangelo
     and Lee's simulation design (see [Validation](../validation.md)).
 
+## Causal mediation: direct and indirect effects
+
+When a binary treatment works partly through an intermediate variable (a training programme
+raises employment partly by raising skills; a drug lowers mortality partly by lowering blood
+pressure), the total effect splits into a **direct** and an **indirect** effect. With
+$Y(d, m)$ the potential outcomes and $M(d)$ the potential mediator, the natural effects compare
+the potential-outcome means $E[Y(d, M(d'))]$:
+
+$$
+\begin{aligned}
+\underbrace{E[Y(1, M(1))] - E[Y(0, M(0))]}_{\text{total}}
+&= \underbrace{E[Y(1, M(d))] - E[Y(0, M(d))]}_{\text{direct}} \\
+&\quad + \underbrace{E[Y(1 - d, M(1))] - E[Y(1 - d, M(0))]}_{\text{indirect}}
+\end{aligned}
+$$
+
+for $d = 0$ or $1$. `Mediation` estimates all five effects (total; direct and indirect "under
+treatment", $d = 1$, and "under control", $d = 0$) with the double machine learning estimator of
+Farbmacher, Huber, Lafférs, Langen and Spindler (2022). It assumes that the covariates $X$ contain
+all confounders of treatment, mediator and outcome, and that none of them is affected by the
+treatment. The cross-world means $E[Y(d, M(1 - d))]$ use the efficient score written with
+propensity scores instead of mediator densities, so the mediator may be continuous or a vector;
+for $E[Y(1, M(0))]$:
+
+$$
+\begin{aligned}
+\psi &= \frac{D\,(1 - q(M, X))}{q(M, X)\,(1 - p(X))}\bigl(Y - \mu_1(M, X)\bigr) \\
+&\quad + \frac{1 - D}{1 - p(X)}\bigl(\mu_1(M, X) - \omega_1(X)\bigr) + \omega_1(X),
+\end{aligned}
+$$
+
+with $p(X) = P(D = 1 \mid X)$, $q(M, X) = P(D = 1 \mid M, X)$ (`ml_m`),
+$\mu_1(M, X) = E[Y \mid D = 1, M, X]$ (`ml_g`) and the nested mean
+$\omega_1(X) = E[\mu_1(M, X) \mid D = 0, X]$ (`ml_nested`). The nested mean is a regression of
+*predicted* outcomes, so it is cross-fitted on a separate part of each training sample
+(`nested_split`): with $K$ folds, fold $k$ fits $\mu$ on the next $K/2$ folds and $\omega$ on the
+others. By default $\omega$ is also debiased with reweighted residuals of $\mu$ (Qi and Zhang
+2026, `debias_nested`), which adds $D/p(X)\,(\omega_1(X) - \tau_1(X))$ with the debiased
+$\tau_1$ in place of $\omega_1$. The inverse probability weights are normalised
+(`normalize_ipw`). These are the defaults of R's `causalweight::medDML`, which dml-rs reproduces
+(see [Validation](../validation.md)), with one exception: extreme propensity scores. By default
+`Mediation` clips $p$ and $q$ to $[0.01, 0.99]$ (`trimming_rule="truncate"`), while medDML drops
+observations with propensity products below 0.05 (`trimming_rule="drop"`,
+`trimming_threshold=0.05`).
+
+=== "Python"
+
+    ```python
+    model = dml_rs.Mediation(dml_rs.LassoCV(), dml_rs.LogisticRegressionCV())
+    model.fit(X, y, d, m)               # m: one column per mediator
+    model.summary                       # total, direct and indirect effects
+    model.potential_outcomes().summary  # E[Y(1, M(1))], E[Y(1, M(0))], ...
+
+    data = dml_rs.DmlData(df, y_col="earnings", d_cols="training", m_cols="skills")
+    dml_rs.Mediation(ml_g, ml_m).fit(data)
+    ```
+
+=== "Rust"
+
+    ```rust
+    use dml_core::{DmlData, LassoCV, LogisticRegressionCV, Mediation};
+
+    let data = DmlData::new(y, d, x)?.with_mediators(m)?;
+    let fit = Mediation::new(LassoCV::new(), LogisticRegressionCV::new()).fit(&data)?;
+    let effects = fit.effects();                  // a DmlFit: coef, se, confint, bootstrap
+    let means = fit.potential_outcomes();
+    ```
+
+!!! warning "Why dml-rs does not drop observations by default"
+    $q(M, X) = P(D = 1 \mid M, X)$ depends on the mediator, which the treatment affects. Dropping
+    observations where $q$ is extreme therefore selects the sample on an outcome of the
+    treatment: treated units with unusually high mediator values and control units with low ones
+    disappear. When the mediator predicts the treatment well, the estimates are then biased,
+    the total effect included. In a linear design with total effect 3 (20 000 observations,
+    correctly specified learners), medDML's rule gives an estimate more than five standard errors
+    too small, and clipping gives one within sampling error. Use `trimming_rule="drop"` only to
+    reproduce medDML.
+
+!!! note "What the assumptions rule out"
+    Sequential ignorability fails if a confounder of the mediator–outcome relation is itself
+    affected by the treatment (for example a post-treatment job change that drives both skills
+    and earnings). Then the natural direct and indirect effects are not identified, whatever the
+    learners. Propensities $q(M, X)$ near 0 or 1 (see `predictions_["ml_m_mediator"]`) mean that
+    the mediator nearly reveals the treatment, and the cross-world means rest on few
+    observations.
+
 ## Automatic debiased ML (AutoDML)
 
 Many effects are a mean of a *linear functional* of the regression

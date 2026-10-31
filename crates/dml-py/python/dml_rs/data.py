@@ -1,8 +1,8 @@
 """A data container for the estimators, as DoubleML's ``DoubleMLData`` family.
 
 `DmlData` names the roles of the columns of a DataFrame (outcome, treatments, covariates and,
-depending on the design, instruments, clusters, time, selection indicator, unit identifier or
-running variable). Every estimator's ``fit`` accepts it in place of the arrays::
+depending on the design, instruments, mediators, clusters, time, selection indicator, unit
+identifier or running variable). Every estimator's ``fit`` accepts it in place of the arrays::
 
     data = dml_rs.DmlData(df, y_col="y", d_cols="d", x_cols=["x1", "x2"])
     dml_rs.PLR(ml_l, ml_m).fit(data)
@@ -52,6 +52,8 @@ class DmlData:
         Covariates; by default all columns not used in another role.
     z_cols : str or list of str, optional
         Instrument column(s).
+    m_cols : str or list of str, optional
+        Mediator column(s) (`Mediation`).
     cluster_cols : str or list of str, optional
         One or two cluster columns.
     t_col : str, optional
@@ -78,6 +80,7 @@ class DmlData:
         s_col: Optional[str] = None,
         id_col: Optional[str] = None,
         score_col: Optional[str] = None,
+        m_cols: Columns = None,
     ) -> None:
         if not hasattr(data, "columns"):
             raise TypeError("data must be a pandas DataFrame (use DmlData.from_arrays for arrays)")
@@ -85,6 +88,7 @@ class DmlData:
         self.y_col = str(y_col)
         self.d_cols = _as_list(d_cols)
         self.z_cols = _as_list(z_cols)
+        self.m_cols = _as_list(m_cols)
         self.cluster_cols = _as_list(cluster_cols)
         self.t_col = t_col
         self.s_col = s_col
@@ -94,7 +98,7 @@ class DmlData:
             raise ValueError("d_cols must name at least one treatment column")
         if len(self.cluster_cols) > 2:
             raise ValueError("at most two cluster columns are supported")
-        used = [self.y_col, *self.d_cols, *self.z_cols, *self.cluster_cols,
+        used = [self.y_col, *self.d_cols, *self.z_cols, *self.m_cols, *self.cluster_cols,
                 *[c for c in (t_col, s_col, id_col, score_col) if c is not None]]
         missing = [c for c in used + _as_list(x_cols) if c not in data.columns]
         if missing:
@@ -123,10 +127,11 @@ class DmlData:
         s: Optional[ArrayLike] = None,
         id: Optional[ArrayLike] = None,
         score: Optional[ArrayLike] = None,
+        m: Optional[ArrayLike] = None,
     ) -> DmlData:
         """Build from arrays with DoubleML's default column names (``X1, ...``, ``y``, ``d`` or
         ``d1, ...``, ``z`` or ``z1, ...``, ``cluster_var`` or ``cluster_var1, cluster_var2``,
-        ``t``, ``s``, ``id``, ``score``)."""
+        ``t``, ``s``, ``id``, ``score``; mediators ``m`` or ``m1, ...``)."""
         import pandas as pd
 
         def columns(values: Any, name: str) -> dict[str, Any]:
@@ -149,6 +154,10 @@ class DmlData:
             part = columns(z, "z")
             cols.update(part)
             roles["z_cols"] = list(part)
+        if m is not None:
+            part = columns(m, "m")
+            cols.update(part)
+            roles["m_cols"] = list(part)
         if cluster_vars is not None:
             part = columns(cluster_vars, "cluster_var")
             cols.update(part)
@@ -189,6 +198,12 @@ class DmlData:
         return self.data[self.z_cols[0]] if len(self.z_cols) == 1 else self.data[self.z_cols]
 
     @property
+    def m(self) -> Any:
+        if not self.m_cols:
+            return None
+        return self.data[self.m_cols[0]] if len(self.m_cols) == 1 else self.data[self.m_cols]
+
+    @property
     def cluster(self) -> Any:
         if not self.cluster_cols:
             return None
@@ -215,13 +230,13 @@ class DmlData:
         name = role.rstrip("?")
         value = getattr(self, name)
         if value is None and not optional:
-            col = {"z": "z_cols", "cluster": "cluster_cols"}.get(name, f"{name}_col")
+            col = {"z": "z_cols", "m": "m_cols", "cluster": "cluster_cols"}.get(name, f"{name}_col")
             raise ValueError(f"{estimator} needs the DmlData to have {col}")
         return value
 
     def __repr__(self) -> str:
         roles = [f"y_col={self.y_col!r}", f"d_cols={self.d_cols}", f"x_cols={self.x_cols}"]
-        for name in ("z_cols", "cluster_cols"):
+        for name in ("z_cols", "m_cols", "cluster_cols"):
             if getattr(self, name):
                 roles.append(f"{name}={getattr(self, name)}")
         for name in ("t_col", "s_col", "id_col", "score_col"):

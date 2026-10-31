@@ -5,8 +5,8 @@ use dml_core::{
     AposFit, Blp, Bootstrap, CausalForestFit, DidAggregation, DmlData, DmlFit, DoseResponseFit,
     GradientBoostingClassifier, GradientBoostingRegressor, HistGradientBoostingClassifier,
     HistGradientBoostingRegressor, InstrumentalForestFit, Lasso, LassoCV, LogisticRegression,
-    LogisticRegressionCV, MultiArmCausalForestFit, Ols, Plr, PolicyTree, QteFit, QuantileForest,
-    RandomForestClassifier, RandomForestRegressor, RdFlexFit, RegressionForest,
+    LogisticRegressionCV, MediationFit, MultiArmCausalForestFit, Ols, Plr, PolicyTree, QteFit,
+    QuantileForest, RandomForestClassifier, RandomForestRegressor, RdFlexFit, RegressionForest,
     SensitivityBenchmark, SensitivityResult, StaggeredDidFit,
 };
 use ndarray::{Array1, Array2};
@@ -49,6 +49,7 @@ fn every_learner_and_result_type_is_serializable() {
     check::<InstrumentalForestFit>();
     check::<MultiArmCausalForestFit>();
     check::<DoseResponseFit>();
+    check::<MediationFit>();
 }
 
 fn data(n: usize) -> (Array2<f64>, Array1<f64>, Array1<f64>) {

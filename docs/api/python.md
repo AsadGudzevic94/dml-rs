@@ -25,6 +25,7 @@ All classes are available from the top-level package, e.g. `dml_rs.PLR`.
 ::: dml_rs.DIDAggregation
 ::: dml_rs.RDFlex
 ::: dml_rs.DoseResponse
+::: dml_rs.Mediation
 ::: dml_rs.AutoDML
 
 ## Functionals and Riesz representers

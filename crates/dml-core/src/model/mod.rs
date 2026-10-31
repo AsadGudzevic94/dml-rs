@@ -16,6 +16,7 @@ mod dose;
 mod iivm;
 pub(crate) mod irm;
 mod lplr;
+mod mediation;
 mod nonlinear;
 mod pliv;
 mod plpr;
@@ -31,6 +32,7 @@ pub use dose::{Bandwidth, DensityModel, DoseKernel, DoseResponse, DoseResponseFi
 pub use iivm::Iivm;
 pub use irm::{Irm, IrmScore};
 pub use lplr::{Lplr, LplrScore, TreatmentLearner};
+pub use mediation::{Mediation, MediationFit, TrimmingRule};
 pub use pliv::{Pliv, PlivScore, PlivVariant};
 pub use plpr::{PanelApproach, Plpr, StaticPanel};
 pub use plr::{Plr, PlrScore};

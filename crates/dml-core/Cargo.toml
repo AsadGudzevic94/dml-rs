@@ -11,7 +11,7 @@ readme = "README.md"
 documentation = "https://docs.rs/dml-core"
 homepage = "https://asadgudzevic94.github.io/dml-rs/"
 # DoubleML parity fixtures (~3 MB) and benches are for development only.
-exclude = ["tests/fixtures/", "tests/parity.rs", "tests/common/", "benches/"]
+exclude = ["tests/fixtures/", "tests/parity.rs", "tests/mediation.rs", "tests/common/", "benches/"]
 keywords = ["causal-inference", "double-ml", "statistics", "econometrics", "machine-learning"]
 categories = ["science", "mathematics"]
 

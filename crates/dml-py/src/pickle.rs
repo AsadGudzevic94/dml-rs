@@ -77,6 +77,7 @@ restorers! {
     "PolicyTree" => crate::PyPolicyTree,
     "AposResult" => crate::PyAposResult,
     "DoseResponseResult" => crate::PyDoseResponseResult,
+    "MediationResult" => crate::PyMediationResult,
     "RdFlexResult" => crate::PyRdFlexResult,
     "QteResult" => crate::PyQteResult,
     "Blp" => crate::cate::PyBlp,

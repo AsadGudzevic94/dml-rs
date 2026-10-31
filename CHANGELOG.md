@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Causal mediation analysis: `Mediation` estimates the total, natural direct and natural indirect
+  effects of a binary treatment through one or several (binary, categorical or continuous)
+  mediators with the DML estimator of Farbmacher, Huber, Lafférs, Langen and Spindler (2022),
+  including the debiased nested regressions of Qi and Zhang (2026). Nested cross-fitting and
+  weight normalisation as in R's `causalweight::medDML`, which it reproduces to 1e-9 with
+  `trimming_rule="drop"`. By default the propensity scores are clipped instead: medDML's rule
+  drops observations by `P(D=1 | M, X)`, which selects on the post-treatment mediator and biases
+  the effects when the mediator predicts the treatment. Mediators are a new data role: `DmlData::with_mediators` in Rust, `m_cols` /
+  `DmlData.from_arrays(m=...)` in Python. Rust: `Mediation` / `MediationFit`.
+
 ## [0.26.0] - 2026-10-31
 
 ### Added
