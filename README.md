@@ -105,6 +105,13 @@ pip install dml-rs
 cargo add dml-core
 ```
 
+**R** (first version: PLR, IRM, PLIV, IIVM and DID with the built-in learners; needs a Rust
+toolchain, see [r/dmlrs](r/dmlrs/README.md)):
+
+```r
+remotes::install_github("AsadGudzevic94/dml-rs", subdir = "r/dmlrs")
+```
+
 ## Quick start
 
 ### Python

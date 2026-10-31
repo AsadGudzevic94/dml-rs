@@ -1,0 +1,3 @@
+# R requires LF line endings in Makevars, also on Windows checkouts.
+r/dmlrs/src/Makevars* text eol=lf
+*.bin binary

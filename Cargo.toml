@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = ["crates/dml-core", "crates/dml-py"]
+# The R package builds its own crate (r/dmlrs/src/rust) with R's toolchain.
+exclude = ["r"]
 # `cargo test` / `cargo build` at the root skip the Python extension, which
 # needs a Python interpreter to build; use `-p dml-py` or maturin for it.
 default-members = ["crates/dml-core"]

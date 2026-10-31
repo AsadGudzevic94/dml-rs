@@ -12,3 +12,11 @@ dist/
 *.pdb
 site/
 .cache/
+# R package build artifacts
+r/dmlrs/src/rust/target/
+r/dmlrs/src/rust/Cargo.lock
+r/dmlrs/src/*.o
+r/dmlrs/src/*.dll
+r/dmlrs/src/*.so
+r/*.tar.gz
+r/*.Rcheck/

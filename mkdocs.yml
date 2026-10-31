@@ -37,6 +37,7 @@ nav:
       - Learners: user-guide/learners.md
       - Inference: user-guide/inference.md
       - Data: user-guide/datasets.md
+  - R package: r.md
   - Examples:
       - Partially linear model: examples/01_getting_started.ipynb
       - Binary treatments and heterogeneity: examples/02_binary_treatment.ipynb

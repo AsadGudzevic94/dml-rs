@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- R package **dmlrs** (`r/dmlrs`, extendr): `dml_plr()`, `dml_irm()`, `dml_pliv()`, `dml_iivm()`
+  and `dml_did()` with the built-in learners (`lrn_lasso_cv()`, `lrn_random_forest()`, ...),
+  `confint()` (also joint, multiplier bootstrap), `summary()` and `sensitivity_analysis()`. Same
+  Rust engine as the Python package; the tests check the estimates against Python to 1e-10.
+  Install with `remotes::install_github("AsadGudzevic94/dml-rs", subdir = "r/dmlrs")`.
 - Saving fitted models: fitted learners and models pickle (`pickle`, `joblib`, `copy.deepcopy`)
   with all their results, and the reloaded models keep working (bootstrap, sensitivity analysis,
   CATE, ...). Pickles are tied to the dml-rs version. Not yet: the CATE meta-learners and fitted

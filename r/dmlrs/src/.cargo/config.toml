@@ -1,0 +1,4 @@
+# Development inside the dml-rs repository: build against the local dml-core.
+# Excluded from the package tarball (.Rbuildignore), which uses crates.io.
+[patch.crates-io]
+dml-core = { path = "../../../crates/dml-core" }

@@ -1,0 +1,24 @@
+Package: dmlrs
+Type: Package
+Title: Fast Double / Debiased Machine Learning Implemented in Rust
+Version: 0.1.0
+Authors@R: person("Asad", "Gudzevic", email = "asadgudzevic94@gmail.com", role = c("aut", "cre"))
+Description: Double / debiased machine learning (Chernozhukov et al., 2018,
+    <doi:10.1111/ectj.12097>) for causal inference: partially linear,
+    interactive, instrumental variable and difference-in-differences models
+    with cross-fitted nuisance functions, multiplier bootstrap and sensitivity
+    analysis for omitted confounding. Estimation, including the nuisance
+    learners (lasso, logistic regression, random forests, gradient boosting),
+    runs in Rust through the 'dml-core' crate, in parallel. Results match the
+    Python package 'dml-rs', which is validated against 'DoubleML'.
+License: MIT + file LICENSE
+URL: https://asadgudzevic94.github.io/dml-rs/, https://github.com/AsadGudzevic94/dml-rs
+BugReports: https://github.com/AsadGudzevic94/dml-rs/issues
+Encoding: UTF-8
+Depends: R (>= 4.2)
+Imports: stats
+Suggests: testthat (>= 3.0.0)
+Config/testthat/edition: 3
+SystemRequirements: Cargo (Rust's package manager), rustc >= 1.80
+Roxygen: list(markdown = TRUE)
+Config/roxygen2/version: 8.1.1

@@ -1,0 +1,55 @@
+name: R package
+
+on:
+  push:
+    branches: [main]
+    paths: ["r/**", "crates/dml-core/**", ".github/workflows/r.yml"]
+  pull_request:
+    paths: ["r/**", "crates/dml-core/**", ".github/workflows/r.yml"]
+
+jobs:
+  check:
+    # R CMD check on the package tarball: what users install, built against dml-core from crates.io.
+    name: R CMD check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      _R_CHECK_FORCE_SUGGESTS_: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'windows-latest' && 'x86_64-pc-windows-gnu' || '' }}
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          working-directory: r/dmlrs
+          extra-packages: any::rcmdcheck
+          needs: check
+      - uses: r-lib/actions/check-r-package@v2
+        with:
+          working-directory: r/dmlrs
+          args: 'c("--no-manual")'
+          error-on: '"warning"'
+
+  local-core:
+    # The tests against the dml-core in this repository (src/.cargo/config.toml patches it in).
+    name: tests against local dml-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          working-directory: r/dmlrs
+          extra-packages: any::testthat
+      - run: R CMD INSTALL r/dmlrs
+      - run: Rscript -e 'testthat::test_local("r/dmlrs", load_package = "installed")'

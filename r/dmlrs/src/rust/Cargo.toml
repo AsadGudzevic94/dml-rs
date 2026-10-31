@@ -1,0 +1,15 @@
+[package]
+name = "dmlrs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+name = "dmlrs"
+
+[dependencies]
+# Inside the dml-rs repository, src/.cargo/config.toml patches this to the local crate.
+dml-core = "0.24"
+extendr-api = "0.9.0"
+ndarray = "0.16"
