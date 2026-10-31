@@ -137,7 +137,8 @@ d  0.516919  0.029474  17.538215  7.319031e-69  0.459151  0.574687
 Any scikit-learn estimator can be used instead, for example
 `ml_l=sklearn.ensemble.HistGradientBoostingRegressor()`. The built-in learners
 (`dml_rs.GradientBoostingRegressor`, `dml_rs.RandomForestRegressor`, `dml_rs.Lasso`, …) run the
-whole estimation in Rust, in parallel and without the GIL.
+whole estimation in Rust, in parallel and without the GIL, and are scikit-learn estimators
+themselves (`GridSearchCV`, `Pipeline`, `clone` and DoubleML-style tuning work with them).
 
 ### Rust
 

@@ -16,6 +16,7 @@ pub struct LogisticRegression {
     max_iter: usize,
     coef: Option<Array1<f64>>,
     intercept: f64,
+    n_iter: usize,
 }
 
 impl Default for LogisticRegression {
@@ -33,6 +34,7 @@ impl LogisticRegression {
             max_iter: 100,
             coef: None,
             intercept: 0.0,
+            n_iter: 0,
         }
     }
 
@@ -79,6 +81,11 @@ fn sigmoid(eta: f64) -> f64 {
 }
 
 impl LogisticRegression {
+    /// Newton steps of the last fit (scikit-learn's `n_iter_`).
+    pub fn n_iter(&self) -> usize {
+        self.n_iter
+    }
+
     /// `[intercept, coef…]` of the fitted model, to warm-start another fit.
     pub(super) fn params(&self) -> Option<Array1<f64>> {
         let coef = self.coef.as_ref()?;
@@ -88,15 +95,16 @@ impl LogisticRegression {
         Some(beta)
     }
 
-    /// Newton's method started from `init = [intercept, coef…]` if given,
-    /// else from the intercept-only fit.
+    /// Newton's method (optionally weighted) started from
+    /// `init = [intercept, coef…]` if given, else from the intercept-only fit.
     pub(super) fn fit_from(
         &mut self,
         x: ArrayView2<'_, f64>,
         y: ArrayView1<'_, f64>,
+        weights: Option<ArrayView1<'_, f64>>,
         init: Option<&Array1<f64>>,
     ) -> Result<()> {
-        self.fit_impl(x, y, None, init)
+        self.fit_impl(x, y, weights, init)
     }
 
     /// Newton's method on `Σ wᵢ·loglossᵢ + ‖coef‖² / (2C)` (unit weights if
@@ -172,7 +180,9 @@ impl LogisticRegression {
         };
         let mut obj = objective(&beta);
         let mut converged = false;
+        let mut steps = 0;
         for _ in 0..self.max_iter {
+            steps += 1;
             let prob = xa.dot(&beta).mapv(sigmoid);
             let mut grad = xa.t().dot(&(&sw * &(&prob - &y)));
             let w = &sw * &prob.mapv(|q| q * (1.0 - q));
@@ -207,13 +217,14 @@ impl LogisticRegression {
         }
         self.intercept = beta[0];
         self.coef = Some(beta.slice(ndarray::s![1..]).to_owned());
+        self.n_iter = steps;
         Ok(())
     }
 }
 
 impl Classifier for LogisticRegression {
     fn fit(&mut self, x: ArrayView2<'_, f64>, y: ArrayView1<'_, f64>) -> Result<()> {
-        self.fit_from(x, y, None)
+        self.fit_from(x, y, None, None)
     }
 
     fn fit_weighted(

@@ -556,14 +556,32 @@ impl RandomForestClassifier {
     forest_builders!();
 }
 
+impl RandomForestClassifier {
+    fn check_labels(y: ArrayView1<'_, f64>) -> Result<()> {
+        if y.iter().all(|&v| v == 0.0 || v == 1.0) {
+            Ok(())
+        } else {
+            Err(DmlError::InvalidArgument(
+                "RandomForestClassifier labels must be 0 or 1".into(),
+            ))
+        }
+    }
+}
+
 impl Classifier for RandomForestClassifier {
     fn fit(&mut self, x: ArrayView2<'_, f64>, y: ArrayView1<'_, f64>) -> Result<()> {
-        if !y.iter().all(|&v| v == 0.0 || v == 1.0) {
-            return Err(DmlError::InvalidArgument(
-                "RandomForestClassifier labels must be 0 or 1".into(),
-            ));
-        }
+        Self::check_labels(y)?;
         self.forest.fit(x, y, None)
+    }
+
+    fn fit_weighted(
+        &mut self,
+        x: ArrayView2<'_, f64>,
+        y: ArrayView1<'_, f64>,
+        w: ArrayView1<'_, f64>,
+    ) -> Result<()> {
+        Self::check_labels(y)?;
+        self.forest.fit(x, y, Some(w))
     }
 
     fn predict_proba(&self, x: ArrayView2<'_, f64>) -> Result<Array1<f64>> {

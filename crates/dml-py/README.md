@@ -50,7 +50,8 @@ d  0.516919  0.029474  17.538215  7.319031e-69  0.459151  0.574687
 
 Any scikit-learn estimator works as a learner. The built-in learners
 (`GradientBoostingRegressor`, `RandomForestRegressor`, `Lasso`, `LassoCV`, `Ols`,
-`LogisticRegression`, `LogisticRegressionCV`, and the corresponding classifiers) run the whole estimation in Rust, in parallel and without the GIL.
+`LogisticRegression`, `LogisticRegressionCV`, and the corresponding classifiers) run the whole estimation in Rust, in parallel and without the GIL,
+and are scikit-learn estimators themselves (`GridSearchCV`, `Pipeline`, `clone` and tuning work with them).
 
 ## Models
 

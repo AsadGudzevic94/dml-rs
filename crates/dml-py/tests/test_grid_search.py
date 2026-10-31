@@ -44,7 +44,7 @@ def test_classifier_grid_search_in_irm():
     assert fit.best_index_ in (0, 1, 2) and len(fit.cv_scores_) == 3
     model = dml_rs.IRM(dml_rs.Ols(), dml_rs.GridSearchClassifier(cands)).fit(x, y, d)
     assert np.isfinite(model.coef_).all()
-    p = fit.predict_proba(x)
+    p = fit.predict_proba(x)[:, 1]
     assert np.all((p > 0) & (p < 1))
     np.testing.assert_allclose(
         p, LogisticRegression(C=[0.01, 0.1, 1.0][fit.best_index_], solver="newton-cholesky", tol=1e-12)

@@ -2,7 +2,7 @@
 //! estimator act as a Rust [`Regressor`] / [`Classifier`].
 
 use dml_core::{
-    Classifier, CvScoring, DmlError, EarlyStopping, GradientBoostingClassifier,
+    Classifier, CvFolds, CvScoring, DmlError, EarlyStopping, GradientBoostingClassifier,
     GradientBoostingRegressor, GridSearchClassifier, GridSearchRegressor,
     HistGradientBoostingClassifier, HistGradientBoostingRegressor, Lasso, LassoCV,
     LogisticRegression, LogisticRegressionCV, MaxFeatures, Ols, RandomForestClassifier,
@@ -18,7 +18,47 @@ use crate::errors::to_py_err;
 // ---------------------------------------------------------------------------
 // Built-in Rust learners. Cross-fitting with these never touches Python, so
 // it runs fully in parallel with the GIL released.
+//
+// These are the native classes (`dml_rs._dml_rs.Ols`, ...). The public
+// `dml_rs.Ols` etc. are scikit-learn estimators (`python/dml_rs/_learners.py`)
+// that build one of these from their parameters.
 // ---------------------------------------------------------------------------
+
+type Weights<'py> = Option<PyReadonlyArray1<'py, f64>>;
+
+/// `fit`, or `fit_weighted` with `sample_weight`, with the GIL released.
+fn fit_regressor<R: Regressor>(
+    py: Python<'_>,
+    model: &mut R,
+    x: PyReadonlyArray2<'_, f64>,
+    y: PyReadonlyArray1<'_, f64>,
+    sample_weight: Weights<'_>,
+) -> PyResult<()> {
+    let (x, y) = (x.as_array().to_owned(), y.as_array().to_owned());
+    let w = sample_weight.map(|w| w.as_array().to_owned());
+    py.detach(|| match &w {
+        Some(w) => model.fit_weighted(x.view(), y.view(), w.view()),
+        None => model.fit(x.view(), y.view()),
+    })
+    .map_err(to_py_err)
+}
+
+/// [`fit_regressor`] for classifiers.
+fn fit_classifier<C: Classifier>(
+    py: Python<'_>,
+    model: &mut C,
+    x: PyReadonlyArray2<'_, f64>,
+    y: PyReadonlyArray1<'_, f64>,
+    sample_weight: Weights<'_>,
+) -> PyResult<()> {
+    let (x, y) = (x.as_array().to_owned(), y.as_array().to_owned());
+    let w = sample_weight.map(|w| w.as_array().to_owned());
+    py.detach(|| match &w {
+        Some(w) => model.fit_weighted(x.view(), y.view(), w.view()),
+        None => model.fit(x.view(), y.view()),
+    })
+    .map_err(to_py_err)
+}
 
 /// Ordinary least squares with intercept and optional ridge penalty
 /// (`ridge=α` matches scikit-learn's `Ridge(alpha=α)`).
@@ -49,14 +89,15 @@ impl PyOls {
         }
     }
 
+    #[pyo3(signature = (x, y, sample_weight = None))]
     fn fit<'py>(
         mut slf: PyRefMut<'py, Self>,
         x: PyReadonlyArray2<'py, f64>,
         y: PyReadonlyArray1<'py, f64>,
+        sample_weight: Weights<'py>,
     ) -> PyResult<PyRefMut<'py, Self>> {
-        slf.inner
-            .fit(x.as_array(), y.as_array())
-            .map_err(to_py_err)?;
+        let py = slf.py();
+        fit_regressor(py, &mut slf.inner, x, y, sample_weight)?;
         Ok(slf)
     }
 
@@ -70,6 +111,18 @@ impl PyOls {
             .predict(x.as_array())
             .map_err(to_py_err)?
             .into_pyarray(py))
+    }
+
+    #[getter]
+    fn coef_<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        let c = self.inner.coef().ok_or_else(|| not_fitted("Ols"))?;
+        Ok(c.clone().into_pyarray(py))
+    }
+
+    #[getter]
+    fn intercept_(&self) -> PyResult<f64> {
+        self.inner.coef().ok_or_else(|| not_fitted("Ols"))?;
+        Ok(self.inner.intercept())
     }
 
     fn __repr__(&self) -> String {
@@ -105,14 +158,15 @@ impl PyLasso {
         }
     }
 
+    #[pyo3(signature = (x, y, sample_weight = None))]
     fn fit<'py>(
         mut slf: PyRefMut<'py, Self>,
         x: PyReadonlyArray2<'py, f64>,
         y: PyReadonlyArray1<'py, f64>,
+        sample_weight: Weights<'py>,
     ) -> PyResult<PyRefMut<'py, Self>> {
-        slf.inner
-            .fit(x.as_array(), y.as_array())
-            .map_err(to_py_err)?;
+        let py = slf.py();
+        fit_regressor(py, &mut slf.inner, x, y, sample_weight)?;
         Ok(slf)
     }
 
@@ -128,9 +182,54 @@ impl PyLasso {
             .into_pyarray(py))
     }
 
+    #[getter]
+    fn coef_<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        let c = self.inner.coef().ok_or_else(|| not_fitted("Lasso"))?;
+        Ok(c.clone().into_pyarray(py))
+    }
+
+    #[getter]
+    fn intercept_(&self) -> PyResult<f64> {
+        self.inner.coef().ok_or_else(|| not_fitted("Lasso"))?;
+        Ok(self.inner.intercept())
+    }
+
+    /// Coordinate-descent sweeps of the last fit.
+    #[getter]
+    fn n_iter_(&self) -> PyResult<usize> {
+        self.inner.coef().ok_or_else(|| not_fitted("Lasso"))?;
+        Ok(self.inner.n_iter())
+    }
+
     fn __repr__(&self) -> String {
         format!("Lasso(alpha={})", self.alpha)
     }
+}
+
+/// `cv` from Python: a number of folds or a list of `(train, test)` index
+/// arrays (what a scikit-learn splitter's `split` yields).
+fn parse_cv(cv: Option<&Bound<'_, PyAny>>) -> PyResult<(CvFolds, String)> {
+    let Some(cv) = cv else {
+        return Ok((CvFolds::K(5), "5".into()));
+    };
+    if let Ok(k) = cv.extract::<usize>() {
+        return Ok((CvFolds::K(k), k.to_string()));
+    }
+    let folds: Vec<(Vec<usize>, Vec<usize>)> = cv.extract().map_err(|_| {
+        PyValueError::new_err("cv must be an int or a list of (train, test) index arrays")
+    })?;
+    let repr = format!("<{} splits>", folds.len());
+    Ok((CvFolds::Explicit(folds), repr))
+}
+
+/// Apply parsed [`CvFolds`] to a learner builder with `cv` / `folds` methods.
+macro_rules! with_cv {
+    ($builder:expr, $folds:expr) => {
+        match $folds {
+            CvFolds::K(k) => $builder.cv(k),
+            CvFolds::Explicit(f) => $builder.folds(f),
+        }
+    };
 }
 
 fn not_fitted(name: &str) -> PyErr {
@@ -159,15 +258,19 @@ impl PyLassoCV {
     }
 
     #[new]
-    #[pyo3(signature = (alphas = None, eps = 1e-3, cv = 5, tol = 1e-4, max_iter = 100_000))]
+    #[pyo3(signature = (alphas = None, eps = 1e-3, cv = None, tol = 1e-4, max_iter = 100_000))]
     fn new(
         alphas: Option<&Bound<'_, PyAny>>,
         eps: f64,
-        cv: usize,
+        cv: Option<&Bound<'_, PyAny>>,
         tol: f64,
         max_iter: usize,
     ) -> PyResult<Self> {
-        let mut inner = LassoCV::new().eps(eps).cv(cv).tol(tol).max_iter(max_iter);
+        let (folds, cv) = parse_cv(cv)?;
+        let mut inner = with_cv!(LassoCV::new(), folds)
+            .eps(eps)
+            .tol(tol)
+            .max_iter(max_iter);
         let mut grid = "100".to_string();
         if let Some(a) = alphas {
             if let Ok(n) = a.extract::<usize>() {
@@ -187,14 +290,15 @@ impl PyLassoCV {
         })
     }
 
+    #[pyo3(signature = (x, y, sample_weight = None))]
     fn fit<'py>(
         mut slf: PyRefMut<'py, Self>,
         x: PyReadonlyArray2<'py, f64>,
         y: PyReadonlyArray1<'py, f64>,
+        sample_weight: Weights<'py>,
     ) -> PyResult<PyRefMut<'py, Self>> {
-        slf.inner
-            .fit(x.as_array(), y.as_array())
-            .map_err(to_py_err)?;
+        let py = slf.py();
+        fit_regressor(py, &mut slf.inner, x, y, sample_weight)?;
         Ok(slf)
     }
 
@@ -239,6 +343,12 @@ impl PyLassoCV {
         Ok(c.clone().into_pyarray(py))
     }
 
+    /// Coordinate-descent sweeps of the refit at `alpha_`.
+    #[getter]
+    fn n_iter_(&self) -> PyResult<usize> {
+        self.inner.n_iter().ok_or_else(|| not_fitted("LassoCV"))
+    }
+
     #[getter]
     fn intercept_(&self) -> PyResult<f64> {
         self.inner.alpha().ok_or_else(|| not_fitted("LassoCV"))?;
@@ -273,11 +383,11 @@ impl PyLogisticRegressionCV {
     }
 
     #[new]
-    #[pyo3(signature = (Cs = None, cv = 5, scoring = "neg_log_loss", tol = 1e-10, max_iter = 100))]
+    #[pyo3(signature = (Cs = None, cv = None, scoring = "neg_log_loss", tol = 1e-10, max_iter = 100))]
     #[allow(non_snake_case)] // keep scikit-learn's parameter name
     fn new(
         Cs: Option<&Bound<'_, PyAny>>,
-        cv: usize,
+        cv: Option<&Bound<'_, PyAny>>,
         scoring: &str,
         tol: f64,
         max_iter: usize,
@@ -291,8 +401,8 @@ impl PyLogisticRegressionCV {
                 )))
             }
         };
-        let mut inner = LogisticRegressionCV::new()
-            .cv(cv)
+        let (folds, cv) = parse_cv(cv)?;
+        let mut inner = with_cv!(LogisticRegressionCV::new(), folds)
             .scoring(score)
             .tol(tol)
             .max_iter(max_iter);
@@ -315,14 +425,15 @@ impl PyLogisticRegressionCV {
         })
     }
 
+    #[pyo3(signature = (x, y, sample_weight = None))]
     fn fit<'py>(
         mut slf: PyRefMut<'py, Self>,
         x: PyReadonlyArray2<'py, f64>,
         y: PyReadonlyArray1<'py, f64>,
+        sample_weight: Weights<'py>,
     ) -> PyResult<PyRefMut<'py, Self>> {
-        slf.inner
-            .fit(x.as_array(), y.as_array())
-            .map_err(to_py_err)?;
+        let py = slf.py();
+        fit_classifier(py, &mut slf.inner, x, y, sample_weight)?;
         Ok(slf)
     }
 
@@ -374,6 +485,14 @@ impl PyLogisticRegressionCV {
         Ok(c.clone().into_pyarray(py))
     }
 
+    /// Newton steps of the refit at `C_`.
+    #[getter]
+    fn n_iter_(&self) -> PyResult<usize> {
+        self.inner
+            .n_iter()
+            .ok_or_else(|| not_fitted("LogisticRegressionCV"))
+    }
+
     #[getter]
     fn intercept_(&self) -> PyResult<f64> {
         self.inner
@@ -417,14 +536,15 @@ impl PyLogisticRegression {
         }
     }
 
+    #[pyo3(signature = (x, y, sample_weight = None))]
     fn fit<'py>(
         mut slf: PyRefMut<'py, Self>,
         x: PyReadonlyArray2<'py, f64>,
         y: PyReadonlyArray1<'py, f64>,
+        sample_weight: Weights<'py>,
     ) -> PyResult<PyRefMut<'py, Self>> {
-        slf.inner
-            .fit(x.as_array(), y.as_array())
-            .map_err(to_py_err)?;
+        let py = slf.py();
+        fit_classifier(py, &mut slf.inner, x, y, sample_weight)?;
         Ok(slf)
     }
 
@@ -439,6 +559,32 @@ impl PyLogisticRegression {
             .predict_proba(x.as_array())
             .map_err(to_py_err)?
             .into_pyarray(py))
+    }
+
+    #[getter]
+    fn coef_<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        let c = self
+            .inner
+            .coef()
+            .ok_or_else(|| not_fitted("LogisticRegression"))?;
+        Ok(c.clone().into_pyarray(py))
+    }
+
+    #[getter]
+    fn intercept_(&self) -> PyResult<f64> {
+        self.inner
+            .coef()
+            .ok_or_else(|| not_fitted("LogisticRegression"))?;
+        Ok(self.inner.intercept())
+    }
+
+    /// Newton steps of the last fit.
+    #[getter]
+    fn n_iter_(&self) -> PyResult<usize> {
+        self.inner
+            .coef()
+            .ok_or_else(|| not_fitted("LogisticRegression"))?;
+        Ok(self.inner.n_iter())
     }
 
     fn __repr__(&self) -> String {
@@ -505,7 +651,7 @@ macro_rules! configure_forest {
 /// `fit` (GIL released while the trees grow), a prediction method and
 /// `feature_importances_`.
 macro_rules! forest_pyclass {
-    ($py_ty:ident, $rust_ty:ty, $name:literal, $default_features:expr, $predict:ident, $predict_doc:literal) => {
+    ($py_ty:ident, $rust_ty:ty, $name:literal, $fit:ident, $default_features:expr, $predict:ident, $predict_doc:literal) => {
         #[doc = concat!("Random forest implemented in Rust; trees are grown in parallel without the GIL. ",
                         "Parameters follow scikit-learn's `", $name, "`.")]
         #[pyclass(name = $name, module = "dml_rs")]
@@ -561,17 +707,15 @@ macro_rules! forest_pyclass {
                 })
             }
 
+            #[pyo3(signature = (x, y, sample_weight = None))]
             fn fit<'py>(
                 mut slf: PyRefMut<'py, Self>,
                 x: PyReadonlyArray2<'py, f64>,
                 y: PyReadonlyArray1<'py, f64>,
+                sample_weight: Weights<'py>,
             ) -> PyResult<PyRefMut<'py, Self>> {
-                let (x, y) = (x.as_array().to_owned(), y.as_array().to_owned());
-                let mut model = slf.inner.clone();
-                slf.py()
-                    .detach(|| model.fit(x.view(), y.view()))
-                    .map_err(to_py_err)?;
-                slf.inner = model;
+                let py = slf.py();
+                $fit(py, &mut slf.inner, x, y, sample_weight)?;
                 Ok(slf)
             }
 
@@ -604,6 +748,7 @@ forest_pyclass!(
     PyRandomForestRegressor,
     RandomForestRegressor,
     "RandomForestRegressor",
+    fit_regressor,
     MaxFeatures::All,
     predict,
     "Predicted values."
@@ -613,6 +758,7 @@ forest_pyclass!(
     PyRandomForestClassifier,
     RandomForestClassifier,
     "RandomForestClassifier",
+    fit_classifier,
     MaxFeatures::Sqrt,
     predict_proba,
     "Probability of class 1 (a 1-D array, unlike scikit-learn's two columns)."
@@ -620,7 +766,7 @@ forest_pyclass!(
 
 /// Generate a gradient-boosting pyclass with scikit-learn's parameter names.
 macro_rules! boosting_pyclass {
-    ($py_ty:ident, $rust_ty:ty, $name:literal, $predict:ident, $predict_doc:literal) => {
+    ($py_ty:ident, $rust_ty:ty, $name:literal, $fit:ident, $predict:ident, $predict_doc:literal) => {
         #[doc = concat!("Gradient boosting implemented in Rust (`fit` releases the GIL). ",
                         "Parameters follow scikit-learn's `", $name, "`.")]
         #[pyclass(name = $name, module = "dml_rs")]
@@ -678,17 +824,15 @@ macro_rules! boosting_pyclass {
                 })
             }
 
+            #[pyo3(signature = (x, y, sample_weight = None))]
             fn fit<'py>(
                 mut slf: PyRefMut<'py, Self>,
                 x: PyReadonlyArray2<'py, f64>,
                 y: PyReadonlyArray1<'py, f64>,
+                sample_weight: Weights<'py>,
             ) -> PyResult<PyRefMut<'py, Self>> {
-                let (x, y) = (x.as_array().to_owned(), y.as_array().to_owned());
-                let mut model = slf.inner.clone();
-                slf.py()
-                    .detach(|| model.fit(x.view(), y.view()))
-                    .map_err(to_py_err)?;
-                slf.inner = model;
+                let py = slf.py();
+                $fit(py, &mut slf.inner, x, y, sample_weight)?;
                 Ok(slf)
             }
 
@@ -721,6 +865,7 @@ boosting_pyclass!(
     PyGradientBoostingRegressor,
     GradientBoostingRegressor,
     "GradientBoostingRegressor",
+    fit_regressor,
     predict,
     "Predicted values."
 );
@@ -729,6 +874,7 @@ boosting_pyclass!(
     PyGradientBoostingClassifier,
     GradientBoostingClassifier,
     "GradientBoostingClassifier",
+    fit_classifier,
     predict_proba,
     "Probability of class 1 (a 1-D array, unlike scikit-learn's two columns)."
 );
@@ -754,7 +900,7 @@ fn parse_early_stopping(obj: &Bound<'_, PyAny>) -> PyResult<EarlyStopping> {
 /// parameters, `fit` (GIL released, optional `sample_weight`), a prediction
 /// method and `n_iter_`.
 macro_rules! hist_pyclass {
-    ($py_ty:ident, $rust_ty:ty, $name:literal, $predict:ident, $predict_doc:literal) => {
+    ($py_ty:ident, $rust_ty:ty, $name:literal, $fit:ident, $predict:ident, $predict_doc:literal) => {
         #[doc = concat!("Histogram-based gradient boosting implemented in Rust (`fit` releases the GIL). ",
                         "Parameters and results follow scikit-learn's `", $name, "`.")]
         #[pyclass(name = $name, module = "dml_rs")]
@@ -829,18 +975,10 @@ macro_rules! hist_pyclass {
                 mut slf: PyRefMut<'py, Self>,
                 x: PyReadonlyArray2<'py, f64>,
                 y: PyReadonlyArray1<'py, f64>,
-                sample_weight: Option<PyReadonlyArray1<'py, f64>>,
+                sample_weight: Weights<'py>,
             ) -> PyResult<PyRefMut<'py, Self>> {
-                let (x, y) = (x.as_array().to_owned(), y.as_array().to_owned());
-                let w = sample_weight.map(|w| w.as_array().to_owned());
-                let mut model = slf.inner.clone();
-                slf.py()
-                    .detach(|| match &w {
-                        Some(w) => model.fit_weighted(x.view(), y.view(), w.view()),
-                        None => model.fit(x.view(), y.view()),
-                    })
-                    .map_err(to_py_err)?;
-                slf.inner = model;
+                let py = slf.py();
+                $fit(py, &mut slf.inner, x, y, sample_weight)?;
                 Ok(slf)
             }
 
@@ -881,6 +1019,7 @@ hist_pyclass!(
     PyHistGradientBoostingRegressor,
     HistGradientBoostingRegressor,
     "HistGradientBoostingRegressor",
+    fit_regressor,
     predict,
     "Predicted values."
 );
@@ -889,6 +1028,7 @@ hist_pyclass!(
     PyHistGradientBoostingClassifier,
     HistGradientBoostingClassifier,
     "HistGradientBoostingClassifier",
+    fit_classifier,
     predict_proba,
     "Probability of class 1 (a 1-D array, unlike scikit-learn's two columns)."
 );
@@ -1113,14 +1253,15 @@ impl PyGridSearchRegressor {
     }
 
     #[new]
-    #[pyo3(signature = (candidates, cv = 5))]
-    fn new(candidates: Vec<Bound<'_, PyAny>>, cv: usize) -> PyResult<Self> {
+    #[pyo3(signature = (candidates, cv = None))]
+    fn new(candidates: Vec<Bound<'_, PyAny>>, cv: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        let (folds, cv) = parse_cv(cv)?;
         let boxed = candidates
             .iter()
             .map(to_regressor)
             .collect::<PyResult<Vec<_>>>()?;
         Ok(Self {
-            inner: GridSearchRegressor::new(boxed).cv(cv),
+            inner: with_cv!(GridSearchRegressor::new(boxed), folds),
             repr: format!(
                 "GridSearchRegressor({} candidates, cv={cv})",
                 candidates.len()
@@ -1128,16 +1269,15 @@ impl PyGridSearchRegressor {
         })
     }
 
+    #[pyo3(signature = (x, y, sample_weight = None))]
     fn fit<'py>(
         mut slf: PyRefMut<'py, Self>,
         x: PyReadonlyArray2<'py, f64>,
         y: PyReadonlyArray1<'py, f64>,
+        sample_weight: Weights<'py>,
     ) -> PyResult<PyRefMut<'py, Self>> {
-        let (x, y) = (x.as_array().to_owned(), y.as_array().to_owned());
         let py = slf.py();
-        let inner = &mut slf.inner;
-        py.detach(|| inner.fit(x.view(), y.view()))
-            .map_err(to_py_err)?;
+        fit_regressor(py, &mut slf.inner, x, y, sample_weight)?;
         Ok(slf)
     }
 
@@ -1193,14 +1333,15 @@ impl PyGridSearchClassifier {
     }
 
     #[new]
-    #[pyo3(signature = (candidates, cv = 5))]
-    fn new(candidates: Vec<Bound<'_, PyAny>>, cv: usize) -> PyResult<Self> {
+    #[pyo3(signature = (candidates, cv = None))]
+    fn new(candidates: Vec<Bound<'_, PyAny>>, cv: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        let (folds, cv) = parse_cv(cv)?;
         let boxed = candidates
             .iter()
             .map(to_classifier)
             .collect::<PyResult<Vec<_>>>()?;
         Ok(Self {
-            inner: GridSearchClassifier::new(boxed).cv(cv),
+            inner: with_cv!(GridSearchClassifier::new(boxed), folds),
             repr: format!(
                 "GridSearchClassifier({} candidates, cv={cv})",
                 candidates.len()
@@ -1208,16 +1349,15 @@ impl PyGridSearchClassifier {
         })
     }
 
+    #[pyo3(signature = (x, y, sample_weight = None))]
     fn fit<'py>(
         mut slf: PyRefMut<'py, Self>,
         x: PyReadonlyArray2<'py, f64>,
         y: PyReadonlyArray1<'py, f64>,
+        sample_weight: Weights<'py>,
     ) -> PyResult<PyRefMut<'py, Self>> {
-        let (x, y) = (x.as_array().to_owned(), y.as_array().to_owned());
         let py = slf.py();
-        let inner = &mut slf.inner;
-        py.detach(|| inner.fit(x.view(), y.view()))
-            .map_err(to_py_err)?;
+        fit_classifier(py, &mut slf.inner, x, y, sample_weight)?;
         Ok(slf)
     }
 
@@ -1252,8 +1392,24 @@ impl PyGridSearchClassifier {
     }
 }
 
+/// The native learner behind a `dml_rs` scikit-learn estimator: its
+/// `_dml_native()` builds one from the estimator's parameters, or returns
+/// `None` when it cannot (e.g. `cv` is a splitter that needs the data), and
+/// the estimator is then fitted through Python like any other.
+fn native_learner<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Option<Bound<'py, PyAny>>> {
+    let py = obj.py();
+    if !obj.hasattr(pyo3::intern!(py, "_dml_native"))? {
+        return Ok(None);
+    }
+    let native = obj.call_method0(pyo3::intern!(py, "_dml_native"))?;
+    Ok((!native.is_none()).then_some(native))
+}
+
 /// Built-in learner if `obj` is one, otherwise wrap the Python estimator.
 pub fn to_regressor(obj: &Bound<'_, PyAny>) -> PyResult<Box<dyn Regressor>> {
+    if let Some(native) = native_learner(obj)? {
+        return to_regressor(&native);
+    }
     if let Ok(o) = obj.cast::<PyGridSearchRegressor>() {
         return Ok(Box::new(o.borrow().inner.clone()));
     }
@@ -1282,6 +1438,9 @@ pub fn to_regressor(obj: &Bound<'_, PyAny>) -> PyResult<Box<dyn Regressor>> {
 }
 
 pub fn to_classifier(obj: &Bound<'_, PyAny>) -> PyResult<Box<dyn Classifier>> {
+    if let Some(native) = native_learner(obj)? {
+        return to_classifier(&native);
+    }
     if let Ok(o) = obj.cast::<PyGridSearchClassifier>() {
         return Ok(Box::new(o.borrow().inner.clone()));
     }

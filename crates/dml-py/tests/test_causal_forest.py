@@ -200,7 +200,7 @@ def test_regression_and_quantile_forests():
         X, 0.5 * d + y, d)
     assert abs(plr.coef_[0] - 0.5) < 4 * plr.se_[0]
     qf = dml_rs.QuantileForest(n_estimators=500).fit(X, y)
-    assert qf.quantiles == [0.1, 0.5, 0.9]
+    assert list(qf.quantiles) == [0.1, 0.5, 0.9]
     q = qf.predict(grid)
     assert q.shape == (200, 3) and np.all(q[:, 0] <= q[:, 1]) and np.all(q[:, 1] <= q[:, 2])
     true90 = np.sin(3 * grid[:, 0]) + 1.2815515655446004 * (0.5 + grid[:, 1])

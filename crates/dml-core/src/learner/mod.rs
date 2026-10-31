@@ -15,7 +15,7 @@ mod ols;
 mod search;
 
 pub use boosting::{GradientBoostingClassifier, GradientBoostingRegressor};
-pub use cv::{CvScoring, LassoCV, LogisticRegressionCV};
+pub use cv::{CvFolds, CvScoring, LassoCV, LogisticRegressionCV};
 pub use forest::{MaxFeatures, RandomForestClassifier, RandomForestRegressor};
 pub(crate) use forest::{Node, Tree, TreeBuilder, TreeParams};
 pub use hist_boosting::{

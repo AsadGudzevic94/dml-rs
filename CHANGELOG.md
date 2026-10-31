@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- The built-in learners are scikit-learn estimators in Python: `get_params` / `set_params`,
+  `clone`, `GridSearchCV`, `Pipeline`, `cross_val_score` and scikit-learn's estimator checks work
+  (apart from pickling fitted learners). `tune`, `tune_ml_models` and `set_ml_nuisance_params`
+  now accept them, and DML models still cross-fit them in Rust.
+- `sample_weight` in `fit` for every built-in learner except `RegressionForest` and
+  `QuantileForest`. Rust: `RandomForestClassifier`, `GradientBoostingClassifier` and
+  `LogisticRegressionCV` implement `Classifier::fit_weighted` (weighted folds and weighted test
+  scores, as scikit-learn).
+- `cv` of `LassoCV`, `LogisticRegressionCV` and the grid searches takes a scikit-learn splitter or
+  explicit `(train, test)` folds (Rust: `CvFolds`, `.folds(...)`).
+- `coef_`, `intercept_` and `n_iter_` on `Ols`, `Lasso` and `LogisticRegression`; `n_iter_` on
+  `LassoCV` and `LogisticRegressionCV` (Rust: `n_iter()`).
+
+### Changed
+- Built-in classifiers take any two labels (`classes_`), `predict_proba` returns two columns as in
+  scikit-learn (it returned P(y = 1) only) and `predict` returns labels.
+- Parameters of built-in learners are validated by `fit`, not by the constructor.
+- `LassoCV.mse_path_` and `LogisticRegressionCV.scores_` have one column/row per fold of `cv`
+  (docs used to say `cv`, which is the same for an integer).
+
 ## [0.23.0] - 2026-10-31
 
 ### Added

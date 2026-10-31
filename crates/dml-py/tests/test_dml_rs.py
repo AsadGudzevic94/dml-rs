@@ -153,5 +153,5 @@ def test_native_learners_standalone():
     y = 1.0 + x @ np.array([2.0, 0.0, -1.0]) + 0.01 * rng.normal(size=200)
     np.testing.assert_allclose(dml_rs.Ols().fit(x, y).predict(x), LinearRegression().fit(x, y).predict(x), atol=1e-10)
     labels = (x[:, 0] + rng.normal(size=200) > 0).astype(float)
-    p = dml_rs.LogisticRegression().fit(x, labels).predict_proba(x)
+    p = dml_rs.LogisticRegression().fit(x, labels).predict_proba(x)[:, 1]
     assert p.shape == (200,) and np.all((p > 0) & (p < 1))

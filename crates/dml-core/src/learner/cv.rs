@@ -13,6 +13,62 @@ use crate::error::{DmlError, Result};
 /// numpy's `finfo(float64).resolution`, scikit-learn's floor for the alpha grid.
 const RESOLUTION: f64 = 1e-15;
 
+/// Cross-validation folds of [`LassoCV`], [`LogisticRegressionCV`] and the
+/// grid searches.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CvFolds {
+    /// `k` folds without shuffling: scikit-learn's `KFold(k)`, or
+    /// `StratifiedKFold(k)` for classifiers.
+    K(usize),
+    /// Explicit `(train, test)` row indices, e.g. from a scikit-learn splitter
+    /// such as `GroupKFold`.
+    Explicit(Vec<(Vec<usize>, Vec<usize>)>),
+}
+
+impl CvFolds {
+    /// The `(train, test)` rows for `n` observations; `labels` (0/1) give
+    /// stratified folds.
+    pub(super) fn splits(
+        &self,
+        n: usize,
+        labels: Option<ArrayView1<'_, f64>>,
+    ) -> Result<Vec<(Vec<usize>, Vec<usize>)>> {
+        match self {
+            CvFolds::K(k) => {
+                check_cv(n, *k)?;
+                let tests = match labels {
+                    Some(y) => stratified_test_sets(y, *k)?,
+                    None => kfold_test_sets(n, *k),
+                };
+                Ok(tests
+                    .into_iter()
+                    .map(|test| (complement(n, &test), test))
+                    .collect())
+            }
+            CvFolds::Explicit(folds) => {
+                if folds.is_empty() {
+                    return Err(DmlError::InvalidArgument(
+                        "cv needs at least one (train, test) split".into(),
+                    ));
+                }
+                for (train, test) in folds {
+                    if train.is_empty() || test.is_empty() {
+                        return Err(DmlError::InvalidArgument(
+                            "every cv split needs training and test rows".into(),
+                        ));
+                    }
+                    if train.iter().chain(test).any(|&i| i >= n) {
+                        return Err(DmlError::InvalidArgument(format!(
+                            "cv split index out of range for {n} observations"
+                        )));
+                    }
+                }
+                Ok(folds.clone())
+            }
+        }
+    }
+}
+
 pub(super) fn check_cv(n: usize, cv: usize) -> Result<()> {
     if cv < 2 {
         return Err(DmlError::InvalidArgument("cv must be at least 2".into()));
@@ -79,20 +135,26 @@ pub(super) fn stratified_test_sets(y: ArrayView1<'_, f64>, cv: usize) -> Result<
         .collect())
 }
 
-/// `fit_fold(test set)` for every fold, in parallel with the `parallel`
+/// `fit_fold(train, test)` for every fold, in parallel with the `parallel`
 /// feature; results are in fold order either way.
 pub(super) fn map_folds<T: Send>(
-    folds: &[Vec<usize>],
-    fit_fold: impl Fn(&[usize]) -> Result<T> + Sync,
+    folds: &[(Vec<usize>, Vec<usize>)],
+    fit_fold: impl Fn(&[usize], &[usize]) -> Result<T> + Sync,
 ) -> Result<Vec<T>> {
     #[cfg(feature = "parallel")]
     {
         use rayon::prelude::*;
-        folds.par_iter().map(|test| fit_fold(test)).collect()
+        folds
+            .par_iter()
+            .map(|(train, test)| fit_fold(train, test))
+            .collect()
     }
     #[cfg(not(feature = "parallel"))]
     {
-        folds.iter().map(|test| fit_fold(test)).collect()
+        folds
+            .iter()
+            .map(|(train, test)| fit_fold(train, test))
+            .collect()
     }
 }
 
@@ -147,7 +209,7 @@ pub struct LassoCV {
     n_alphas: usize,
     eps: f64,
     alphas: Option<Vec<f64>>,
-    cv: usize,
+    cv: CvFolds,
     tol: f64,
     max_iter: usize,
     fitted: Option<LassoCvFit>,
@@ -174,7 +236,7 @@ impl LassoCV {
             n_alphas: 100,
             eps: 1e-3,
             alphas: None,
-            cv: 5,
+            cv: CvFolds::K(5),
             tol: 1e-4,
             max_iter: 100_000,
             fitted: None,
@@ -201,7 +263,13 @@ impl LassoCV {
 
     /// Number of cross-validation folds.
     pub fn cv(mut self, cv: usize) -> Self {
-        self.cv = cv;
+        self.cv = CvFolds::K(cv);
+        self
+    }
+
+    /// Explicit `(train, test)` folds instead of `cv` unshuffled ones.
+    pub fn folds(mut self, folds: Vec<(Vec<usize>, Vec<usize>)>) -> Self {
+        self.cv = CvFolds::Explicit(folds);
         self
     }
 
@@ -226,7 +294,7 @@ impl LassoCV {
         self.fitted.as_ref().map(|f| f.alphas.as_slice())
     }
 
-    /// Test MSE of every penalty on every fold, shape `(n_alphas, cv)`.
+    /// Test MSE of every penalty on every fold, shape `(n_alphas, n_folds)`.
     pub fn mse_path(&self) -> Option<&Array2<f64>> {
         self.fitted.as_ref().map(|f| &f.mse_path)
     }
@@ -237,6 +305,11 @@ impl LassoCV {
 
     pub fn intercept(&self) -> f64 {
         self.fitted.as_ref().map_or(0.0, |f| f.model.intercept())
+    }
+
+    /// Coordinate-descent sweeps of the refit at the chosen penalty.
+    pub fn n_iter(&self) -> Option<usize> {
+        self.fitted.as_ref().map(|f| f.model.n_iter())
     }
 
     fn grid(
@@ -274,17 +347,15 @@ impl LassoCV {
         y: ArrayView1<'_, f64>,
         w: Option<ArrayView1<'_, f64>>,
     ) -> Result<()> {
-        let n = x.nrows();
-        check_cv(n, self.cv)?;
+        let splits = self.cv.splits(x.nrows(), None)?;
         let alphas = self.grid(x, y, w)?;
         // Test MSE of every penalty, per fold.
-        let fold_mse = map_folds(&kfold_test_sets(n, self.cv), |test| {
-            let train = complement(n, test);
-            let w_train = w.map(|w| w.select(Axis(0), &train));
+        let fold_mse = map_folds(&splits, |train, test| {
+            let w_train = w.map(|w| w.select(Axis(0), train));
             let w_test = w.map(|w| w.select(Axis(0), test));
             let path = lasso_path(
-                x.select(Axis(0), &train).view(),
-                y.select(Axis(0), &train).view(),
+                x.select(Axis(0), train).view(),
+                y.select(Axis(0), train).view(),
                 w_train.as_ref().map(|w| w.view()),
                 &alphas,
                 self.tol,
@@ -300,9 +371,9 @@ impl LassoCV {
                 })
                 .collect::<Vec<f64>>())
         })?;
-        let mse_path = Array2::from_shape_fn((alphas.len(), self.cv), |(a, k)| fold_mse[k][a]);
+        let mse_path = Array2::from_shape_fn((alphas.len(), splits.len()), |(a, k)| fold_mse[k][a]);
         // First penalty with the lowest mean MSE (numpy's argmin).
-        let mean_mse = mse_path.mean_axis(Axis(1)).expect("cv >= 2");
+        let mean_mse = mse_path.mean_axis(Axis(1)).expect("at least one fold");
         let best = (0..alphas.len()).fold(0, |b, a| if mean_mse[a] < mean_mse[b] { a } else { b });
         let mut model = Lasso::new(alphas[best])
             .tol(self.tol)
@@ -376,7 +447,7 @@ pub enum CvScoring {
 #[derive(Debug, Clone)]
 pub struct LogisticRegressionCV {
     cs: Vec<f64>,
-    cv: usize,
+    cv: CvFolds,
     scoring: CvScoring,
     tol: f64,
     max_iter: usize,
@@ -401,7 +472,7 @@ impl LogisticRegressionCV {
     pub fn new() -> Self {
         Self {
             cs: geomspace(1e-4, 1e4, 10),
-            cv: 5,
+            cv: CvFolds::K(5),
             scoring: CvScoring::LogLoss,
             tol: 1e-10,
             max_iter: 100,
@@ -421,8 +492,15 @@ impl LogisticRegressionCV {
         self
     }
 
+    /// Number of stratified cross-validation folds.
     pub fn cv(mut self, cv: usize) -> Self {
-        self.cv = cv;
+        self.cv = CvFolds::K(cv);
+        self
+    }
+
+    /// Explicit `(train, test)` folds instead of `cv` stratified ones.
+    pub fn folds(mut self, folds: Vec<(Vec<usize>, Vec<usize>)>) -> Self {
+        self.cv = CvFolds::Explicit(folds);
         self
     }
 
@@ -453,7 +531,7 @@ impl LogisticRegressionCV {
     }
 
     /// Score of every `C` on every fold (higher is better; the log loss enters
-    /// negated), shape `(cv, n_cs)`.
+    /// negated), shape `(n_folds, n_cs)`.
     pub fn scores(&self) -> Option<&Array2<f64>> {
         self.fitted.as_ref().map(|f| &f.scores)
     }
@@ -466,7 +544,14 @@ impl LogisticRegressionCV {
         self.fitted.as_ref().map_or(0.0, |f| f.model.intercept())
     }
 
-    fn score(&self, prob: &Array1<f64>, y: &Array1<f64>) -> f64 {
+    /// Newton steps of the refit at the chosen `C`.
+    pub fn n_iter(&self) -> Option<usize> {
+        self.fitted.as_ref().map(|f| f.model.n_iter())
+    }
+
+    /// Score of test-fold probabilities, weighted as scikit-learn's scorer
+    /// with `sample_weight`.
+    fn score(&self, prob: &Array1<f64>, y: &Array1<f64>, w: Option<ArrayView1<'_, f64>>) -> f64 {
         match self.scoring {
             CvScoring::LogLoss => {
                 let eps = f64::EPSILON;
@@ -475,23 +560,25 @@ impl LogisticRegressionCV {
                         let p = p.clamp(eps, 1.0 - eps);
                         -(t * p.ln() + (1.0 - t) * (1.0 - p).ln())
                     }),
-                    None,
+                    w,
                 )
             }
             CvScoring::Accuracy => average(
                 prob.iter()
                     .zip(y)
                     .map(|(&p, &t)| f64::from((p > 0.5) == (t == 1.0))),
-                None,
+                w,
             ),
         }
     }
-}
 
-impl Classifier for LogisticRegressionCV {
-    fn fit(&mut self, x: ArrayView2<'_, f64>, y: ArrayView1<'_, f64>) -> Result<()> {
+    fn fit_impl(
+        &mut self,
+        x: ArrayView2<'_, f64>,
+        y: ArrayView1<'_, f64>,
+        w: Option<ArrayView1<'_, f64>>,
+    ) -> Result<()> {
         let n = x.nrows();
-        check_cv(n, self.cv)?;
         if y.len() != n {
             return Err(DmlError::DimensionMismatch(
                 "LogisticRegressionCV::fit x/y rows".into(),
@@ -509,24 +596,35 @@ impl Classifier for LogisticRegressionCV {
         }
         let n_cs = self.cs.len();
         // Per fold: the score and solution of every C, warm-started along the path.
-        let per_fold = map_folds(&stratified_test_sets(y, self.cv)?, |test| {
-            let train = complement(n, test);
-            let (x_train, y_train) = (x.select(Axis(0), &train), y.select(Axis(0), &train));
+        let splits = self.cv.splits(n, Some(y))?;
+        let per_fold = map_folds(&splits, |train, test| {
+            let (x_train, y_train) = (x.select(Axis(0), train), y.select(Axis(0), train));
             let (x_test, y_test) = (x.select(Axis(0), test), y.select(Axis(0), test));
+            let w_train = w.map(|w| w.select(Axis(0), train));
+            let w_test = w.map(|w| w.select(Axis(0), test));
             let mut init: Option<Array1<f64>> = None;
             let mut fold = Vec::with_capacity(n_cs);
             for &c in &self.cs {
                 let mut m = LogisticRegression::new(c)
                     .tol(self.tol)
                     .max_iter(self.max_iter);
-                m.fit_from(x_train.view(), y_train.view(), init.as_ref())?;
-                let score = self.score(&m.predict_proba(x_test.view())?, &y_test);
+                m.fit_from(
+                    x_train.view(),
+                    y_train.view(),
+                    w_train.as_ref().map(|w| w.view()),
+                    init.as_ref(),
+                )?;
+                let score = self.score(
+                    &m.predict_proba(x_test.view())?,
+                    &y_test,
+                    w_test.as_ref().map(|w| w.view()),
+                );
                 init = m.params();
                 fold.push((score, init.clone().expect("fitted")));
             }
             Ok(fold)
         })?;
-        let scores = Array2::from_shape_fn((self.cv, n_cs), |(k, j)| per_fold[k][j].0);
+        let scores = Array2::from_shape_fn((splits.len(), n_cs), |(k, j)| per_fold[k][j].0);
         let params: Vec<Vec<Array1<f64>>> = per_fold
             .into_iter()
             .map(|fold| fold.into_iter().map(|(_, b)| b).collect())
@@ -539,17 +637,34 @@ impl Classifier for LogisticRegressionCV {
             .iter()
             .map(|p| p[best].clone())
             .reduce(|a, b| a + b)
-            .map(|s| s / self.cv as f64);
+            .map(|s| s / splits.len() as f64);
         let mut model = LogisticRegression::new(self.cs[best])
             .tol(self.tol)
             .max_iter(self.max_iter);
-        model.fit_from(x, y, init.as_ref())?;
+        model.fit_from(x, y, w, init.as_ref())?;
         self.fitted = Some(LogitCvFit {
             c: self.cs[best],
             scores,
             model,
         });
         Ok(())
+    }
+}
+
+impl Classifier for LogisticRegressionCV {
+    fn fit(&mut self, x: ArrayView2<'_, f64>, y: ArrayView1<'_, f64>) -> Result<()> {
+        self.fit_impl(x, y, None)
+    }
+
+    /// Weighted fits and weighted test scores, as
+    /// `LogisticRegressionCV.fit(sample_weight=w)`.
+    fn fit_weighted(
+        &mut self,
+        x: ArrayView2<'_, f64>,
+        y: ArrayView1<'_, f64>,
+        w: ArrayView1<'_, f64>,
+    ) -> Result<()> {
+        self.fit_impl(x, y, Some(w))
     }
 
     fn predict_proba(&self, x: ArrayView2<'_, f64>) -> Result<Array1<f64>> {
@@ -619,5 +734,74 @@ mod tests {
         direct.fit(x.view(), y.view()).unwrap();
         assert_eq!(direct.coef(), m.coef());
         assert!(m.fresh().predict(x.view()).is_err()); // fresh copies are unfitted
+        assert!(m.n_iter().unwrap() >= 1);
+    }
+
+    fn logit_data() -> (Array2<f64>, Array1<f64>) {
+        let x = Array2::from_shape_fn((80, 3), |(i, j)| {
+            (((i * 11 + j * 3) % 17) as f64 - 8.0) / 5.0
+        });
+        let y = x
+            .rows()
+            .into_iter()
+            .enumerate()
+            .map(|(i, r)| f64::from(r[0] - 0.5 * r[1] + ((i % 7) as f64 - 3.0) * 0.4 > 0.0))
+            .collect();
+        (x, y)
+    }
+
+    #[test]
+    fn explicit_folds_reproduce_k_folds() {
+        let (x, y) = logit_data();
+        let n = x.nrows();
+        let splits = |tests: Vec<Vec<usize>>| -> Vec<(Vec<usize>, Vec<usize>)> {
+            tests.into_iter().map(|t| (complement(n, &t), t)).collect()
+        };
+        let mut k = LassoCV::new().cv(4);
+        let mut explicit = LassoCV::new().folds(splits(kfold_test_sets(n, 4)));
+        k.fit(x.view(), y.view()).unwrap();
+        explicit.fit(x.view(), y.view()).unwrap();
+        assert_eq!(k.alpha(), explicit.alpha());
+        assert_eq!(k.mse_path(), explicit.mse_path());
+
+        let mut k = LogisticRegressionCV::new().cv(3);
+        let mut explicit =
+            LogisticRegressionCV::new().folds(splits(stratified_test_sets(y.view(), 3).unwrap()));
+        k.fit(x.view(), y.view()).unwrap();
+        explicit.fit(x.view(), y.view()).unwrap();
+        assert_eq!(k.c(), explicit.c());
+        assert_eq!(k.scores(), explicit.scores());
+
+        let mut bad = LassoCV::new().folds(vec![(vec![0, 1], vec![n])]);
+        assert!(bad.fit(x.view(), y.view()).is_err());
+    }
+
+    #[test]
+    fn weighted_logistic_cv_with_unit_weights_is_unweighted() {
+        let (x, y) = logit_data();
+        let mut plain = LogisticRegressionCV::new().cv(3);
+        let mut weighted = LogisticRegressionCV::new().cv(3);
+        plain.fit(x.view(), y.view()).unwrap();
+        weighted
+            .fit_weighted(x.view(), y.view(), Array1::ones(x.nrows()).view())
+            .unwrap();
+        assert_eq!(plain.c(), weighted.c());
+        let (a, b) = (
+            plain.predict_proba(x.view()).unwrap(),
+            weighted.predict_proba(x.view()).unwrap(),
+        );
+        assert!(a.iter().zip(&b).all(|(p, q)| (p - q).abs() < 1e-12));
+        // Doubling every weight changes neither the folds' choice nor the refit.
+        let mut doubled = LogisticRegressionCV::new().cv(3).cs(vec![1e-2, 1.0, 1e2]);
+        let mut unit = LogisticRegressionCV::new().cv(3).cs(vec![2e-2, 2.0, 2e2]);
+        doubled
+            .fit_weighted(x.view(), y.view(), Array1::from_elem(x.nrows(), 2.0).view())
+            .unwrap();
+        unit.fit(x.view(), y.view()).unwrap();
+        let (a, b) = (
+            doubled.predict_proba(x.view()).unwrap(),
+            unit.predict_proba(x.view()).unwrap(),
+        );
+        assert!(a.iter().zip(&b).all(|(p, q)| (p - q).abs() < 1e-8));
     }
 }

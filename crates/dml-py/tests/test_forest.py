@@ -34,14 +34,21 @@ def test_classifier_and_max_features_parsing():
     x = rng.normal(size=(1000, 5))
     labels = (x[:, 0] + 0.5 * rng.normal(size=1000) > 0).astype(float)
     for max_features in [None, "sqrt", "log2", 0.5, 2]:
-        p = dml_rs.RandomForestClassifier(n_estimators=30, max_features=max_features).fit(x, labels).predict_proba(x)
+        p = dml_rs.RandomForestClassifier(n_estimators=30, max_features=max_features).fit(x, labels).predict_proba(x)[:, 1]
         assert p.shape == (1000,) and np.all((p >= 0) & (p <= 1))
+    # Parameters are validated by fit, as scikit-learn.
     with pytest.raises(ValueError, match="max_features"):
-        dml_rs.RandomForestClassifier(max_features="half")
+        dml_rs.RandomForestClassifier(max_features="half").fit(x, labels)
     with pytest.raises(TypeError, match="max_features"):
-        dml_rs.RandomForestRegressor(max_features=[1])
-    with pytest.raises(ValueError, match="labels"):
-        dml_rs.RandomForestClassifier().fit(x, labels * 2)
+        dml_rs.RandomForestRegressor(max_features=[1]).fit(x, labels)
+    # Any two labels work (classes_ holds them); more than two do not.
+    relabelled = dml_rs.RandomForestClassifier(n_estimators=30).fit(x, labels * 2)
+    np.testing.assert_array_equal(relabelled.classes_, [0.0, 2.0])
+    np.testing.assert_allclose(
+        relabelled.predict_proba(x), dml_rs.RandomForestClassifier(n_estimators=30).fit(x, labels).predict_proba(x)
+    )
+    with pytest.raises(ValueError, match="Only binary classification"):
+        dml_rs.RandomForestClassifier().fit(x, labels + (x[:, 1] > 1))
 
 
 def test_native_forests_inside_dml_models():

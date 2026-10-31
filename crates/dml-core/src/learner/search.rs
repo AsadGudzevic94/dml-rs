@@ -8,7 +8,7 @@
 
 use ndarray::{Array1, ArrayView1, ArrayView2, Axis};
 
-use super::cv::{check_cv, complement, kfold_test_sets, map_folds, stratified_test_sets};
+use super::cv::{map_folds, CvFolds};
 use super::{Classifier, Regressor};
 use crate::data::gather;
 use crate::error::{DmlError, Result};
@@ -38,7 +38,7 @@ fn check_candidates(n: usize) -> Result<()> {
 /// of the held-out folds.
 pub struct GridSearchRegressor {
     candidates: Vec<Box<dyn Regressor>>,
-    cv: usize,
+    cv: CvFolds,
     best: Option<usize>,
     scores: Vec<f64>,
     fitted: Option<Box<dyn Regressor>>,
@@ -49,7 +49,7 @@ impl GridSearchRegressor {
     pub fn new(candidates: Vec<Box<dyn Regressor>>) -> Self {
         Self {
             candidates,
-            cv: 5,
+            cv: CvFolds::K(5),
             best: None,
             scores: Vec::new(),
             fitted: None,
@@ -58,7 +58,13 @@ impl GridSearchRegressor {
 
     /// Number of cross-validation folds (default 5).
     pub fn cv(mut self, cv: usize) -> Self {
-        self.cv = cv;
+        self.cv = CvFolds::K(cv);
+        self
+    }
+
+    /// Explicit `(train, test)` folds instead of `cv` unshuffled ones.
+    pub fn folds(mut self, folds: Vec<(Vec<usize>, Vec<usize>)>) -> Self {
+        self.cv = CvFolds::Explicit(folds);
         self
     }
 
@@ -80,8 +86,7 @@ impl GridSearchRegressor {
     ) -> Result<()> {
         check_candidates(self.candidates.len())?;
         let n = x.nrows();
-        check_cv(n, self.cv)?;
-        let tests = kfold_test_sets(n, self.cv);
+        let splits = self.cv.splits(n, None)?;
         let fit = |c: &dyn Regressor, rows: &[usize]| -> Result<Box<dyn Regressor>> {
             let mut m = c.fresh();
             let (xt, yt) = (x.select(Axis(0), rows), gather(y, rows));
@@ -93,8 +98,8 @@ impl GridSearchRegressor {
         };
         let mut scores = Vec::with_capacity(self.candidates.len());
         for c in &self.candidates {
-            let fold_mse = map_folds(&tests, |test| {
-                let m = fit(c.as_ref(), &complement(n, test))?;
+            let fold_mse = map_folds(&splits, |train, test| {
+                let m = fit(c.as_ref(), train)?;
                 let pred = m.predict(x.select(Axis(0), test).view())?;
                 Ok(test
                     .iter()
@@ -134,14 +139,20 @@ impl Regressor for GridSearchRegressor {
     }
 
     fn fresh(&self) -> Box<dyn Regressor> {
-        Box::new(Self::new(self.candidates.iter().map(|c| c.fresh()).collect()).cv(self.cv))
+        Box::new(Self {
+            cv: self.cv.clone(),
+            ..Self::new(self.candidates.iter().map(|c| c.fresh()).collect())
+        })
     }
 }
 
 impl Clone for GridSearchRegressor {
     /// An unfitted copy with the same candidates.
     fn clone(&self) -> Self {
-        Self::new(self.candidates.iter().map(|c| c.fresh()).collect()).cv(self.cv)
+        Self {
+            cv: self.cv.clone(),
+            ..Self::new(self.candidates.iter().map(|c| c.fresh()).collect())
+        }
     }
 }
 
@@ -149,7 +160,7 @@ impl Clone for GridSearchRegressor {
 /// folds (probabilities clipped to `[1e-15, 1 − 1e-15]`).
 pub struct GridSearchClassifier {
     candidates: Vec<Box<dyn Classifier>>,
-    cv: usize,
+    cv: CvFolds,
     best: Option<usize>,
     scores: Vec<f64>,
     fitted: Option<Box<dyn Classifier>>,
@@ -159,7 +170,7 @@ impl GridSearchClassifier {
     pub fn new(candidates: Vec<Box<dyn Classifier>>) -> Self {
         Self {
             candidates,
-            cv: 5,
+            cv: CvFolds::K(5),
             best: None,
             scores: Vec::new(),
             fitted: None,
@@ -168,7 +179,13 @@ impl GridSearchClassifier {
 
     /// Number of (stratified) cross-validation folds (default 5).
     pub fn cv(mut self, cv: usize) -> Self {
-        self.cv = cv;
+        self.cv = CvFolds::K(cv);
+        self
+    }
+
+    /// Explicit `(train, test)` folds instead of `cv` unshuffled ones.
+    pub fn folds(mut self, folds: Vec<(Vec<usize>, Vec<usize>)>) -> Self {
+        self.cv = CvFolds::Explicit(folds);
         self
     }
 
@@ -189,8 +206,7 @@ impl GridSearchClassifier {
     ) -> Result<()> {
         check_candidates(self.candidates.len())?;
         let n = x.nrows();
-        check_cv(n, self.cv)?;
-        let tests = stratified_test_sets(y, self.cv)?;
+        let splits = self.cv.splits(n, Some(y))?;
         let fit = |c: &dyn Classifier, rows: &[usize]| -> Result<Box<dyn Classifier>> {
             let mut m = c.fresh();
             let (xt, yt) = (x.select(Axis(0), rows), gather(y, rows));
@@ -202,8 +218,8 @@ impl GridSearchClassifier {
         };
         let mut scores = Vec::with_capacity(self.candidates.len());
         for c in &self.candidates {
-            let fold_loss = map_folds(&tests, |test| {
-                let m = fit(c.as_ref(), &complement(n, test))?;
+            let fold_loss = map_folds(&splits, |train, test| {
+                let m = fit(c.as_ref(), train)?;
                 let p = m.predict_proba(x.select(Axis(0), test).view())?;
                 let loss: f64 = test
                     .iter()
@@ -248,14 +264,20 @@ impl Classifier for GridSearchClassifier {
     }
 
     fn fresh(&self) -> Box<dyn Classifier> {
-        Box::new(Self::new(self.candidates.iter().map(|c| c.fresh()).collect()).cv(self.cv))
+        Box::new(Self {
+            cv: self.cv.clone(),
+            ..Self::new(self.candidates.iter().map(|c| c.fresh()).collect())
+        })
     }
 }
 
 impl Clone for GridSearchClassifier {
     /// An unfitted copy with the same candidates.
     fn clone(&self) -> Self {
-        Self::new(self.candidates.iter().map(|c| c.fresh()).collect()).cv(self.cv)
+        Self {
+            cv: self.cv.clone(),
+            ..Self::new(self.candidates.iter().map(|c| c.fresh()).collect())
+        }
     }
 }
 

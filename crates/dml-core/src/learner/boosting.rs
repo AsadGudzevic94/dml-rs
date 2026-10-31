@@ -412,14 +412,32 @@ impl GradientBoostingClassifier {
     boosting_builders!();
 }
 
+impl GradientBoostingClassifier {
+    fn check_labels(y: ArrayView1<'_, f64>) -> Result<()> {
+        if y.iter().all(|&v| v == 0.0 || v == 1.0) {
+            Ok(())
+        } else {
+            Err(DmlError::InvalidArgument(
+                "GradientBoostingClassifier labels must be 0 or 1".into(),
+            ))
+        }
+    }
+}
+
 impl Classifier for GradientBoostingClassifier {
     fn fit(&mut self, x: ArrayView2<'_, f64>, y: ArrayView1<'_, f64>) -> Result<()> {
-        if !y.iter().all(|&v| v == 0.0 || v == 1.0) {
-            return Err(DmlError::InvalidArgument(
-                "GradientBoostingClassifier labels must be 0 or 1".into(),
-            ));
-        }
+        Self::check_labels(y)?;
         self.booster.fit(Loss::LogLoss, x, y, None)
+    }
+
+    fn fit_weighted(
+        &mut self,
+        x: ArrayView2<'_, f64>,
+        y: ArrayView1<'_, f64>,
+        w: ArrayView1<'_, f64>,
+    ) -> Result<()> {
+        Self::check_labels(y)?;
+        self.booster.fit(Loss::LogLoss, x, y, Some(w))
     }
 
     fn predict_proba(&self, x: ArrayView2<'_, f64>) -> Result<Array1<f64>> {
@@ -436,7 +454,7 @@ impl Classifier for GradientBoostingClassifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::{array, Array2};
+    use ndarray::{array, Array2, Axis};
     use rand::Rng;
 
     fn nonlinear(n: usize, seed: u64) -> (Array2<f64>, Array1<f64>) {
@@ -565,5 +583,32 @@ mod tests {
                 .unwrap_err(),
             DmlError::NotFitted
         );
+    }
+
+    #[test]
+    fn classifier_zero_weights_drop_rows() {
+        let (x, y) = nonlinear(400, 3);
+        let labels = y.mapv(|v| f64::from(v > 0.5));
+        let w: Array1<f64> = (0..400).map(|i| f64::from(i % 3 != 0)).collect();
+        let kept: Vec<usize> = (0..400).filter(|i| i % 3 != 0).collect();
+        let mut weighted = GradientBoostingClassifier::new().n_estimators(30);
+        weighted
+            .fit_weighted(x.view(), labels.view(), w.view())
+            .unwrap();
+        let mut subset = GradientBoostingClassifier::new().n_estimators(30);
+        subset
+            .fit(
+                x.select(Axis(0), &kept).view(),
+                labels.select(Axis(0), &kept).view(),
+            )
+            .unwrap();
+        let (a, b) = (
+            weighted.predict_proba(x.view()).unwrap(),
+            subset.predict_proba(x.view()).unwrap(),
+        );
+        assert!(a.iter().zip(&b).all(|(p, q)| (p - q).abs() < 1e-12));
+        assert!(weighted
+            .fit_weighted(x.view(), (&labels * 2.0).view(), w.view())
+            .is_err());
     }
 }

@@ -46,7 +46,7 @@ def test_classifier_matches_sklearn(kwargs):
     ours = dml_rs.HistGradientBoostingClassifier(random_state=5, **kwargs).fit(X, yb)
     ref = SkClassifier(random_state=5, **kwargs).fit(X, yb)
     assert ours.n_iter_ == ref.n_iter_
-    np.testing.assert_allclose(ours.predict_proba(Xt), ref.predict_proba(Xt)[:, 1], rtol=1e-14, atol=1e-15)
+    np.testing.assert_allclose(ours.predict_proba(Xt)[:, 1], ref.predict_proba(Xt)[:, 1], rtol=1e-14, atol=1e-15)
 
 
 def test_early_stopping_scores_match():
@@ -70,7 +70,7 @@ def test_sample_weights_match_sklearn(kind):
         yb = (y > np.median(y)).astype(float)
         ours = dml_rs.HistGradientBoostingClassifier(random_state=1).fit(X, yb, sample_weight=w)
         ref = SkClassifier(random_state=1).fit(X, yb, sample_weight=w)
-        np.testing.assert_allclose(ours.predict_proba(Xt), ref.predict_proba(Xt)[:, 1], rtol=1e-13, atol=1e-14)
+        np.testing.assert_allclose(ours.predict_proba(Xt)[:, 1], ref.predict_proba(Xt)[:, 1], rtol=1e-13, atol=1e-14)
 
 
 def test_large_data_bins_a_subsample_like_sklearn():
@@ -94,10 +94,10 @@ def test_as_nuisance_learner_matches_sklearn_inside_dml():
 def test_errors_and_api():
     X, y, _ = data(300)
     with pytest.raises(ValueError, match="early_stopping"):
-        dml_rs.HistGradientBoostingRegressor(early_stopping="sometimes")
+        dml_rs.HistGradientBoostingRegressor(early_stopping="sometimes").fit(X, y)
     with pytest.raises(Exception, match="max_bins"):
         dml_rs.HistGradientBoostingRegressor(max_bins=300).fit(X, y)
-    with pytest.raises(Exception, match="0/1 labels"):
+    with pytest.raises(ValueError, match="Unknown label type"):
         dml_rs.HistGradientBoostingClassifier().fit(X, y)
     model = dml_rs.HistGradientBoostingRegressor(max_iter=10).fit(X, y)
     assert "HistGradientBoostingRegressor" in repr(model) and model.n_iter_ == 10

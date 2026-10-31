@@ -16,6 +16,7 @@ pub struct Lasso {
     max_iter: usize,
     coef: Option<Array1<f64>>,
     intercept: f64,
+    n_iter: usize,
 }
 
 impl Lasso {
@@ -26,6 +27,7 @@ impl Lasso {
             max_iter: 100_000,
             coef: None,
             intercept: 0.0,
+            n_iter: 0,
         }
     }
 
@@ -49,6 +51,12 @@ impl Lasso {
 
     pub fn intercept(&self) -> f64 {
         self.intercept
+    }
+
+    /// Coordinate-descent sweeps of the last fit (scikit-learn's `n_iter_`;
+    /// 0 if the starting point already met the tolerance).
+    pub fn n_iter(&self) -> usize {
+        self.n_iter
     }
 }
 
@@ -210,7 +218,7 @@ impl CdDesign {
     /// `state` (see [`initial_state`](Self::initial_state)) must match `w` on
     /// entry and is kept up to date. Follows scikit-learn's `cd_fast`: stop at
     /// once if the warm start is already within tolerance, screen coordinates
-    /// after every gap evaluation.
+    /// after every gap evaluation. Returns the number of sweeps.
     fn solve(
         &self,
         alpha: f64,
@@ -218,14 +226,14 @@ impl CdDesign {
         state: &mut Array1<f64>,
         tol: f64,
         max_iter: usize,
-    ) -> Result<()> {
+    ) -> Result<usize> {
         let p = self.xc.ncols();
         let n_alpha = self.xc.nrows() as f64 * alpha;
         let tol_gap = tol * self.y_norm2;
         let screening = n_alpha > 0.0;
         let g = self.duality_gap(n_alpha, w, state);
         if g.gap <= tol_gap && (self.gram.is_none() || g.gap >= 0.0) {
-            return Ok(());
+            return Ok(0);
         }
         let mut active = vec![true; p];
         if screening {
@@ -254,7 +262,7 @@ impl CdDesign {
             if max_w == 0.0 || max_change <= tol * max_w || iter + 1 == max_iter {
                 let g = self.duality_gap(n_alpha, w, state);
                 if g.gap <= tol_gap {
-                    return Ok(());
+                    return Ok(iter + 1);
                 }
                 if screening {
                     self.screen(n_alpha, &g, &mut active, w, state);
@@ -300,10 +308,11 @@ impl Lasso {
         y: ArrayView1<'_, f64>,
         w: Option<ArrayView1<'_, f64>>,
     ) -> Result<()> {
-        let (coef, intercept) = lasso_path(x, y, w, &[self.alpha], self.tol, self.max_iter)?
-            .pop()
-            .expect("one alpha");
-        self.intercept = intercept;
+        let design = CdDesign::new(x, y, w)?;
+        let mut coef = Array1::<f64>::zeros(x.ncols());
+        let mut state = design.initial_state();
+        self.n_iter = design.solve(self.alpha, &mut coef, &mut state, self.tol, self.max_iter)?;
+        self.intercept = design.intercept(&coef);
         self.coef = Some(coef);
         Ok(())
     }

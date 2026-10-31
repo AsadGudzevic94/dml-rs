@@ -35,7 +35,7 @@ def test_regressor_matches_sklearn_exactly(data, kwargs):
 def test_classifier_matches_sklearn_exactly(data, kwargs):
     """Log-loss boosting with Newton leaf updates, as scikit-learn."""
     x, _, labels = data
-    ours = dml_rs.GradientBoostingClassifier(**kwargs).fit(x, labels).predict_proba(x)
+    ours = dml_rs.GradientBoostingClassifier(**kwargs).fit(x, labels).predict_proba(x)[:, 1]
     ref = GradientBoostingClassifier(random_state=0, **kwargs).fit(x, labels).predict_proba(x)[:, 1]
     np.testing.assert_allclose(ours, ref, rtol=0, atol=1e-10)
 
@@ -47,7 +47,7 @@ def test_classifier_tie_breaking_stays_within_sklearns_own_seed_variation(data):
     own seeded order. Results then differ by no more than scikit-learn differs from itself."""
     x, _, labels = data
     kwargs = SETTINGS[1]
-    ours = dml_rs.GradientBoostingClassifier(**kwargs).fit(x, labels).predict_proba(x)
+    ours = dml_rs.GradientBoostingClassifier(**kwargs).fit(x, labels).predict_proba(x)[:, 1]
     sk0, sk1 = (GradientBoostingClassifier(random_state=s, **kwargs).fit(x, labels).predict_proba(x)[:, 1]
                 for s in (0, 1))
     seed_spread = np.max(np.abs(sk0 - sk1))
@@ -79,5 +79,5 @@ def test_options_and_errors(data):
     assert gb.feature_importances_.sum() == pytest.approx(1.0)
     with pytest.raises(ValueError, match="learning_rate"):
         dml_rs.GradientBoostingRegressor(learning_rate=0).fit(x, y)
-    with pytest.raises(ValueError, match="labels"):
-        dml_rs.GradientBoostingClassifier().fit(x, labels * 2)
+    with pytest.raises(ValueError, match="Only binary classification"):
+        dml_rs.GradientBoostingClassifier().fit(x, labels + (x[:, 1] > 1))

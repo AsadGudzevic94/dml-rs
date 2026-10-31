@@ -234,9 +234,10 @@ def test_params_errors():
     with pytest.raises(ValueError, match="n_rep=1 lists"):
         model.set_ml_nuisance_params("ml_g0", "d", [[{}], [{}]])
     x, y, d = make_irm_data(n_obs=200, dim_x=3, return_type="array")
-    native = dml_rs.IRM(dml_rs.Lasso(), LOGIT, n_folds=3).set_ml_nuisance_params("ml_g0", None, {"alpha": 0.1})
+    native = dml_rs._dml_rs.Lasso()  # the native class, without the scikit-learn API
+    model = dml_rs.IRM(native, LOGIT, n_folds=3).set_ml_nuisance_params("ml_g0", None, {"alpha": 0.1})
     with pytest.raises(TypeError, match="set_params"):
-        native.fit(x, y, d)
+        model.fit(x, y, d)
     lplr = dml_rs.LPLR(LOGIT, LinearRegression(), LinearRegression(), n_folds=3, n_folds_inner=2)
     lplr.set_ml_nuisance_params("ml_M", None, [[{"C": 1.0}, {"C": 2.0}, {"C": 3.0}]])
     yb = (y > np.median(y)).astype(float)

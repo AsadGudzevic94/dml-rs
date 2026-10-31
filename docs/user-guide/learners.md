@@ -2,8 +2,8 @@
 
 The nuisance functions are ordinary prediction problems. dml-rs accepts two kinds of learners:
 
-- **Built-in learners**, implemented in Rust. Cross-fitting with them never touches Python, so
-  folds run in parallel and the GIL is released.
+- **Built-in learners**, implemented in Rust. In Python they are scikit-learn estimators, but
+  cross-fitting with them never touches Python, so folds run in parallel and the GIL is released.
 - **Any scikit-learn compatible estimator** (`fit` / `predict`, and `predict_proba` for
   classifiers). It is cloned for each fold and called from Rust.
 
@@ -50,6 +50,45 @@ import.
 - **Random forests** follow scikit-learn's parameters and bootstrap scheme with their own random
   number generator, so they are statistically equivalent rather than identical.
 
+### scikit-learn compatibility
+
+In Python the built-in learners are scikit-learn estimators (they derive from scikit-learn's
+`BaseEstimator` when it is installed; scikit-learn stays optional). `get_params`, `set_params`
+and `clone` work, and so do scikit-learn's tools:
+
+```python
+from sklearn.model_selection import GridSearchCV, GroupKFold, KFold, cross_val_score
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+
+search = GridSearchCV(dml_rs.Lasso(), {"alpha": [0.01, 0.1, 1.0]}, cv=5).fit(X, y)
+cross_val_score(make_pipeline(StandardScaler(), dml_rs.Ols()), X, y)
+# cv: a number of folds, any splitter, or (train, test) pairs
+dml_rs.LassoCV(cv=KFold(5, shuffle=True, random_state=0)).fit(X, y)
+dml_rs.LassoCV(cv=list(GroupKFold(5).split(X, y, groups))).fit(X, y)
+```
+
+- Classifiers are binary and take any two labels (`classes_`); `predict_proba` returns two
+  columns and `predict` the more probable class.
+- Every learner except `RegressionForest` and `QuantileForest` accepts `sample_weight` in
+  `fit`.
+- `cv` of `LassoCV`, `LogisticRegressionCV` and the grid searches is a number of folds, a
+  scikit-learn splitter (`KFold(shuffle=True)`, `GroupKFold`, ...) or a list of `(train, test)`
+  index arrays.
+- Inputs are validated as in scikit-learn (2-D numeric arrays or DataFrames, whose column
+  names are kept in `feature_names_in_`). Only the histogram gradient boosting learners accept
+  missing values (NaN).
+- Parameters are checked when `fit` runs, not in the constructor.
+
+They pass scikit-learn's estimator checks (`sklearn.utils.estimator_checks`) with two
+exceptions: fitted learners cannot be pickled yet (unfitted ones can, so `GridSearchCV(n_jobs=...)`
+works), and where scikit-learn's own forests and boosting also fail, a sample weight of 2 is not
+the same as a duplicated row.
+
+Inside a DML model a built-in learner is still fitted in Rust: the model takes its parameters
+and cross-fits the Rust learner directly. The exception is a cross-validated learner whose `cv` is
+a splitter, which needs the data; it is fitted through Python, fold by fold.
+
 ## scikit-learn estimators
 
 ```python
@@ -69,8 +108,8 @@ The models with named nuisance learners (PLR, LPLR, PLPR, IRM, APO, SSM, PLIV, I
 DIDCS) have DoubleML's tuning methods. They take the arguments of `fit` (the data, or a
 `DmlData`), tune every nuisance learner on its own training data (for IRM, `ml_g` is tuned
 separately for `ml_g0` on the untreated and `ml_g1` on the treated), and set the best parameters
-for the next `fit`. Tuning needs scikit-learn estimators (the built-in learners take their
-parameters in the constructor; use `GridSearchRegressor` below to tune them). `tune` and
+for the next `fit`. The learners can be built-in or scikit-learn estimators; with built-in ones
+every fit of the search runs in Rust, and the final `fit` cross-fits fully in Rust. `tune` and
 `tune_ml_models` are implemented for PLR, IRM, APO, IIVM, DID, DIDCS, SSM (missing at random) and
 PLIV (partial `X` with one instrument, or partial `Z`).
 

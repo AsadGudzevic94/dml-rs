@@ -11,12 +11,11 @@ CATE meta-learners (`SLearner`, `TLearner`, `XLearner`,
 DR-learner and `IRM.cate` / `IRM.gate` provide inference via
 `BLP`.
 
-Nuisance learners can be the built-in Rust learners (`Ols`,
-`Lasso`, `LassoCV`, `LogisticRegression`,
-`LogisticRegressionCV`, `RandomForestRegressor`,
-`RandomForestClassifier`, `GradientBoostingRegressor`,
-`GradientBoostingClassifier`), which run fully in parallel without the GIL,
-or any scikit-learn compatible estimator.
+Nuisance learners can be the built-in Rust learners (`Ols`, `Lasso`,
+`LassoCV`, `LogisticRegression`, `LogisticRegressionCV`, random forests,
+gradient boosting, histogram gradient boosting, ...), which are
+scikit-learn estimators but cross-fit fully in Rust, in parallel and
+without the GIL, or any scikit-learn compatible estimator.
 """
 
 from ._dml_rs import (
@@ -25,23 +24,8 @@ from ._dml_rs import (
     CateResult,
     AposResult,
     DmlResult,
-    GradientBoostingClassifier,
-    GradientBoostingRegressor,
-    HistGradientBoostingClassifier,
-    HistGradientBoostingRegressor,
-    GridSearchClassifier,
-    GridSearchRegressor,
-    Lasso,
-    LassoCV,
-    LogisticRegression,
-    LogisticRegressionCV,
-    Ols,
     QteResult,
-    QuantileForest,
     RdFlexResult,
-    RandomForestClassifier,
-    RandomForestRegressor,
-    RegressionForest,
     __version__,
     fit_apo,
     fit_apos,
@@ -59,6 +43,23 @@ from ._dml_rs import (
     fit_ssm,
     fit_autodml,
     fit_staggered_did,
+)
+from ._learners import (
+    GradientBoostingClassifier,
+    GradientBoostingRegressor,
+    GridSearchClassifier,
+    GridSearchRegressor,
+    HistGradientBoostingClassifier,
+    HistGradientBoostingRegressor,
+    Lasso,
+    LassoCV,
+    LogisticRegression,
+    LogisticRegressionCV,
+    Ols,
+    QuantileForest,
+    RandomForestClassifier,
+    RandomForestRegressor,
+    RegressionForest,
 )
 from . import datasets
 from .data import DmlData

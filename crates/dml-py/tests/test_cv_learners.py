@@ -62,7 +62,7 @@ def test_logistic_regression_cv_matches_scikit_learn(scoring, n, p):
     np.testing.assert_allclose(ours.Cs_, ref.Cs_, rtol=1e-12)
     np.testing.assert_allclose(ours.scores_, np.asarray(ref.scores_).reshape(5, -1), rtol=1e-7, atol=1e-12)
     np.testing.assert_allclose(ours.coef_, np.ravel(ref.coef_), rtol=1e-7, atol=1e-10)
-    np.testing.assert_allclose(ours.predict_proba(x), ref.predict_proba(x)[:, 1], rtol=1e-8, atol=1e-12)
+    np.testing.assert_allclose(ours.predict_proba(x)[:, 1], ref.predict_proba(x)[:, 1], rtol=1e-8, atol=1e-12)
 
 
 def test_logistic_regression_cv_options():
@@ -73,7 +73,7 @@ def test_logistic_regression_cv_options():
     assert ours.C_ == float(np.ravel(ref.C_)[0])
     np.testing.assert_allclose(ours.scores_, np.asarray(ref.scores_).reshape(3, -1), rtol=1e-7)
     with pytest.raises(ValueError, match="scoring"):
-        dml_rs.LogisticRegressionCV(scoring="roc_auc")
+        dml_rs.LogisticRegressionCV(scoring="roc_auc").fit(x, d)
 
 
 def test_dml_with_cv_learners_matches_doubleml():
