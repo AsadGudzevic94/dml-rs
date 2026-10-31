@@ -7,9 +7,16 @@ built-in learners, multiplier bootstrap and sensitivity analysis.
 
 ## Installation
 
-dmlrs builds from source and needs a Rust toolchain (<https://rustup.rs>, Rust 1.80 or later). On
-Windows, also install [Rtools](https://cran.r-project.org/bin/windows/Rtools/) and the GNU target
-with `rustup target add x86_64-pc-windows-gnu`.
+Binaries for Windows, macOS and Linux are on [r-universe](https://asadgudzevic94.r-universe.dev),
+so no Rust toolchain is needed:
+
+```r
+install.packages("dmlrs", repos = c("https://asadgudzevic94.r-universe.dev", "https://cloud.r-project.org"))
+```
+
+To build from source instead, install a Rust toolchain (<https://rustup.rs>, Rust 1.80 or later)
+and, on Windows, [Rtools](https://cran.r-project.org/bin/windows/Rtools/) and the GNU target
+(`rustup target add x86_64-pc-windows-gnu`), then:
 
 ```r
 # install.packages("remotes")
