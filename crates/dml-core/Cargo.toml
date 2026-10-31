@@ -22,20 +22,28 @@ rand_chacha.workspace = true
 rand_distr.workspace = true
 thiserror.workspace = true
 rayon = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
 
 [features]
 default = ["parallel"]
 ## Fit cross-fitting folds on a rayon thread pool.
 parallel = ["dep:rayon"]
+## `Serialize` / `Deserialize` for fitted learners and results (saving models).
+serde = ["dep:serde", "ndarray/serde"]
 
 [dev-dependencies]
 # Correctly rounded float parsing, so fixtures replay bit for bit.
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 criterion.workspace = true
+bincode.workspace = true
 
 [[bench]]
 name = "plr"
 harness = false
+
+[[test]]
+name = "serde"
+required-features = ["serde"]
 
 [package.metadata.docs.rs]
 all-features = true

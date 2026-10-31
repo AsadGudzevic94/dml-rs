@@ -38,6 +38,7 @@ use crate::learner::{Classifier, Regressor};
 
 /// Score of [`Lplr`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum LplrScore {
     /// `m(X)` estimated on the observations with `Y = 0`.
     #[default]

@@ -18,6 +18,7 @@ use crate::sensitivity::{Nu2Parts, SensitivityParts};
 
 /// Orthogonal score used by [`Plr`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PlrScore {
     /// `ψ = (Y − ℓ(X) − θ(D − m(X)))·(D − m(X))` with `ℓ(X) = E[Y | X]`.
     #[default]

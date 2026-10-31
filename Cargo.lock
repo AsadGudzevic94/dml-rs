@@ -30,6 +30,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -162,12 +171,14 @@ checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 name = "dml-core"
 version = "0.24.0"
 dependencies = [
+ "bincode",
  "criterion",
  "ndarray",
  "rand",
  "rand_chacha",
  "rand_distr",
  "rayon",
+ "serde",
  "serde_json",
  "thiserror",
 ]
@@ -176,10 +187,12 @@ dependencies = [
 name = "dml-py"
 version = "0.24.0"
 dependencies = [
+ "bincode",
  "dml-core",
  "ndarray",
  "numpy",
  "pyo3",
+ "serde",
 ]
 
 [[package]]
@@ -289,6 +302,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "rawpointer",
+ "serde",
 ]
 
 [[package]]

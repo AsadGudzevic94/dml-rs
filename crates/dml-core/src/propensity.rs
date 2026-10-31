@@ -13,6 +13,7 @@ use crate::error::{DmlError, Result};
 
 /// Calibration of propensity scores before clipping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Calibration {
     /// Clip only (default).
     #[default]
@@ -28,6 +29,7 @@ pub enum Calibration {
 /// by linear interpolation and clipping inputs to the training range, as
 /// scikit-learn's `IsotonicRegression(out_of_bounds="clip")`.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IsotonicRegression {
     x: Vec<f64>,
     y: Vec<f64>,

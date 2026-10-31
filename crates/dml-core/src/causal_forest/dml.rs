@@ -160,6 +160,7 @@ impl CausalForestDml {
 
 /// A fitted [`CausalForestDml`].
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CausalForestFit {
     forest: CausalForest,
     y: Array1<f64>,
@@ -384,6 +385,7 @@ impl InstrumentalForestDml {
 
 /// A fitted [`InstrumentalForestDml`].
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct InstrumentalForestFit {
     forest: InstrumentalForest,
     y: Array1<f64>,
@@ -586,6 +588,7 @@ impl MultiArmCausalForestDml {
 /// A fitted [`MultiArmCausalForestDml`]. Effects are `n × k` for the `k`
 /// non-baseline levels, in increasing order.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MultiArmCausalForestFit {
     forest: MultiArmCausalForest,
     y: Array1<f64>,

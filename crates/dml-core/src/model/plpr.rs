@@ -28,6 +28,7 @@ use crate::score::LinearScore;
 
 /// How [`Plpr`] handles the unit effects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PanelApproach {
     /// Correlated random effects: unit means of the covariates are added to
     /// them, and the treatment predictions are shifted so their unit means
@@ -47,6 +48,7 @@ pub enum PanelApproach {
 
 /// A static panel in long format: one row per unit `id` and period `t`.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StaticPanel {
     y: Array1<f64>,
     d: Array2<f64>,

@@ -23,6 +23,7 @@ use crate::stats::{median, norm_cdf, norm_ppf};
 
 /// Regressors of the first stage besides the covariates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum FirstStage {
     /// The cutoff indicator `1{score ≥ cutoff}`.
     #[default]
@@ -35,6 +36,7 @@ pub enum FirstStage {
 
 /// Kernel of the first-stage weights.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum RdKernel {
     Uniform,
     #[default]
@@ -420,6 +422,7 @@ fn adjust(
 /// Fitted [`RdFlex`]: the conventional, bias-corrected and robust RD
 /// estimates (rows), aggregated over repetitions as DoubleML.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RdFlexFit {
     reps: Vec<RdEstimate>,
     coef: [f64; 3],

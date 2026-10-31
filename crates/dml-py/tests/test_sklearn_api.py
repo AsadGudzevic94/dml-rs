@@ -42,7 +42,9 @@ ESTIMATORS = [
 
 
 def expected_failures(est):
-    fails = {"check_estimators_pickle": "fitted built-in learners cannot be pickled yet"}
+    fails = {}
+    if isinstance(est, (dml_rs.GridSearchRegressor, dml_rs.GridSearchClassifier)):
+        fails["check_estimators_pickle"] = "a fitted grid search holds its candidates as Rust trait objects"
     if isinstance(est, (dml_rs.Ols, dml_rs.GridSearchRegressor)):
         fails["check_sample_weight_equivalence_on_dense_data"] = (
             "plain least squares has no unique solution on the check's rank-deficient data")

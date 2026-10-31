@@ -18,6 +18,7 @@ mod datasets;
 mod errors;
 mod forest;
 mod learners;
+mod pickle;
 mod staggered;
 
 use cate::{fit_cate, PyBlp, PyCateResult};
@@ -117,6 +118,7 @@ fn attach_external(data: DmlData, external: Option<PyExternal<'_>>) -> DmlData {
 
 /// A fitted DML model (returned by the `fit_*` functions).
 #[pyclass(name = "DmlResult", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct PyDmlResult {
     fit: DmlFit,
 }
@@ -129,6 +131,11 @@ impl PyDmlResult {
 
 #[pymethods]
 impl PyDmlResult {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "DmlResult", self)
+    }
+
     #[getter]
     fn model_name(&self) -> &str {
         self.fit.model_name()
@@ -470,6 +477,7 @@ impl PyDmlResult {
 
 /// Result of a sensitivity analysis.
 #[pyclass(name = "SensitivityResult", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct PySensitivityResult {
     res: dml_core::SensitivityResult,
     text: String,
@@ -484,6 +492,11 @@ impl PySensitivityResult {
 
 #[pymethods]
 impl PySensitivityResult {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "SensitivityResult", self)
+    }
+
     #[getter]
     fn theta_lower<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         self.res.theta_lower.clone().into_pyarray(py)
@@ -529,12 +542,18 @@ impl PySensitivityResult {
 
 /// Benchmarked confounding scenario from omitting observed covariates.
 #[pyclass(name = "SensitivityBenchmark", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct PySensitivityBenchmark {
     bm: dml_core::SensitivityBenchmark,
 }
 
 #[pymethods]
 impl PySensitivityBenchmark {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "SensitivityBenchmark", self)
+    }
+
     #[getter]
     fn cf_y<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         self.bm.cf_y.clone().into_pyarray(py)
@@ -558,12 +577,18 @@ impl PySensitivityBenchmark {
 
 /// Bootstrap distribution of the t-statistics.
 #[pyclass(name = "Bootstrap", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct PyBootstrap {
     boot: dml_core::Bootstrap,
 }
 
 #[pymethods]
 impl PyBootstrap {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "Bootstrap", self)
+    }
+
     /// Shape `(n_boot, n_treat, n_rep)`.
     #[getter]
     fn t_stats<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray3<f64>> {
@@ -908,12 +933,18 @@ fn fit_apo(
 
 /// A fitted policy tree (returned by `DmlResult.policy_tree`).
 #[pyclass(name = "PolicyTree", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct PyPolicyTree {
     pub(crate) tree: dml_core::PolicyTree,
 }
 
 #[pymethods]
 impl PyPolicyTree {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "PolicyTree", self)
+    }
+
     /// Recommended treatment (1) or not (0) for each row of `features`.
     fn predict<'py>(
         &self,
@@ -974,12 +1005,18 @@ impl PyPolicyTree {
 /// Average potential outcomes of several treatment levels, fitted on shared
 /// sample splits (returned by `fit_apos`).
 #[pyclass(name = "AposResult", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct PyAposResult {
     inner: AposFit,
 }
 
 #[pymethods]
 impl PyAposResult {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "AposResult", self)
+    }
+
     #[getter]
     fn treatment_levels(&self) -> Vec<f64> {
         self.inner.levels().to_vec()
@@ -1056,12 +1093,18 @@ fn to_treatment_learner(obj: &Bound<'_, PyAny>, classifier: bool) -> PyResult<Tr
 
 /// Result of `fit_rdflex`: conventional, bias-corrected and robust RD estimates.
 #[pyclass(name = "RdFlexResult", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct PyRdFlexResult {
     fit: dml_core::RdFlexFit,
 }
 
 #[pymethods]
 impl PyRdFlexResult {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "RdFlexResult", self)
+    }
+
     #[getter]
     fn coef<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         self.fit.coef().to_vec().into_pyarray(py)
@@ -1614,12 +1657,18 @@ fn fit_quantile(
 
 /// Treatment effects on quantiles or CVaRs (returned by `fit_qte`).
 #[pyclass(name = "QteResult", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct PyQteResult {
     inner: QteFit,
 }
 
 #[pymethods]
 impl PyQteResult {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "QteResult", self)
+    }
+
     #[getter]
     fn quantiles(&self) -> Vec<f64> {
         self.inner.quantiles().to_vec()
@@ -1989,6 +2038,9 @@ mod dml_rs_native {
         PyQuantileForest, PyRandomForestClassifier, PyRandomForestRegressor, PyRdFlexResult,
         PyRegressionForest, PySensitivityBenchmark, PySensitivityResult, PyStaggeredResult,
     };
+
+    #[pymodule_export]
+    use super::pickle::restore;
 
     #[pymodule_init]
     fn init(m: &pyo3::Bound<'_, pyo3::types::PyModule>) -> pyo3::PyResult<()> {

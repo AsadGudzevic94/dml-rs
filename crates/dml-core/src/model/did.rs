@@ -26,6 +26,7 @@ use crate::sensitivity::{Nu2Parts, SensitivityParts};
 
 /// Assignment mechanism assumed by [`Did`] / [`DidCs`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DidScore {
     /// Treatment depends on covariates: the propensity `P(D = 1 | X)` is
     /// estimated with `ml_m` (doubly robust score).

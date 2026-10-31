@@ -18,6 +18,7 @@ use crate::score::LinearScore;
 /// One fold of a cluster split: the observation-level fold and, for each
 /// cluster variable, the clusters in its test set.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ClusterFold {
     pub fold: Fold,
     pub test_clusters: Vec<Vec<i64>>,
@@ -119,6 +120,7 @@ pub(crate) fn derive_test_clusters(clusters: &[Array1<i64>], fold: &Fold) -> Vec
 /// Cluster structure of a fit: the cluster variables and, per repetition,
 /// the cluster folds used.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct ClusterInfo {
     pub clusters: Vec<Array1<i64>>,
     pub n_folds_per_cluster: usize,

@@ -107,6 +107,24 @@ Sample splits are drawn from `random_state` (Python) or `seed` (Rust), so result
 To reproduce a DoubleML analysis exactly, pass its splits: `fit(..., folds=model.smpls)` in Python
 or `fit_with_folds` in Rust.
 
+## Saving fitted models
+
+Fitted models and learners can be pickled (`pickle`, `joblib`, `copy.deepcopy`), so an analysis
+can be saved and reloaded with all its results, including bootstrap, sensitivity analysis and
+CATE methods on the reloaded model:
+
+```python
+import joblib
+
+joblib.dump(model, "plr.joblib")
+model = joblib.load("plr.joblib")
+```
+
+As with scikit-learn, a pickle loads only with the dml-rs version that wrote it. Not yet
+picklable: the CATE meta-learners (`SLearner`, ..., `DRLearner`) and fitted grid searches, which
+hold their learners as Rust trait objects. In Rust, the `serde` feature of `dml-core` adds
+`Serialize` / `Deserialize` to the fitted learners and results.
+
 ## Next steps
 
 - The [examples](examples/01_getting_started.ipynb) walk through complete analyses.

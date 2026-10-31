@@ -36,6 +36,7 @@ pub(super) enum Target<'a> {
 
 /// The fitted counterpart of [`Target`].
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 enum Kind {
     Moment { k: usize, iv: bool },
     Regression,
@@ -277,6 +278,7 @@ struct Relabeled {
 const INNER: usize = usize::MAX;
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Node {
     feature: usize,
     threshold: f64,
@@ -294,6 +296,7 @@ impl Node {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Tree {
     nodes: Vec<Node>,
     /// Bitset over the training rows: in this tree's subsample.
@@ -614,6 +617,7 @@ fn best_split(
 
 /// A grown forest; the public forests wrap it.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub(super) struct Grf {
     settings: ForestSettings,
     trees: Vec<Tree>,

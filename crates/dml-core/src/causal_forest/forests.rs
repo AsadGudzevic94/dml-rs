@@ -14,6 +14,7 @@ fn column(a: Array2<f64>) -> Array1<f64> {
 
 /// A causal forest grown on residuals; see the [module docs](super).
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CausalForest {
     grf: Grf,
 }
@@ -79,6 +80,7 @@ impl CausalForest {
 /// treatment effect `θ(x) = Cov(Z, Y | x) / Cov(Z, W | x)`, as grf's
 /// `instrumental_forest`.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct InstrumentalForest {
     grf: Grf,
 }
@@ -151,6 +153,7 @@ impl InstrumentalForest {
 /// `A⁻¹ (Wᵢ − W̄) rᵢ` of all arms; each child keeps a share `alpha` of the
 /// parent's variation of every arm.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MultiArmCausalForest {
     grf: Grf,
 }
@@ -207,6 +210,7 @@ impl MultiArmCausalForest {
 /// ([`predict_with_variance`](Self::predict_with_variance)) and out-of-bag
 /// predictions.
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RegressionForest {
     settings: ForestSettings,
     grf: Option<Grf>,
@@ -275,6 +279,7 @@ impl Regressor for RegressionForest {
 /// Splits separate the node's `quantiles` (default 0.1, 0.5, 0.9); any
 /// quantiles can be predicted.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct QuantileForest {
     settings: ForestSettings,
     quantiles: Vec<f64>,

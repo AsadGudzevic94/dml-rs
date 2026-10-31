@@ -81,9 +81,9 @@ dml_rs.LassoCV(cv=list(GroupKFold(5).split(X, y, groups))).fit(X, y)
 - Parameters are checked when `fit` runs, not in the constructor.
 
 They pass scikit-learn's estimator checks (`sklearn.utils.estimator_checks`) with two
-exceptions: fitted learners cannot be pickled yet (unfitted ones can, so `GridSearchCV(n_jobs=...)`
-works), and where scikit-learn's own forests and boosting also fail, a sample weight of 2 is not
-the same as a duplicated row.
+exceptions: a fitted grid search cannot be pickled (every other fitted learner can), and where
+scikit-learn's own forests and boosting also fail, a sample weight of 2 is not the same as a
+duplicated row.
 
 Inside a DML model a built-in learner is still fitted in Rust: the model takes its parameters
 and cross-fits the Rust learner directly. The exception is a cross-validated learner whose `cv` is

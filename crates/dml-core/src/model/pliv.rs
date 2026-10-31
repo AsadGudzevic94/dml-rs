@@ -21,6 +21,7 @@ use crate::score::LinearScore;
 
 /// Score of [`Pliv`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PlivScore {
     /// `ψ = (Y − ℓ(X) − θ(D − r(X)))·(Z − m(X))`.
     #[default]
@@ -31,6 +32,7 @@ pub enum PlivScore {
 
 /// What [`Pliv`] partials out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PlivVariant {
     /// Partial `X` out of `Y`, `D` and every instrument. With several
     /// instruments the treatment residual is projected on the instrument

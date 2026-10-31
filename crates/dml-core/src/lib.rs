@@ -54,6 +54,10 @@
 //!   learner per nuisance model (`nuisance_regressor("ml_g1", ...)`, see [`NuisanceLearners`])
 //! - [`KFold`] / [`SampleSplitting`]: reproducible sample splitting
 //!
+//! With the `serde` feature, the fitted learners and results ([`DmlFit`], the forests, the
+//! quantile, staggered DID and RD results, ...) implement `serde::Serialize` /
+//! `serde::Deserialize`, so fitted models can be saved with any serde format.
+//!
 //! ```
 //! use dml_core::{DmlData, Ols, Plr};
 //! use ndarray::{Array1, Array2};

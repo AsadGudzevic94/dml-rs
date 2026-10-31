@@ -9,6 +9,7 @@ use crate::linalg::cholesky_solve;
 /// `ridge` (default 0) is added to the diagonal for slopes only, which keeps
 /// the fit well defined when covariates are collinear.
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Ols {
     ridge: f64,
     coef: Option<Array1<f64>>,

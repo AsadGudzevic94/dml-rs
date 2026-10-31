@@ -12,6 +12,7 @@ use crate::stats::{median, quantile_mut};
 
 /// Distribution of the multiplier weights `ξ_i` (all mean 0, variance 1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum BootstrapMethod {
     /// `ξ ~ N(0, 1)`
     #[default]
@@ -50,6 +51,7 @@ pub fn draw_weights(
 /// Keeps its own copy of the per-repetition estimates (small `(k, n_rep)`
 /// arrays), so it is independent of the fit it came from.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Bootstrap {
     all_coef: Array2<f64>,
     all_se: Array2<f64>,

@@ -439,6 +439,7 @@ impl Apos {
 /// Fitted [`Apos`]: the average potential outcome of every level, with joint
 /// inference, and contrasts between levels.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AposFit {
     levels: Vec<f64>,
     fit: DmlFit,

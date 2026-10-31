@@ -18,6 +18,7 @@ use crate::learner::{MaxFeatures, Node, Tree, TreeBuilder, TreeParams};
 
 /// One node of a fitted [`PolicyTree`] (see [`PolicyTree::nodes`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PolicyNode {
     /// Rows with `feature <= threshold` go to node `left`, the others to `right`.
     Split {
@@ -33,6 +34,7 @@ pub enum PolicyNode {
 
 /// A fitted policy tree.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PolicyTree {
     depth: usize,
     min_samples_leaf: usize,
@@ -43,6 +45,7 @@ pub struct PolicyTree {
 
 /// Weighted size and Gini impurity of one node.
 #[derive(Debug, Clone, Copy, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct NodeStats {
     weight: f64,
     weight1: f64,

@@ -25,6 +25,7 @@ use crate::sensitivity::{Nu2Parts, SensitivityParts};
 
 /// Target parameter of [`Irm`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum IrmScore {
     /// `E[g(1, X) − g(0, X)]`
     #[default]
@@ -52,6 +53,7 @@ pub struct Irm {
 /// `weights` enter the target, `weights_bar` (one column per repetition; by
 /// default equal to `weights`) the inverse-probability correction.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct ScoreWeights {
     pub weights: Array1<f64>,
     pub weights_bar: Option<Array2<f64>>,

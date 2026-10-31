@@ -45,6 +45,7 @@ use crate::error::{DmlError, Result};
 
 /// Settings of a generalized random forest (grf's defaults).
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ForestSettings {
     pub num_trees: usize,
     pub sample_fraction: f64,

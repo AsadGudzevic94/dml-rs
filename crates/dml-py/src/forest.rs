@@ -66,12 +66,18 @@ fn settings(
 /// A fitted causal forest: effects with variances, out-of-bag estimates, and
 /// doubly robust inference for a binary treatment.
 #[pyclass(name = "CausalForestResult", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct PyCausalForestResult {
     fit: CausalForestFit,
 }
 
 #[pymethods]
 impl PyCausalForestResult {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "CausalForestResult", self)
+    }
+
     /// `(tau, variance)` at the rows of `x`.
     fn effect<'py>(&self, py: Python<'py>, x: PyReadonlyArray2<'py, f64>) -> PyResult<Pair<'py>> {
         let x = x.as_array().to_owned();
@@ -216,12 +222,18 @@ pub fn fit_causal_forest(
 
 /// A fitted instrumental forest.
 #[pyclass(name = "InstrumentalForestResult", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct PyInstrumentalForestResult {
     fit: InstrumentalForestFit,
 }
 
 #[pymethods]
 impl PyInstrumentalForestResult {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "InstrumentalForestResult", self)
+    }
+
     /// `(theta, variance)` at the rows of `x`.
     fn effect<'py>(&self, py: Python<'py>, x: PyReadonlyArray2<'py, f64>) -> PyResult<Pair<'py>> {
         let x = x.as_array().to_owned();
@@ -364,12 +376,18 @@ pub fn fit_instrumental_forest(
 
 /// A fitted multi-arm causal forest (effects of each non-baseline level).
 #[pyclass(name = "MultiArmCausalForestResult", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct PyMultiArmCausalForestResult {
     fit: MultiArmCausalForestFit,
 }
 
 #[pymethods]
 impl PyMultiArmCausalForestResult {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "MultiArmCausalForestResult", self)
+    }
+
     /// `(tau, variance)` at the rows of `x`, each `(n, k)`.
     fn effect<'py>(&self, py: Python<'py>, x: PyReadonlyArray2<'py, f64>) -> PyResult<Pair2<'py>> {
         let x = x.as_array().to_owned();
@@ -513,7 +531,7 @@ pub fn fit_multi_arm_causal_forest(
 /// Honest regression forest (grf's `regression_forest`), implemented in Rust:
 /// a nuisance learner with variance estimates and out-of-bag predictions.
 #[pyclass(name = "RegressionForest", module = "dml_rs")]
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct PyRegressionForest {
     pub(crate) inner: RegressionForest,
     repr: String,
@@ -521,6 +539,11 @@ pub struct PyRegressionForest {
 
 #[pymethods]
 impl PyRegressionForest {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "RegressionForest", self)
+    }
+
     #[new]
     #[pyo3(signature = (n_estimators = 2000, sample_fraction = 0.5, mtry = None, min_node_size = 5,
                         honesty = true, honesty_fraction = 0.5, honesty_prune_leaves = true, alpha = 0.05,
@@ -637,7 +660,7 @@ impl PyRegressionForest {
 
 /// Quantile forest (grf's `quantile_forest`), implemented in Rust.
 #[pyclass(name = "QuantileForest", module = "dml_rs")]
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct PyQuantileForest {
     inner: QuantileForest,
     quantiles: Vec<f64>,
@@ -646,6 +669,11 @@ pub struct PyQuantileForest {
 
 #[pymethods]
 impl PyQuantileForest {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "QuantileForest", self)
+    }
+
     #[new]
     #[pyo3(signature = (quantiles = vec![0.1, 0.5, 0.9], n_estimators = 2000, sample_fraction = 0.5,
                         mtry = None, min_node_size = 5, honesty = true, honesty_fraction = 0.5,

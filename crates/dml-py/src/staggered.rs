@@ -28,12 +28,18 @@ fn unit_labels(ids: &[i64], labels: &ndarray::Array1<i64>) -> PyResult<ndarray::
 
 /// Fitted staggered DID: group-time effects and their aggregations.
 #[pyclass(name = "StaggeredResult", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct PyStaggeredResult {
     fit: StaggeredDidFit,
 }
 
 #[pymethods]
 impl PyStaggeredResult {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "StaggeredResult", self)
+    }
+
     /// The ATT(g, t) estimates (coef, se, confint, bootstrap, ...).
     #[getter]
     fn att(&self) -> PyDmlResult {

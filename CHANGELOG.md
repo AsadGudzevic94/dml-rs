@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Saving fitted models: fitted learners and models pickle (`pickle`, `joblib`, `copy.deepcopy`)
+  with all their results, and the reloaded models keep working (bootstrap, sensitivity analysis,
+  CATE, ...). Pickles are tied to the dml-rs version. Not yet: the CATE meta-learners and fitted
+  grid searches.
+- Rust: optional `serde` feature; fitted learners and results (`DmlFit`, forests, quantile,
+  staggered DID, RD, APOS results, `Blp`, `Bootstrap`, `PolicyTree`, ...) implement
+  `Serialize` / `Deserialize`.
+
 ## [0.24.0] - 2026-10-31
 
 ### Added

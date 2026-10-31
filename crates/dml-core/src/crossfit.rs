@@ -9,6 +9,7 @@ use crate::learner::{Classifier, Regressor};
 
 /// One train/test split.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Fold {
     pub train: Vec<usize>,
     pub test: Vec<usize>,
@@ -16,6 +17,7 @@ pub struct Fold {
 
 /// Shuffled K-fold splitter with a fixed seed, so results are reproducible.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct KFold {
     n_folds: usize,
     seed: u64,
@@ -117,6 +119,7 @@ impl KFold {
 /// How observations are split for cross-fitting: `n_rep` independent
 /// repetitions of seeded K-fold splitting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SampleSplitting {
     pub n_folds: usize,
     pub n_rep: usize,

@@ -63,7 +63,7 @@ fn fit_classifier<C: Classifier>(
 /// Ordinary least squares with intercept and optional ridge penalty
 /// (`ridge=α` matches scikit-learn's `Ridge(alpha=α)`).
 #[pyclass(name = "Ols", module = "dml_rs")]
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct PyOls {
     pub(crate) inner: Ols,
     ridge: f64,
@@ -71,6 +71,11 @@ pub struct PyOls {
 
 #[pymethods]
 impl PyOls {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "Ols", self)
+    }
+
     /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
     fn __copy__(&self) -> Self {
         self.clone()
@@ -132,7 +137,7 @@ impl PyOls {
 
 /// Lasso by coordinate descent; same objective as scikit-learn's `Lasso(alpha=α)`.
 #[pyclass(name = "Lasso", module = "dml_rs")]
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct PyLasso {
     pub(crate) inner: Lasso,
     alpha: f64,
@@ -140,6 +145,11 @@ pub struct PyLasso {
 
 #[pymethods]
 impl PyLasso {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "Lasso", self)
+    }
+
     /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
     fn __copy__(&self) -> Self {
         self.clone()
@@ -240,7 +250,7 @@ fn not_fitted(name: &str) -> PyErr {
 /// `LassoCV`: `alphas` is the number of penalties on the automatic grid
 /// (from `alpha_max` down to `eps * alpha_max`) or a list of penalties.
 #[pyclass(name = "LassoCV", module = "dml_rs")]
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct PyLassoCV {
     pub(crate) inner: LassoCV,
     repr: String,
@@ -248,6 +258,11 @@ pub struct PyLassoCV {
 
 #[pymethods]
 impl PyLassoCV {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "LassoCV", self)
+    }
+
     /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
     fn __copy__(&self) -> Self {
         self.clone()
@@ -365,7 +380,7 @@ impl PyLassoCV {
 /// number of values between 1e-4 and 1e4 or a list of values; `scoring` is
 /// `"neg_log_loss"` (default, scikit-learn's default from 1.11) or `"accuracy"`.
 #[pyclass(name = "LogisticRegressionCV", module = "dml_rs")]
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct PyLogisticRegressionCV {
     pub(crate) inner: LogisticRegressionCV,
     repr: String,
@@ -373,6 +388,11 @@ pub struct PyLogisticRegressionCV {
 
 #[pymethods]
 impl PyLogisticRegressionCV {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "LogisticRegressionCV", self)
+    }
+
     /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
     fn __copy__(&self) -> Self {
         self.clone()
@@ -509,7 +529,7 @@ impl PyLogisticRegressionCV {
 /// L2-penalised logistic regression (Newton); same objective as
 /// scikit-learn's `LogisticRegression(C=C)`.
 #[pyclass(name = "LogisticRegression", module = "dml_rs")]
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct PyLogisticRegression {
     pub(crate) inner: LogisticRegression,
     c: f64,
@@ -517,6 +537,11 @@ pub struct PyLogisticRegression {
 
 #[pymethods]
 impl PyLogisticRegression {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "LogisticRegression", self)
+    }
+
     /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
     fn __copy__(&self) -> Self {
         self.clone()
@@ -620,7 +645,7 @@ fn parse_max_features(obj: &Bound<'_, PyAny>, default: MaxFeatures) -> PyResult<
 }
 
 /// Forest settings as given from Python, shared by both forest classes.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
 struct ForestArgs {
     n_estimators: usize,
     max_depth: Option<usize>,
@@ -656,6 +681,7 @@ macro_rules! forest_pyclass {
                         "Parameters follow scikit-learn's `", $name, "`.")]
         #[pyclass(name = $name, module = "dml_rs")]
         #[derive(Clone)]
+        #[derive(serde::Serialize, serde::Deserialize)]
         pub struct $py_ty {
             pub(crate) inner: $rust_ty,
             args: ForestArgs,
@@ -663,6 +689,11 @@ macro_rules! forest_pyclass {
 
         #[pymethods]
         impl $py_ty {
+            /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+            fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+                crate::pickle::reduce(py, $name, self)
+            }
+
             /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
             fn __copy__(&self) -> Self {
                 self.clone()
@@ -771,6 +802,7 @@ macro_rules! boosting_pyclass {
                         "Parameters follow scikit-learn's `", $name, "`.")]
         #[pyclass(name = $name, module = "dml_rs")]
         #[derive(Clone)]
+        #[derive(serde::Serialize, serde::Deserialize)]
         pub struct $py_ty {
             pub(crate) inner: $rust_ty,
             n_estimators: usize,
@@ -780,6 +812,11 @@ macro_rules! boosting_pyclass {
 
         #[pymethods]
         impl $py_ty {
+            /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+            fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+                crate::pickle::reduce(py, $name, self)
+            }
+
             /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
             fn __copy__(&self) -> Self {
                 self.clone()
@@ -905,6 +942,7 @@ macro_rules! hist_pyclass {
                         "Parameters and results follow scikit-learn's `", $name, "`.")]
         #[pyclass(name = $name, module = "dml_rs")]
         #[derive(Clone)]
+        #[derive(serde::Serialize, serde::Deserialize)]
         pub struct $py_ty {
             pub(crate) inner: $rust_ty,
             learning_rate: f64,
@@ -914,6 +952,11 @@ macro_rules! hist_pyclass {
 
         #[pymethods]
         impl $py_ty {
+            /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+            fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+                crate::pickle::reduce(py, $name, self)
+            }
+
             /// A copy (`copy.copy` / `copy.deepcopy`; fitted state included).
             fn __copy__(&self) -> Self {
                 self.clone()

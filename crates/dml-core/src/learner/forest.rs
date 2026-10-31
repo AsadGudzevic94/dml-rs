@@ -24,6 +24,7 @@ use crate::error::{DmlError, Result};
 
 /// Number of features considered at each split.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum MaxFeatures {
     /// All `p` features (scikit-learn's regressor default, `max_features=1.0`).
     All,
@@ -52,6 +53,7 @@ impl MaxFeatures {
 
 /// Growth limits of one CART tree (shared with gradient boosting).
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct TreeParams {
     pub max_depth: Option<usize>,
     pub min_samples_split: usize,
@@ -60,6 +62,7 @@ pub(crate) struct TreeParams {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) enum Node {
     Leaf {
         value: f64,
@@ -73,6 +76,7 @@ pub(crate) enum Node {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct Tree {
     pub nodes: Vec<Node>,
 }
@@ -222,6 +226,7 @@ impl TreeBuilder<'_, '_> {
 
 /// The shared forest engine behind the regressor and the classifier.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Forest {
     n_estimators: usize,
     params: TreeParams,
@@ -485,6 +490,7 @@ macro_rules! forest_builders {
 /// # let _ = rf;
 /// ```
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RandomForestRegressor {
     forest: Forest,
 }
@@ -536,6 +542,7 @@ impl Regressor for RandomForestRegressor {
 /// Defaults match scikit-learn's `RandomForestClassifier`: 100 trees,
 /// `√p` features per split, unlimited depth, `min_samples_leaf = 1`.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RandomForestClassifier {
     forest: Forest,
 }

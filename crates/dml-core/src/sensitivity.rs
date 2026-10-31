@@ -27,6 +27,7 @@ use crate::stats::{median, norm_ppf};
 
 /// How a model's `ν²` is formed from per-observation elements.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Nu2Parts {
     /// `ν² = mean(e)` with per-observation elements `e = 2·m(W, α) − α²`.
     Elementwise(Array1<f64>),
@@ -41,6 +42,7 @@ pub enum Nu2Parts {
 /// The outcome residual is `a − θ·b` (`b` only for partially linear models,
 /// whose residual depends on θ).
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SensitivityParts {
     pub outcome_residual: Array1<f64>,
     pub theta_factor: Option<Array1<f64>>,
@@ -126,6 +128,7 @@ impl SensitivityParts {
 
 /// Stored sensitivity elements of a fit, per treatment `j` and repetition `r`.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct SensitivityStore {
     /// Shape `(k, n_rep)`.
     pub sigma2: Array2<f64>,
@@ -291,6 +294,7 @@ impl SensitivityStore {
 
 /// A confounding scenario for [`DmlFit::sensitivity_analysis`].
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SensitivityParams {
     pub cf_y: f64,
     pub cf_d: f64,
@@ -376,6 +380,7 @@ impl SensitivityParams {
 
 /// Bounds under one confounding scenario (per treatment).
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Bounds {
     theta: (Array1<f64>, Array1<f64>),
     se: (Array1<f64>, Array1<f64>),
@@ -384,6 +389,7 @@ struct Bounds {
 
 /// Result of [`DmlFit::sensitivity_analysis`].
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SensitivityResult {
     pub params: SensitivityParams,
     treatment_names: Vec<String>,
@@ -643,6 +649,7 @@ fn robustness_value(bound: impl Fn(f64) -> f64, h0: f64, upper: bool) -> f64 {
 
 /// Benchmark values for `(c_y, c_d, ρ)` from omitting observed covariates.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SensitivityBenchmark {
     treatment_names: Vec<String>,
     pub cf_y: Array1<f64>,

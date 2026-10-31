@@ -16,6 +16,7 @@ const RESOLUTION: f64 = 1e-15;
 /// Cross-validation folds of [`LassoCV`], [`LogisticRegressionCV`] and the
 /// grid searches.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum CvFolds {
     /// `k` folds without shuffling: scikit-learn's `KFold(k)`, or
     /// `StratifiedKFold(k)` for classifiers.
@@ -205,6 +206,7 @@ fn average(values: impl Iterator<Item = f64>, w: Option<ArrayView1<'_, f64>>) ->
 /// blocks (scikit-learn's default `KFold` without shuffling), so results
 /// reproduce `LassoCV(cv=5)`.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LassoCV {
     n_alphas: usize,
     eps: f64,
@@ -216,6 +218,7 @@ pub struct LassoCV {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct LassoCvFit {
     alpha: f64,
     alphas: Vec<f64>,
@@ -425,6 +428,7 @@ impl Regressor for LassoCV {
 
 /// Criterion for choosing `C` in [`LogisticRegressionCV`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum CvScoring {
     /// Mean log loss of the predicted probabilities (scikit-learn's
     /// `"neg_log_loss"`, its default from version 1.11). The natural choice for
@@ -445,6 +449,7 @@ pub enum CvScoring {
 /// chosen and the model is refitted on all the data. Folds follow
 /// scikit-learn's `StratifiedKFold` without shuffling.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LogisticRegressionCV {
     cs: Vec<f64>,
     cv: CvFolds,
@@ -455,6 +460,7 @@ pub struct LogisticRegressionCV {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct LogitCvFit {
     c: f64,
     scores: Array2<f64>,

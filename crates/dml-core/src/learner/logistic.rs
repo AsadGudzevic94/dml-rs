@@ -10,6 +10,7 @@ use crate::linalg::cholesky_solve;
 /// Minimises `C · Σ logloss + ½‖w‖²`, the same objective as scikit-learn's
 /// `LogisticRegression(C=c)`; the default `C = 1` matches scikit-learn's default.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LogisticRegression {
     c: f64,
     tol: f64,

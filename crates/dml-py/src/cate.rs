@@ -13,12 +13,18 @@ type VecPair<'py> = (Bound<'py, PyArray1<f64>>, Bound<'py, PyArray1<f64>>);
 
 /// Best linear predictor of a CATE (or GATEs) with HC0 inference.
 #[pyclass(name = "Blp", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct PyBlp {
     pub(crate) blp: Blp,
 }
 
 #[pymethods]
 impl PyBlp {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "Blp", self)
+    }
+
     #[getter]
     fn coef<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         self.blp.coef().clone().into_pyarray(py)

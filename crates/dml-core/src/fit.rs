@@ -225,6 +225,7 @@ fn fit_model_impl<M: LinearScoreModel + ?Sized>(
 /// Signal (and basis scale) for CATE / GATE inference, per treatment and
 /// repetition, shape `(n, k, n_rep)`.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct CateStore {
     pub signal: Array3<f64>,
     pub scale: Option<Array3<f64>>,
@@ -251,6 +252,7 @@ impl CateStore {
 
 /// Out-of-sample loss of one nuisance learner, per treatment and repetition.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct NuisanceLoss {
     pub name: String,
     pub kind: LossKind,
@@ -315,6 +317,7 @@ pub(crate) fn aggregate(
 
 /// Multiple-testing adjustment for [`DmlFit::p_adjust`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PAdjust {
     Bonferroni,
     /// Holm's step-down procedure.
@@ -327,6 +330,7 @@ pub enum PAdjust {
 /// Arrays indexed by treatment have length `k = n_treat`; per-repetition
 /// arrays have shape `(k, n_rep)`.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DmlFit {
     pub(crate) model: String,
     pub(crate) treatment_names: Vec<String>,

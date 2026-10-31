@@ -40,6 +40,7 @@ use crate::score::LinearScore;
 
 /// Settings shared by the quantile models.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Settings {
     treatment: f64,
     quantile: f64,
@@ -1080,6 +1081,7 @@ impl Qte {
 
 /// Fitted [`Qte`].
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct QteFit {
     quantiles: Vec<f64>,
     potential: DmlFit,

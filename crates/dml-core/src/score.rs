@@ -12,6 +12,7 @@ use crate::error::{DmlError, Result};
 ///
 /// PLR, PLIV and IRM all have this form, so one solver serves every model.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LinearScore {
     pub psi_a: Array1<f64>,
     pub psi_b: Array1<f64>,
@@ -19,6 +20,7 @@ pub struct LinearScore {
 
 /// θ̂ and its standard error for one treatment and one repetition.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct ScoreSolution {
     pub theta: f64,
     pub se: f64,

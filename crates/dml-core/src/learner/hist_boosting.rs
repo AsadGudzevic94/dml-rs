@@ -31,6 +31,7 @@ const BINNING_SUBSAMPLE: usize = 200_000;
 
 /// When to stop adding trees early.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum EarlyStopping {
     /// On for more than 10 000 samples (scikit-learn's `"auto"`).
     #[default]
@@ -44,6 +45,7 @@ pub enum EarlyStopping {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct BinMapper {
     thresholds: Vec<Vec<f64>>,
     n_bins_non_missing: Vec<usize>,
@@ -231,6 +233,7 @@ impl BinMapper {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Node {
     value: f64,
     is_leaf: bool,
@@ -243,6 +246,7 @@ struct Node {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Tree {
     nodes: Vec<Node>,
 }
@@ -281,6 +285,7 @@ impl Tree {
 
 /// Gradient and hessian histograms of one node (`n_features × n_bins`).
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Histogram {
     g: Vec<f64>,
     h: Vec<f64>,
@@ -288,6 +293,7 @@ struct Histogram {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct SplitInfo {
     gain: f64,
     feature: usize,
@@ -322,6 +328,7 @@ impl SplitInfo {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct GrowNode {
     depth: usize,
     start: usize,
@@ -962,6 +969,7 @@ fn make_tree(nodes: &[GrowNode], mapper: &BinMapper) -> Tree {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 enum Loss {
     SquaredError,
     LogLoss,
@@ -1039,6 +1047,7 @@ impl Loss {
 
 /// Settings and fitted state shared by the regressor and the classifier.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct HistBooster {
     learning_rate: f64,
     max_iter: usize,
@@ -1460,6 +1469,7 @@ macro_rules! hist_api {
 /// Histogram-based gradient boosting for regression (squared error), as
 /// scikit-learn's `HistGradientBoostingRegressor`.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct HistGradientBoostingRegressor {
     inner: HistBooster,
 }
@@ -1508,6 +1518,7 @@ impl Regressor for HistGradientBoostingRegressor {
 /// Histogram-based gradient boosting for a binary outcome (log loss), as
 /// scikit-learn's `HistGradientBoostingClassifier`. Labels must be 0 / 1.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct HistGradientBoostingClassifier {
     inner: HistBooster,
 }

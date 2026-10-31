@@ -24,6 +24,7 @@ use crate::error::{DmlError, Result};
 
 /// Settings shared by the regressor and the classifier.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Booster {
     n_estimators: usize,
     learning_rate: f64,
@@ -38,6 +39,7 @@ struct Booster {
 
 /// The loss being boosted.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 enum Loss {
     SquaredError,
     LogLoss,
@@ -344,6 +346,7 @@ macro_rules! boosting_builders {
 /// # let _ = gb;
 /// ```
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct GradientBoostingRegressor {
     booster: Booster,
 }
@@ -392,6 +395,7 @@ impl Regressor for GradientBoostingRegressor {
 /// Gradient boosting for 0/1 classification (log loss). Defaults match
 /// scikit-learn's `GradientBoostingClassifier`.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct GradientBoostingClassifier {
     booster: Booster,
 }

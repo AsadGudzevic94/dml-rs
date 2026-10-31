@@ -25,6 +25,7 @@ use crate::stats::norm_ppf;
 
 /// Kernel of the local polynomial fits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Kernel {
     #[default]
     Triangular,
@@ -56,6 +57,7 @@ impl Kernel {
 
 /// Bandwidth selector, as `rdrobust`'s `bwselect`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum BwSelect {
     /// One common MSE-optimal bandwidth for the RD effect.
     #[default]
@@ -127,6 +129,7 @@ impl BwSelect {
 /// `Cr2` and `Hc3` to `Cr3`; without labels `Cr1`, `Cr2` and `Cr3` fall back
 /// to `Hc1`, `Hc2` and `Hc3`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Vce {
     /// Nearest-neighbour residuals (with at least `nnmatch` neighbours).
     #[default]
@@ -146,6 +149,7 @@ pub enum Vce {
 /// Treatment of repeated values of the running variable, as `rdrobust`'s
 /// `masspoints`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum MassPoints {
     /// With many repeated values, enlarge the pilot bandwidths to contain at
     /// least `bwcheck` (default 10) distinct values, and count distinct
@@ -161,6 +165,7 @@ pub enum MassPoints {
 /// Options of [`rd_bandwidths`] and [`rd_estimate`], with `rdrobust`'s
 /// defaults.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RdOptions {
     /// Polynomial order of the point estimate (default 1).
     pub p: usize,
@@ -299,6 +304,7 @@ impl<'a> RdData<'a> {
 
 /// Bandwidths below (`.0`) and above (`.1`) the cutoff.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RdBandwidths {
     /// Main bandwidth.
     pub h: (f64, f64),
@@ -319,6 +325,7 @@ impl RdBandwidths {
 /// Result of [`rd_estimate`]: rows are the conventional, bias-corrected and
 /// robust (bias-corrected with robust standard error) estimates.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RdEstimate {
     pub coef: [f64; 3],
     pub se: [f64; 3],
@@ -340,6 +347,7 @@ pub struct RdEstimate {
 
 /// One side of the cutoff, sorted by the running variable.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct Side {
     x: Vec<f64>,
     y: Vec<f64>,
@@ -757,6 +765,7 @@ type Adjust = Box<dyn Fn(&Array1<f64>) -> Array1<f64>>;
 
 /// A leverage-adjusted cluster-robust variance: `rdrobust`'s CRV2 or CRV3.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 enum Crv {
     Two,
     Three,

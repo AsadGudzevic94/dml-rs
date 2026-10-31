@@ -18,6 +18,7 @@ use crate::stats::{median, norm_ppf, norm_sf, quantile_mut};
 
 /// A fitted best linear predictor, one OLS fit per repetition of the signal.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Blp {
     /// Shape `(p, n_rep)`.
     all_coef: Array2<f64>,

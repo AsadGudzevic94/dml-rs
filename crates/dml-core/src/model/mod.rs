@@ -129,6 +129,7 @@ pub(crate) fn external_get(
 /// `"ml_m"`), one column per sample-splitting repetition. Learners with
 /// external predictions are not fitted, and have no out-of-sample loss.
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExternalPredictions {
     preds: Vec<(usize, String, Array2<f64>)>,
 }
@@ -189,6 +190,7 @@ impl ExternalPredictions {
 /// where the signal is the outcome residual and the scale the treatment
 /// residual).
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CateSignal {
     pub signal: Array1<f64>,
     pub theta_factor: Option<Array1<f64>>,
@@ -204,6 +206,7 @@ pub struct CateSignal {
 /// fields can be added without breaking custom models).
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ScoreEstimate {
     pub score: LinearScore,
     /// `(name, out-of-fold predictions)` — e.g. `("ml_l", ℓ̂)`.
@@ -223,6 +226,7 @@ pub type Name = std::borrow::Cow<'static, str>;
 
 /// Loss used to evaluate a nuisance learner out of sample.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum LossKind {
     /// Root mean squared error (regression learners).
     Rmse,
@@ -233,6 +237,7 @@ pub enum LossKind {
 /// The target a nuisance learner predicts; `NaN` marks rows where the
 /// nuisance does not apply (e.g. `g₀` on treated rows).
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct NuisanceTarget {
     pub name: Name,
     pub target: Array1<f64>,

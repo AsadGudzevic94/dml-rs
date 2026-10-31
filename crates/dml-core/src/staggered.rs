@@ -52,6 +52,7 @@ use crate::sensitivity::{SensitivityBenchmark, SensitivityStore};
 ///   (or `NaN`) for never-treated units; must be one of `periods`
 /// - `x`: time-invariant covariates, shape `(n_units, p)`
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PanelData {
     y: Array2<f64>,
     periods: Vec<f64>,
@@ -233,6 +234,7 @@ impl PanelData {
 ///   `f64::INFINITY` / `NaN` for never treated; must be one of the periods
 /// - `x`: covariates of each row, shape `(n_rows, p)`
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RepeatedCrossSections {
     y: Array1<f64>,
     time: Array1<f64>,
@@ -493,6 +495,7 @@ impl StaggeredInput<'_> {
 
 /// Which units serve as controls for cohort `g` in period `t`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ControlGroup {
     /// Units that are never treated.
     #[default]
@@ -504,6 +507,7 @@ pub enum ControlGroup {
 
 /// Which `(g, t_pre, t_eval)` combinations to estimate (as DoubleML).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum GtCombinations {
     /// Post-treatment periods against the last pre-treatment period; pre-treatment
     /// periods against the period before ("varying base", Callaway & Sant'Anna).
@@ -517,6 +521,7 @@ pub enum GtCombinations {
 
 /// One group-time combination: cohort, base period and evaluation period.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct GroupTime {
     pub cohort: f64,
     pub t_pre: f64,
@@ -1029,6 +1034,7 @@ fn construct_group_times(
 
 /// How [`StaggeredDidFit::aggregate`] combines the group-time effects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Aggregation {
     /// One effect per cohort (average of its post-treatment `ATT(g, t)`);
     /// overall = cohort-size weighted average.
@@ -1043,6 +1049,7 @@ pub enum Aggregation {
 
 /// All group-time effects of a staggered DID, with joint inference.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StaggeredDidFit {
     group_times: Vec<GroupTime>,
     cohorts: Vec<f64>,
@@ -1197,6 +1204,7 @@ impl fmt::Display for StaggeredDidFit {
 
 /// Aggregated staggered-DID effects and their overall summary.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DidAggregation {
     aggregation: Aggregation,
     weights: Array2<f64>,

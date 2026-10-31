@@ -10,6 +10,7 @@ use crate::error::{DmlError, Result};
 /// scikit-learn's `Lasso(alpha=α)`. The classic DML learner for
 /// high-dimensional confounders.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Lasso {
     alpha: f64,
     tol: f64,

@@ -15,6 +15,7 @@ __version__: str
 # `cv` of the cross-validated learners: a number of folds or explicit (train, test) rows.
 _Cv = Union[None, int, Sequence[tuple[Sequence[int], Sequence[int]]]]
 __all__ = [
+    "_restore",
     "concat",
     "draw_folds",
     "result_from_scores",
@@ -755,6 +756,9 @@ class HistGradientBoostingClassifier:
     def n_iter_(self) -> int: ...
     @property
     def validation_score_(self) -> NDArray[np.float64]: ...
+
+def _restore(kind: str, data: bytes) -> Any:
+    """Rebuild a pickled native object (used by ``dml_rs._pickle.restore``)."""
 
 # ---------------------------------------------------------------------------
 # Fitting functions (called by the estimator classes)
