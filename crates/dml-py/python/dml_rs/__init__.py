@@ -78,6 +78,7 @@ from ._autodml import (
     RieszLasso,
     ShiftEffect,
 )
+from ._dose import DoseResponse
 from ._models import (
     APO,
     APOS,
@@ -115,6 +116,7 @@ __all__ = [
     "APO",
     "APOS",
     "CausalContrast",
+    "DoseResponse",
     "Framework",
     "concat",
     "SSM",

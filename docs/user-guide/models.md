@@ -460,6 +460,77 @@ available on its own (`dml_core::rd::rd_estimate` and `rd_bandwidths` with `RdOp
     let fit = RdFlex::sharp(ml_g).rd_options(options).rd_clusters(school).fit(&data, score.view())?;
     ```
 
+## Continuous treatments: dose-response curves
+
+For a continuous treatment (a dose, a price, hours of training), the average dose-response
+function
+
+$$
+\beta(t) = E[Y(t)] = E[\gamma_0(t, X)], \qquad \gamma_0(t, X) = E[Y \mid D = t, X],
+$$
+
+traces the mean outcome if everyone received treatment $t$. `DoseResponse` estimates it at a grid
+of values $t$ with the kernel-localised doubly robust score of Colangelo and Lee (2023),
+
+$$
+\psi(t) = \gamma(t, X) + \frac{K_h(D - t)}{f(t \mid X)}\,\bigl(Y - \gamma(t, X)\bigr) - \beta(t),
+\qquad K_h(u) = k(u / h) / h,
+$$
+
+where $f(t \mid X)$, the *generalised propensity score*, is the conditional density of the
+treatment. Both nuisances are cross-fitted: `ml_g` learns $\gamma_0$ on $(D, X)$ (the treatment
+first), and `ml_m` the density, either with Colangelo and Lee's kernel regression
+(`density="kernel"`, the default: $f(t \mid X) = E[\varphi((D - t)/h_1) \mid X] / h_1$, one fit of
+`ml_m` per grid point, no distributional assumption) or a normal model
+(`density="normal"`: $D \mid X \sim N(m(X), \sigma^2)$, `ml_m` learns $m$). Small densities are
+floored (`trimming_threshold`, on the scale of the standardised treatment).
+
+The estimate converges at the nonparametric rate $\sqrt{nh}$, and its standard error comes from
+the estimated influence function, as for the other models. The default bandwidth is
+$h = c\,\sigma_D\, n^{-1/5}$ with $c = 1$ (`bandwidth_scale`); smaller $c$ undersmooths, which
+makes the kernel bias small next to the standard error at the price of more variance (Colangelo
+and Lee's simulations use $c$ between 0.75 and 1.5). The default kernel is Epanechnikov.
+
+All grid points share the sample splits, so the curve has joint inference: `bootstrap()` and
+`confint(joint=True)` give a uniform confidence band, `contrast(t_ref)` the differences
+$\beta(t) - \beta(t_{\text{ref}})$, and with `partial_effects=True` the model also estimates the
+derivative $\partial\beta(t)/\partial t$ by $(\hat\beta(t + \eta/2) - \hat\beta(t - \eta/2))/\eta$
+with $\eta = h\,n^{-1/6}$ by default.
+
+=== "Python"
+
+    ```python
+    model = dml_rs.DoseResponse(dml_rs.LassoCV(), dml_rs.LassoCV(),
+                                grid=np.linspace(0, 2, 9), partial_effects=True)
+    model.fit(X, y, d)
+    model.summary                   # β(t) at the grid points
+    model.partial_effect().summary  # ∂β(t)/∂t
+    model.contrast(0.0).summary     # β(t) − β(0)
+    model.bootstrap().plot(joint=True)  # curve with a uniform 95% band
+    ```
+
+=== "Rust"
+
+    ```rust
+    use dml_core::{DensityModel, DoseResponse};
+
+    let fit = DoseResponse::new(LassoCV::new(), LassoCV::new())
+        .grid(vec![0.0, 0.5, 1.0, 1.5, 2.0])
+        .partial_effects(true)
+        .fit(&data)?;
+    let curve = fit.curve();                      // a DmlFit: coef, se, confint, bootstrap
+    let slopes = fit.partial_effects().unwrap();
+    let effects = fit.contrast(0.0)?;
+    ```
+
+!!! note "Choosing the learners and the bandwidth"
+    `ml_g` predicts at treatment values $t$ for every unit, so it should be reasonably smooth in
+    the treatment. The density is the delicate part: where $f(t \mid X)$ is small, the weights
+    $K_h/f$ get large, so estimate the curve where the treatment has support for all kinds of
+    units (the default grid is the deciles of $D$). DoubleML has no model for continuous
+    treatments; the estimator is validated against an independent implementation and in Colangelo
+    and Lee's simulation design (see [Validation](../validation.md)).
+
 ## Automatic debiased ML (AutoDML)
 
 Many effects are a mean of a *linear functional* of the regression

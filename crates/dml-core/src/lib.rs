@@ -121,11 +121,12 @@ pub use learner::{
     RandomForestRegressor, Regressor,
 };
 pub use model::{
-    Apo, Apos, AposFit, AutoDml, CateSignal, Cvar, Did, DidCs, DidScore, ExternalPredictions,
-    FirstStage, Iivm, Irm, IrmScore, LinearScoreModel, LossKind, Lplr, LplrScore, Lpq, Name,
-    NuisanceLearners, NuisanceTarget, PanelApproach, Pliv, PlivScore, PlivVariant, Plpr, Plr,
-    PlrScore, Pq, Qte, QteFit, RdFlex, RdFlexFit, RdKernel, ScoreEstimate, ScoreInput, Ssm,
-    SsmScore, StaticPanel, TreatmentLearner,
+    Apo, Apos, AposFit, AutoDml, Bandwidth, CateSignal, Cvar, DensityModel, Did, DidCs, DidScore,
+    DoseKernel, DoseResponse, DoseResponseFit, ExternalPredictions, FirstStage, Iivm, Irm,
+    IrmScore, LinearScoreModel, LossKind, Lplr, LplrScore, Lpq, Name, NuisanceLearners,
+    NuisanceTarget, PanelApproach, Pliv, PlivScore, PlivVariant, Plpr, Plr, PlrScore, Pq, Qte,
+    QteFit, RdFlex, RdFlexFit, RdKernel, ScoreEstimate, ScoreInput, Ssm, SsmScore, StaticPanel,
+    TreatmentLearner,
 };
 pub use policy::{PolicyNode, PolicyTree};
 pub use propensity::{Calibration, IsotonicRegression};

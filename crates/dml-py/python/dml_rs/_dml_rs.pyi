@@ -23,6 +23,7 @@ __all__ = [
     "simulate",
     "fit_apo",
     "fit_apos",
+    "fit_dose_response",
     "fit_autodml",
     "fit_causal_forest",
     "fit_cate",
@@ -41,6 +42,7 @@ __all__ = [
     "fit_ssm",
     "fit_staggered_did",
     "AposResult",
+    "DoseResponseResult",
     "Blp",
     "Bootstrap",
     "CateResult",
@@ -265,6 +267,25 @@ class AposResult:
         """One estimate per treatment level."""
     def causal_contrast(self, reference_levels: Sequence[float]) -> DmlResult:
         """Effects of each level against each reference level (``"d vs d_ref"``)."""
+
+@final
+class DoseResponseResult:
+    """Dose-response curve of a continuous treatment, with partial effects and contrasts."""
+
+    @property
+    def grid(self) -> list[float]: ...
+    @property
+    def bandwidth(self) -> float: ...
+    @property
+    def eta(self) -> Optional[float]: ...
+    @property
+    def curve(self) -> DmlResult:
+        """``β(t)`` at the grid points."""
+    @property
+    def partial_effects(self) -> Optional[DmlResult]:
+        """``∂β(t)/∂t`` at the grid points (None unless requested)."""
+    def contrast(self, reference: float) -> DmlResult:
+        """``β(t) − β(reference)`` for the other grid points."""
 
 @final
 class QteResult:
@@ -881,6 +902,26 @@ def fit_apos(
     weights: Optional[NDArray[np.float64]] = None,
     weights_bar: Optional[NDArray[np.float64]] = None,
 ) -> AposResult: ...
+def fit_dose_response(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    ml_g: Any,
+    ml_m: Any,
+    grid: Optional[Sequence[float]] = None,
+    kernel: str = "epanechnikov",
+    bandwidth: Optional[float] = None,
+    bandwidth_scale: float = 1.0,
+    density: str = "kernel",
+    density_bandwidth: Optional[float] = None,
+    trimming_threshold: float = 1e-2,
+    partial_effects: bool = False,
+    eta: Optional[float] = None,
+    n_folds: int = 5,
+    n_rep: int = 1,
+    seed: int = 0,
+    splits: Optional[_Splits] = None,
+) -> DoseResponseResult: ...
 def fit_plpr(
     y: NDArray[np.float64],
     d: NDArray[np.float64],

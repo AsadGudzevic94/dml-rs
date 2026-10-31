@@ -3,10 +3,10 @@
 //! `fit_*` functions below.
 
 use dml_core::{
-    Apo, Apos, AposFit, BootstrapMethod, Cvar, Did, DidCs, DidScore, DmlData, DmlFit,
-    ExternalPredictions, Fold, Iivm, Irm, IrmScore, Lplr, LplrScore, Lpq, PAdjust, PanelApproach,
-    Pliv, PlivScore, PlivVariant, Plpr, Plr, PlrScore, Pq, Qte, QteFit, Ssm, SsmScore, StaticPanel,
-    TreatmentLearner,
+    Apo, Apos, AposFit, Bandwidth, BootstrapMethod, Cvar, DensityModel, Did, DidCs, DidScore,
+    DmlData, DmlFit, DoseKernel, DoseResponse, DoseResponseFit, ExternalPredictions, Fold, Iivm,
+    Irm, IrmScore, Lplr, LplrScore, Lpq, PAdjust, PanelApproach, Pliv, PlivScore, PlivVariant,
+    Plpr, Plr, PlrScore, Pq, Qte, QteFit, Ssm, SsmScore, StaticPanel, TreatmentLearner,
 };
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -1082,6 +1082,139 @@ fn fit_apos(
         .map_err(to_py_err)
 }
 
+/// Result of `fit_dose_response`: the dose-response curve, partial effects and contrasts.
+#[pyclass(name = "DoseResponseResult", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct PyDoseResponseResult {
+    inner: DoseResponseFit,
+}
+
+#[pymethods]
+impl PyDoseResponseResult {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "DoseResponseResult", self)
+    }
+
+    #[getter]
+    fn grid(&self) -> Vec<f64> {
+        self.inner.grid().to_vec()
+    }
+
+    #[getter]
+    fn bandwidth(&self) -> f64 {
+        self.inner.bandwidth()
+    }
+
+    #[getter]
+    fn eta(&self) -> Option<f64> {
+        self.inner.eta()
+    }
+
+    /// `β(t)` at the grid points.
+    #[getter]
+    fn curve(&self) -> PyDmlResult {
+        PyDmlResult::from_fit(self.inner.curve().clone())
+    }
+
+    /// `∂β(t)/∂t` at the grid points (None unless requested).
+    #[getter]
+    fn partial_effects(&self) -> Option<PyDmlResult> {
+        self.inner
+            .partial_effects()
+            .cloned()
+            .map(PyDmlResult::from_fit)
+    }
+
+    /// `β(t) − β(reference)` for the other grid points.
+    fn contrast(&self, reference: f64) -> PyResult<PyDmlResult> {
+        self.inner
+            .contrast(reference)
+            .map(PyDmlResult::from_fit)
+            .map_err(to_py_err)
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (y, d, x, ml_g, ml_m, grid = None, kernel = "epanechnikov", bandwidth = None,
+                    bandwidth_scale = 1.0, density = "kernel", density_bandwidth = None,
+                    trimming_threshold = 1e-2, partial_effects = false, eta = None, n_folds = 5,
+                    n_rep = 1, seed = 0, splits = None))]
+#[allow(clippy::too_many_arguments)]
+fn fit_dose_response(
+    py: Python<'_>,
+    y: PyReadonlyArray1<'_, f64>,
+    d: PyReadonlyArray2<'_, f64>,
+    x: PyReadonlyArray2<'_, f64>,
+    ml_g: &Bound<'_, PyAny>,
+    ml_m: &Bound<'_, PyAny>,
+    grid: Option<Vec<f64>>,
+    kernel: &str,
+    bandwidth: Option<f64>,
+    bandwidth_scale: f64,
+    density: &str,
+    density_bandwidth: Option<f64>,
+    trimming_threshold: f64,
+    partial_effects: bool,
+    eta: Option<f64>,
+    n_folds: usize,
+    n_rep: usize,
+    seed: u64,
+    splits: Option<PySplits>,
+) -> PyResult<PyDoseResponseResult> {
+    let data = build_data(y, d, x, None, None, None, None)?;
+    let kernel = match kernel {
+        "epanechnikov" => DoseKernel::Epanechnikov,
+        "gaussian" => DoseKernel::Gaussian,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "kernel must be 'epanechnikov' or 'gaussian', got {other:?}"
+            )))
+        }
+    };
+    let density = match density {
+        "kernel" => DensityModel::KernelRegression,
+        "normal" => DensityModel::Normal,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "density must be 'kernel' or 'normal', got {other:?}"
+            )))
+        }
+    };
+    let bandwidth = match bandwidth {
+        Some(h) => Bandwidth::Fixed(h),
+        None => Bandwidth::RuleOfThumb(bandwidth_scale),
+    };
+    let mut model = DoseResponse::from_boxed(to_regressor(ml_g)?, to_regressor(ml_m)?)
+        .kernel(kernel)
+        .bandwidth(bandwidth)
+        .density(density)
+        .trimming_threshold(trimming_threshold)
+        .partial_effects(partial_effects)
+        .n_folds(n_folds)
+        .n_rep(n_rep)
+        .seed(seed);
+    if let Some(grid) = grid {
+        model = model.grid(grid);
+    }
+    if let Some(h1) = density_bandwidth {
+        model = model.density_bandwidth(h1);
+    }
+    if let Some(eta) = eta {
+        model = model.eta(eta);
+    }
+    let result = match splits {
+        Some(s) => {
+            let s = to_splits(s);
+            py.detach(|| model.fit_with_folds(&data, &s))
+        }
+        None => py.detach(|| model.fit(&data)),
+    };
+    result
+        .map(|inner| PyDoseResponseResult { inner })
+        .map_err(to_py_err)
+}
+
 /// `E[D | X]` learner of LPLR: a classifier (probabilities) or a regressor.
 fn to_treatment_learner(obj: &Bound<'_, PyAny>, classifier: bool) -> PyResult<TreatmentLearner> {
     Ok(if classifier {
@@ -2027,16 +2160,17 @@ mod dml_rs_native {
     #[pymodule_export]
     use super::{
         concat, draw_folds, fit_apo, fit_apos, fit_autodml, fit_cate, fit_causal_forest, fit_did,
-        fit_iivm, fit_instrumental_forest, fit_irm, fit_lplr, fit_multi_arm_causal_forest,
-        fit_pliv, fit_plpr, fit_plr, fit_qte, fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did,
-        result_from_scores, set_parallel_folds, simulate, PyAposResult, PyBlp, PyBootstrap,
-        PyCateResult, PyCausalForestResult, PyDmlResult, PyGradientBoostingClassifier,
-        PyGradientBoostingRegressor, PyGridSearchClassifier, PyGridSearchRegressor,
-        PyHistGradientBoostingClassifier, PyHistGradientBoostingRegressor,
-        PyInstrumentalForestResult, PyLasso, PyLassoCV, PyLogisticRegression,
-        PyLogisticRegressionCV, PyMultiArmCausalForestResult, PyOls, PyPolicyTree, PyQteResult,
-        PyQuantileForest, PyRandomForestClassifier, PyRandomForestRegressor, PyRdFlexResult,
-        PyRegressionForest, PySensitivityBenchmark, PySensitivityResult, PyStaggeredResult,
+        fit_dose_response, fit_iivm, fit_instrumental_forest, fit_irm, fit_lplr,
+        fit_multi_arm_causal_forest, fit_pliv, fit_plpr, fit_plr, fit_qte, fit_quantile,
+        fit_rdflex, fit_ssm, fit_staggered_did, result_from_scores, set_parallel_folds, simulate,
+        PyAposResult, PyBlp, PyBootstrap, PyCateResult, PyCausalForestResult, PyDmlResult,
+        PyDoseResponseResult, PyGradientBoostingClassifier, PyGradientBoostingRegressor,
+        PyGridSearchClassifier, PyGridSearchRegressor, PyHistGradientBoostingClassifier,
+        PyHistGradientBoostingRegressor, PyInstrumentalForestResult, PyLasso, PyLassoCV,
+        PyLogisticRegression, PyLogisticRegressionCV, PyMultiArmCausalForestResult, PyOls,
+        PyPolicyTree, PyQteResult, PyQuantileForest, PyRandomForestClassifier,
+        PyRandomForestRegressor, PyRdFlexResult, PyRegressionForest, PySensitivityBenchmark,
+        PySensitivityResult, PyStaggeredResult,
     };
 
     #[pymodule_export]

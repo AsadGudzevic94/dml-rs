@@ -2,7 +2,7 @@
 
 use dml_core::learner::{Classifier, Regressor};
 use dml_core::{
-    AposFit, Blp, Bootstrap, CausalForestFit, DidAggregation, DmlData, DmlFit,
+    AposFit, Blp, Bootstrap, CausalForestFit, DidAggregation, DmlData, DmlFit, DoseResponseFit,
     GradientBoostingClassifier, GradientBoostingRegressor, HistGradientBoostingClassifier,
     HistGradientBoostingRegressor, InstrumentalForestFit, Lasso, LassoCV, LogisticRegression,
     LogisticRegressionCV, MultiArmCausalForestFit, Ols, Plr, PolicyTree, QteFit, QuantileForest,
@@ -48,6 +48,7 @@ fn every_learner_and_result_type_is_serializable() {
     check::<CausalForestFit>();
     check::<InstrumentalForestFit>();
     check::<MultiArmCausalForestFit>();
+    check::<DoseResponseFit>();
 }
 
 fn data(n: usize) -> (Array2<f64>, Array1<f64>, Array1<f64>) {

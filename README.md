@@ -60,6 +60,7 @@ tested for numerical agreement with the reference [DoubleML](https://docs.double
 | Difference-in-differences | ATT for panel data and repeated cross-sections | `Did`, `DidCs` | `DID`, `DIDCS` |
 | Staggered difference-in-differences | Group-time effects ATT(g, t), aggregated by cohort, period or event time | `StaggeredDid` | `StaggeredDID` |
 | Causal forests | Individual treatment effects τ(x) with confidence intervals (generalized random forests, as R's `grf`), average and group effects, calibration test, policy trees; instrumental (conditional LATE) and multi-arm forests; regression and quantile forests | `CausalForestDml`, `InstrumentalForestDml`, `MultiArmCausalForestDml` | `CausalForest`, `InstrumentalForest`, `MultiArmCausalForest` |
+| Continuous treatments | Dose-response curve E[Y(t)] and its derivative, with uniform confidence bands (kernel DML of Colangelo and Lee) | `DoseResponse` | `DoseResponse` |
 | Automatic debiased ML | Any mean of a linear functional of the regression (ATE, average derivatives, shift and policy effects, your own), with the Riesz representer learned automatically | `AutoDml` | `AutoDML` |
 | Regression discontinuity | Sharp and fuzzy RD effects with flexible covariate adjustment (rdrobust back end with its options, covariates and clusters) | `RdFlex` | `RDFlex` |
 | Heterogeneous effects | CATE meta-learners (S, T, X, R, DR); best linear predictor and group effects (GATE) for PLR, IRM and APO; policy trees | `DrLearner`, `Blp`, `PolicyTree`, … | `DRLearner`, `PLR.cate`, `IRM.policy_tree`, … |

@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Continuous treatments: `DoseResponse` estimates the average dose-response function
+  `E[Y(t)]` at a grid of treatment values with the kernel-localised DML estimator of Colangelo and
+  Lee (2023), with a kernel-regression (MultiGPS) or normal model for the generalised propensity
+  score. Uniform confidence bands from the multiplier bootstrap, contrasts `β(t) − β(t_ref)`,
+  partial effects `∂β(t)/∂t` and a `plot` method. Rust: `DoseResponse` / `DoseResponseFit`.
+
 ## [0.25.0] - 2026-10-31
 
 ### Added

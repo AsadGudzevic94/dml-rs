@@ -74,6 +74,32 @@ reproduces the inverse propensity weights exactly. Simulations check that it rec
 derivatives, shift and policy effects and the ATE (where it agrees with IRM), that the Riesz
 correction removes the bias of a misspecified regression, and that its confidence intervals cover.
 
+`DoseResponse` (continuous treatments) has no DoubleML counterpart. Its tests compare it with an
+independent NumPy / scikit-learn implementation of Colangelo and Lee's estimator on the same folds
+(both density models, linear models and random forests) to `1e-10`, and check the partial effects
+against the difference quotient of the curve. A Monte Carlo replication of Colangelo and Lee's
+simulation design (2023, Table 1: 100 correlated covariates, $n = 1000$, five-fold cross-fitting,
+Epanechnikov kernel, kernel-regression density, bandwidth $h = c\,\sigma_T n^{-1/5}$) with
+`LassoCV` for both nuisances
+([`parity/dose_response_mc.py`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/dose_response_mc.py),
+500 replications) gives, next to their Lasso results (1000 replications):
+
+| Target | $c$ | Bias: dml-rs / paper | RMSE: dml-rs / paper | Coverage: dml-rs / paper |
+|---|--:|--:|--:|--:|
+| $\beta(0) = 0$ | 0.75 | −0.019 / 0.001 | 0.122 / 0.111 | 0.976 / 0.936 |
+|  | 1.00 | −0.018 / 0.008 | 0.105 / 0.100 | 0.978 / 0.936 |
+|  | 1.25 | −0.020 / 0.016 | 0.097 / 0.094 | 0.974 / 0.936 |
+|  | 1.50 | −0.024 / 0.025 | 0.093 / 0.092 | 0.970 / 0.925 |
+| $\theta(0) = 1.2$ | 0.75 | −0.010 / 0.098 | 1.109 / 0.892 | 0.976 / 0.977 |
+|  | 1.00 | 0.039 / 0.084 | 0.719 / 0.588 | 0.966 / 0.980 |
+|  | 1.25 | 0.057 / 0.077 | 0.530 / 0.434 | 0.964 / 0.979 |
+|  | 1.50 | 0.051 / 0.077 | 0.398 / 0.335 | 0.972 / 0.982 |
+
+The paper does not specify its Lasso tuning or the step $\eta$ of the partial effect, so the
+numbers are not expected to agree exactly: the dose-response estimates have about the same RMSE,
+the partial effects (with dml-rs's default $\eta = h\,n^{-1/6}$) somewhat larger, and the
+intervals of both cover at or above the nominal 95%.
+
 Causal forests are compared with EconML's port of grf (`econml.grf.CausalForest`, 2000 trees),
 grown on exactly the same residuals, in the design of Wager and Athey (2018) with 4000
 observations and 20 replications
