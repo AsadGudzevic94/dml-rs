@@ -96,6 +96,7 @@ pub mod score;
 pub mod sensitivity;
 pub mod staggered;
 pub mod stats;
+pub mod synthdid;
 
 pub use blp::Blp;
 pub use bootstrap::{Bootstrap, BootstrapMethod};
@@ -143,3 +144,4 @@ pub use staggered::{
     Aggregation, ControlGroup, DidAggregation, GroupTime, GtCombinations, PanelData,
     RepeatedCrossSections, StaggeredDid, StaggeredDidFit, StaggeredInput,
 };
+pub use synthdid::{SynthEstimator, SynthFit, SynthPanel, SynthSe, SyntheticDid};

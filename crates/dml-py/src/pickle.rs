@@ -80,6 +80,7 @@ restorers! {
     "MediationResult" => crate::PyMediationResult,
     "SurrogateResult" => crate::PySurrogateResult,
     "ContinuousDidResult" => crate::PyContinuousDidResult,
+    "SynthResult" => crate::PySynthResult,
     "RdFlexResult" => crate::PyRdFlexResult,
     "QteResult" => crate::PyQteResult,
     "Blp" => crate::cate::PyBlp,

@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Synthetic difference-in-differences: `SyntheticDID` (Arkhangelsky, Athey, Hirshberg, Imbens and
+  Wager 2021), with synthetic control and DiD as special cases, time-varying covariates, effect
+  curves, unit and time weights, and jackknife, placebo and bootstrap standard errors. A port of
+  the authors' R package `synthdid` that reproduces its estimates, weights and standard errors to
+  1e-9 (placebo and bootstrap for the same seed, via a port of R's random number generator).
+  `fit_panel` takes a long panel. Rust: `SyntheticDid` / `SynthPanel` / `SynthFit`.
+
+### Changed
+- Tests are compiled with `opt-level = 1` (the parity tests refit models many times).
+
 ## [0.28.0] - 2026-10-31
 
 ### Added

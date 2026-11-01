@@ -151,6 +151,16 @@ robust DiD estimate, and simulations with confounding covariates check coverage.
 issues are avoided (see the known differences below); over 300 simulations dml-rs's standard
 error of the overall ACRT matches the spread of the estimates.
 
+`SyntheticDID` reproduces R's `synthdid` (version 0.0.9, the authors' package) in nine
+configurations: the California Proposition 99 data shipped with the package and simulated panels
+with several treated units, with and without covariates, each for synthetic DiD, synthetic
+control and DiD
+([`parity/generate_synthdid_fixtures.R`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/generate_synthdid_fixtures.R)).
+Estimates, unit and time weights, covariate coefficients, effect curves and the jackknife,
+placebo and bootstrap standard errors all agree to `1e-9`. The placebo and bootstrap draws match
+because dml-rs ports R's random number generator (`set.seed` and `sample()`, checked against R's
+own draws).
+
 Causal forests are compared with EconML's port of grf (`econml.grf.CausalForest`, 2000 trees),
 grown on exactly the same residuals, in the design of Wager and Athey (2018) with 4000
 observations and 20 replications

@@ -9,7 +9,9 @@ use dml_core::{
     PAdjust, PanelApproach, Pliv, PlivScore, PlivVariant, Plpr, Plr, PlrScore, Pq, Qte, QteFit,
     Ssm, SsmScore, StaticPanel, SurrogateData, SurrogateFit, SurrogateIndex, TreatmentLearner,
 };
-use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2};
+use numpy::{
+    IntoPyArray, PyArray1, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3,
+};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -1485,6 +1487,134 @@ fn fit_continuous_did(
         .map_err(to_py_err)
 }
 
+/// Result of `fit_synthdid`: estimate, weights and standard errors.
+#[pyclass(name = "SynthResult", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct PySynthResult {
+    inner: dml_core::SynthFit,
+}
+
+#[pymethods]
+impl PySynthResult {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "SynthResult", self)
+    }
+
+    #[getter]
+    fn estimate(&self) -> f64 {
+        self.inner.estimate()
+    }
+
+    #[getter]
+    fn unit_weights(&self) -> Vec<f64> {
+        self.inner.unit_weights().to_vec()
+    }
+
+    #[getter]
+    fn time_weights(&self) -> Vec<f64> {
+        self.inner.time_weights().to_vec()
+    }
+
+    #[getter]
+    fn beta(&self) -> Vec<f64> {
+        self.inner.beta().to_vec()
+    }
+
+    #[getter]
+    fn noise_level(&self) -> f64 {
+        self.inner.noise_level()
+    }
+
+    #[getter]
+    fn effect_curve<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.inner.effect_curve().into_pyarray(py)
+    }
+
+    /// `(synthetic control, treated average)` for every period.
+    fn trajectories<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> (Bound<'py, PyArray1<f64>>, Bound<'py, PyArray1<f64>>) {
+        let (s, t) = self.inner.trajectories();
+        (s.into_pyarray(py), t.into_pyarray(py))
+    }
+
+    /// Standard error: "jackknife", "placebo" or "bootstrap" (`seed` = R's set.seed).
+    #[pyo3(signature = (method = "placebo", replications = 200, seed = 0))]
+    fn se(&self, py: Python<'_>, method: &str, replications: usize, seed: i32) -> PyResult<f64> {
+        let method = match method {
+            "jackknife" => dml_core::SynthSe::Jackknife,
+            "placebo" => dml_core::SynthSe::Placebo { replications, seed },
+            "bootstrap" => dml_core::SynthSe::Bootstrap { replications, seed },
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "method must be 'jackknife', 'placebo' or 'bootstrap', got {other:?}"
+                )))
+            }
+        };
+        py.detach(|| self.inner.se(method)).map_err(to_py_err)
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (y, n0, t0, x = None, estimator = "sdid", noise_level = None, eta_omega = None,
+                    eta_lambda = None, min_decrease = None, max_iter = None, sparsify = true))]
+#[allow(clippy::too_many_arguments)]
+fn fit_synthdid(
+    py: Python<'_>,
+    y: PyReadonlyArray2<'_, f64>,
+    n0: usize,
+    t0: usize,
+    x: Option<PyReadonlyArray3<'_, f64>>,
+    estimator: &str,
+    noise_level: Option<f64>,
+    eta_omega: Option<f64>,
+    eta_lambda: Option<f64>,
+    min_decrease: Option<f64>,
+    max_iter: Option<usize>,
+    sparsify: bool,
+) -> PyResult<PySynthResult> {
+    let mut panel =
+        dml_core::SynthPanel::new(y.as_array().to_owned(), n0, t0).map_err(to_py_err)?;
+    if let Some(x) = x {
+        panel = panel
+            .with_covariates(x.as_array().to_owned())
+            .map_err(to_py_err)?;
+    }
+    let estimator = match estimator {
+        "sdid" => dml_core::SynthEstimator::SyntheticDid,
+        "sc" => dml_core::SynthEstimator::SyntheticControl,
+        "did" => dml_core::SynthEstimator::Did,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "estimator must be 'sdid', 'sc' or 'did', got {other:?}"
+            )))
+        }
+    };
+    let mut model = dml_core::SyntheticDid::new()
+        .estimator(estimator)
+        .sparsify(sparsify);
+    if let Some(v) = noise_level {
+        model = model.noise_level(v);
+    }
+    if let Some(v) = eta_omega {
+        model = model.eta_omega(v);
+    }
+    if let Some(v) = eta_lambda {
+        model = model.eta_lambda(v);
+    }
+    if let Some(v) = min_decrease {
+        model = model.min_decrease(v);
+    }
+    if let Some(v) = max_iter {
+        model = model.max_iter(v);
+    }
+    py.detach(|| model.fit(&panel))
+        .map(|inner| PySynthResult { inner })
+        .map_err(to_py_err)
+}
+
 /// `E[D | X]` learner of LPLR: a classifier (probabilities) or a regressor.
 fn to_treatment_learner(obj: &Bound<'_, PyAny>, classifier: bool) -> PyResult<TreatmentLearner> {
     Ok(if classifier {
@@ -2432,7 +2562,7 @@ mod dml_rs_native {
         concat, draw_folds, fit_apo, fit_apos, fit_autodml, fit_cate, fit_causal_forest,
         fit_continuous_did, fit_did, fit_dose_response, fit_iivm, fit_instrumental_forest, fit_irm,
         fit_lplr, fit_mediation, fit_multi_arm_causal_forest, fit_pliv, fit_plpr, fit_plr, fit_qte,
-        fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did, fit_surrogate_index,
+        fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did, fit_surrogate_index, fit_synthdid,
         result_from_scores, set_parallel_folds, simulate, PyAposResult, PyBlp, PyBootstrap,
         PyCateResult, PyCausalForestResult, PyContinuousDidResult, PyDmlResult,
         PyDoseResponseResult, PyGradientBoostingClassifier, PyGradientBoostingRegressor,
@@ -2442,6 +2572,7 @@ mod dml_rs_native {
         PyMultiArmCausalForestResult, PyOls, PyPolicyTree, PyQteResult, PyQuantileForest,
         PyRandomForestClassifier, PyRandomForestRegressor, PyRdFlexResult, PyRegressionForest,
         PySensitivityBenchmark, PySensitivityResult, PyStaggeredResult, PySurrogateResult,
+        PySynthResult,
     };
 
     #[pymodule_export]

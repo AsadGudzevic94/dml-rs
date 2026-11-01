@@ -8,7 +8,7 @@ use dml_core::{
     LassoCV, LogisticRegression, LogisticRegressionCV, MediationFit, MultiArmCausalForestFit, Ols,
     Plr, PolicyTree, QteFit, QuantileForest, RandomForestClassifier, RandomForestRegressor,
     RdFlexFit, RegressionForest, SensitivityBenchmark, SensitivityResult, StaggeredDidFit,
-    SurrogateFit,
+    SurrogateFit, SynthFit,
 };
 use ndarray::{Array1, Array2};
 use rand::{Rng, SeedableRng};
@@ -53,6 +53,7 @@ fn every_learner_and_result_type_is_serializable() {
     check::<MediationFit>();
     check::<SurrogateFit>();
     check::<ContinuousDidFit>();
+    check::<SynthFit>();
 }
 
 fn data(n: usize) -> (Array2<f64>, Array1<f64>, Array1<f64>) {

@@ -23,6 +23,7 @@ All classes are available from the top-level package, e.g. `dml_rs.PLR`.
 ::: dml_rs.DIDCS
 ::: dml_rs.StaggeredDID
 ::: dml_rs.ContinuousDID
+::: dml_rs.SyntheticDID
 ::: dml_rs.DIDAggregation
 ::: dml_rs.RDFlex
 ::: dml_rs.DoseResponse

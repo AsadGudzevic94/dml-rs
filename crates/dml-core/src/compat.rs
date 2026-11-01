@@ -7,7 +7,9 @@
 //! - SciPy's `bracket`, Brent minimiser (`minimize_scalar(method="brent")`)
 //!   and `brentq` root finder;
 //! - statsmodels' weighted Gaussian KDE with Silverman's bandwidth;
-//! - NumPy's linear `quantile` and SciPy's `scoreatpercentile`.
+//! - NumPy's linear `quantile` and SciPy's `scoreatpercentile`;
+//! - R's default generator after `set.seed` and its `sample()`, for the
+//!   placebo and bootstrap standard errors of R's `synthdid`.
 //!
 //! Every operation follows the original's order of floating-point steps.
 
@@ -97,6 +99,94 @@ impl Mt19937 {
         let mut out: Vec<usize> = (0..n).collect();
         self.shuffle(&mut out);
         out
+    }
+}
+
+// ---------------------------------------------------------------------------
+// R's default random number generator and sample()
+// ---------------------------------------------------------------------------
+
+/// R's default generator (Mersenne Twister, `sample.kind = "Rejection"`, the
+/// default since R 3.6) after `set.seed(seed)`.
+pub(crate) struct RRng(Mt19937);
+
+impl RRng {
+    /// `set.seed(seed)`: R scrambles the seed with the linear congruential
+    /// generator `s -> 69069 s + 1` (50 times, then once per state word).
+    pub(crate) fn set_seed(seed: i32) -> Self {
+        let lcg = |s: u32| s.wrapping_mul(69_069).wrapping_add(1);
+        let mut s = seed as u32;
+        for _ in 0..50 {
+            s = lcg(s);
+        }
+        // The first word is the position, reset to 624 by R's FixupSeeds.
+        s = lcg(s);
+        let mut mt = [0u32; 624];
+        for v in mt.iter_mut() {
+            s = lcg(s);
+            *v = s;
+        }
+        RRng(Mt19937 { mt, index: 624 })
+    }
+
+    /// `unif_rand()`: a 32-bit draw scaled to `(0, 1)`.
+    pub(crate) fn unif_rand(&mut self) -> f64 {
+        const I2_32M1: f64 = 2.328_306_437_080_797e-10;
+        let v = f64::from(self.0.next_u32()) * 2.328_306_436_538_696_3e-10;
+        if v <= 0.0 {
+            0.5 * I2_32M1
+        } else if 1.0 - v <= 0.0 {
+            1.0 - 0.5 * I2_32M1
+        } else {
+            v
+        }
+    }
+
+    /// `rbits(bits)`: random bits built from 16-bit chunks of `unif_rand`.
+    fn rbits(&mut self, bits: u32) -> f64 {
+        let mut v: i64 = 0;
+        let mut n = 0;
+        while n <= bits {
+            let v1 = (self.unif_rand() * 65_536.0).floor() as i64;
+            v = 65_536 * v + v1;
+            n += 16;
+        }
+        (v & ((1i64 << bits) - 1)) as f64
+    }
+
+    /// `R_unif_index(dn)`: uniform on `0..dn` by rejection.
+    fn unif_index(&mut self, dn: usize) -> usize {
+        if dn == 0 {
+            return 0;
+        }
+        let dn = dn as f64;
+        let bits = dn.log2().ceil() as u32;
+        loop {
+            let dv = self.rbits(bits);
+            if dn > dv {
+                return dv as usize;
+            }
+        }
+    }
+
+    /// `sample(n)` (a random permutation), 0-based.
+    pub(crate) fn sample(&mut self, n: usize) -> Vec<usize> {
+        let mut x: Vec<usize> = (0..n).collect();
+        let mut left = n;
+        (0..n)
+            .map(|_| {
+                let j = self.unif_index(left);
+                let out = x[j];
+                left -= 1;
+                x[j] = x[left];
+                out
+            })
+            .collect()
+    }
+
+    /// `sample(n, k, replace = TRUE)`, 0-based.
+    pub(crate) fn sample_replace(&mut self, n: usize, k: usize) -> Vec<usize> {
+        (0..k).map(|_| self.unif_index(n)).collect()
     }
 }
 
@@ -689,6 +779,44 @@ mod tests {
 
     // Reference values computed with NumPy 2.5, scikit-learn 1.9, SciPy 1.18
     // and statsmodels (see parity/ for the generating code).
+
+    #[test]
+    fn r_generator_matches_r() {
+        // set.seed(42); runif(3)
+        let mut r = RRng::set_seed(42);
+        let u: Vec<f64> = (0..3).map(|_| r.unif_rand()).collect();
+        assert_eq!(
+            u,
+            [
+                0.914_806_043_496_355_4,
+                0.937_075_413_297_861_8,
+                0.286_139_534_786_343_6
+            ]
+        );
+        // set.seed(42); sample(10); sample(1:7, 12, replace = TRUE)
+        let mut r = RRng::set_seed(42);
+        let one = |v: Vec<usize>| v.into_iter().map(|i| i + 1).collect::<Vec<_>>();
+        assert_eq!(one(r.sample(10)), [1, 5, 10, 8, 2, 4, 6, 9, 7, 3]);
+        assert_eq!(
+            one(r.sample_replace(7, 12)),
+            [7, 7, 4, 1, 5, 6, 4, 2, 2, 7, 3, 1]
+        );
+        // set.seed(-7); sample(100000)[1:5]
+        let mut r = RRng::set_seed(-7);
+        assert_eq!(
+            one(r.sample(100_000))[..5],
+            [12885, 75529, 22569, 52507, 93169]
+        );
+        // set.seed(12345); sample(38)
+        let mut r = RRng::set_seed(12345);
+        assert_eq!(
+            one(r.sample(38)),
+            [
+                14, 16, 26, 28, 24, 29, 11, 34, 2, 22, 32, 6, 7, 10, 17, 8, 36, 27, 1, 12, 23, 19,
+                3, 9, 38, 13, 4, 25, 33, 30, 31, 37, 18, 20, 21, 5, 15, 35
+            ]
+        );
+    }
 
     #[test]
     fn permutation_matches_numpy_random_state() {

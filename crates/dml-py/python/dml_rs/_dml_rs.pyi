@@ -44,11 +44,13 @@ __all__ = [
     "fit_staggered_did",
     "fit_surrogate_index",
     "fit_continuous_did",
+    "fit_synthdid",
     "AposResult",
     "DoseResponseResult",
     "MediationResult",
     "SurrogateResult",
     "ContinuousDidResult",
+    "SynthResult",
     "Blp",
     "Bootstrap",
     "CateResult",
@@ -333,6 +335,27 @@ class ContinuousDidResult:
     @property
     def overall(self) -> DmlResult:
         """Overall ATT and ACRT."""
+
+@final
+class SynthResult:
+    """Synthetic difference-in-differences: estimate, weights and standard errors."""
+
+    @property
+    def estimate(self) -> float: ...
+    @property
+    def unit_weights(self) -> list[float]: ...
+    @property
+    def time_weights(self) -> list[float]: ...
+    @property
+    def beta(self) -> list[float]: ...
+    @property
+    def noise_level(self) -> float: ...
+    @property
+    def effect_curve(self) -> NDArray[np.float64]: ...
+    def trajectories(self) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        """``(synthetic control, treated average)`` for every period."""
+    def se(self, method: str = "placebo", replications: int = 200, seed: int = 0) -> float:
+        """Standard error: "jackknife", "placebo" or "bootstrap" (``seed`` = R's set.seed)."""
 
 @final
 class QteResult:
@@ -1020,6 +1043,19 @@ def fit_continuous_did(
     seed: int = 0,
     splits: Optional[_Splits] = None,
 ) -> ContinuousDidResult: ...
+def fit_synthdid(
+    y: NDArray[np.float64],
+    n0: int,
+    t0: int,
+    x: Optional[NDArray[np.float64]] = None,
+    estimator: str = "sdid",
+    noise_level: Optional[float] = None,
+    eta_omega: Optional[float] = None,
+    eta_lambda: Optional[float] = None,
+    min_decrease: Optional[float] = None,
+    max_iter: Optional[int] = None,
+    sparsify: bool = True,
+) -> SynthResult: ...
 def fit_plpr(
     y: NDArray[np.float64],
     d: NDArray[np.float64],

@@ -599,6 +599,75 @@ errors in $m_0$. The overall ATT equals the doubly robust DiD estimate of Sant'A
     gains). Interpreting $ACRT(d \mid d)$ or differences of $ATT$ across doses as the causal
     effect of more treatment needs the paper's *strong* parallel trends assumption.
 
+## Synthetic difference-in-differences
+
+With few treated units (a state, a handful of firms) and many periods, parallel trends between
+the treated units and *all* controls is often implausible. Synthetic difference-in-differences
+(Arkhangelsky, Athey, Hirshberg, Imbens and Wager, 2021) reweights both dimensions: unit weights
+$\omega$ make the controls' pre-treatment path parallel to the treated average, and time weights
+$\lambda$ make the pre-treatment periods predict the controls' post-treatment average. The
+estimate is the weighted DiD
+
+$$
+\hat\tau = \Bigl(\bar Y_{\text{tr},\text{post}} - \sum_t \lambda_t \bar Y_{\text{tr},t}\Bigr)
+- \sum_i \omega_i \Bigl(\bar Y_{i,\text{post}} - \sum_t \lambda_t Y_{it}\Bigr).
+$$
+
+The unit weights solve a penalised least-squares problem on the simplex with an intercept (so
+the synthetic control may sit at a different level than the treated units) and the penalty
+$\zeta^2 T_0 \lVert\omega\rVert^2$, $\zeta = (N_1 T_1)^{1/4}\hat\sigma$, with $\hat\sigma$ the
+standard deviation of the controls' first differences; the time weights solve the analogous
+problem with a negligible penalty. Both are fitted by Frank–Wolfe, sparsified and refitted.
+`estimator="sc"` gives the synthetic control estimator (no time weights, no intercept) and
+`estimator="did"` the unweighted DiD, so the three can be compared on the same data.
+
+`SyntheticDID` is a port of the authors' R package `synthdid` and reproduces its estimates,
+weights and standard errors exactly, including the placebo and bootstrap standard errors for
+the same seed (dml-rs carries a port of R's random number generator). The standard errors:
+
+| `se_method` | Idea | Needs |
+|---|---|---|
+| `"placebo"` (default) | Relabel random controls as treated and re-estimate | more controls than treated units |
+| `"jackknife"` | Leave one unit out, weights held fixed | at least two treated units |
+| `"bootstrap"` | Resample units with replacement, re-estimate | at least two treated units |
+
+Time-varying covariates enter as $Y - \sum_k \beta_k X_k$ with $\beta$ fitted jointly with the
+weights (as `synthdid`).
+
+=== "Python"
+
+    ```python
+    model = dml_rs.SyntheticDID()       # placebo standard error
+    model.fit_panel(df, unit="state", time="year",
+                    outcome="packs", treatment="treated")
+    model.summary
+    model.unit_weights_.nlargest(5)     # the synthetic control
+    model.time_weights_                 # weighted pre-periods
+    model.effect_curve_                 # effect per post period
+    model.plot()                        # treated vs synthetic control
+    sc = dml_rs.SyntheticDID(estimator="sc")
+    sc.fit_panel(df, "state", "year", "packs", "treated")
+
+    # Or a units × periods matrix, controls and pre-periods first:
+    dml_rs.SyntheticDID().fit(Y, n_control=38, n_pre=19)
+    ```
+
+=== "Rust"
+
+    ```rust
+    use dml_core::{SynthEstimator, SynthPanel, SynthSe, SyntheticDid};
+
+    let panel = SynthPanel::new(y, 38, 19)?;          // controls first, pre-periods first
+    let fit = SyntheticDid::new().fit(&panel)?;
+    let se = fit.se(SynthSe::Placebo { replications: 200, seed: 0 })?;
+    let sc = SyntheticDid::new().estimator(SynthEstimator::SyntheticControl).fit(&panel)?;
+    ```
+
+!!! note "Design"
+    The design is a block: all treated units start treatment in the same period and stay
+    treated (as in `synthdid`). For staggered adoption, estimate each adoption cohort
+    separately against the not-yet-treated units, or use `StaggeredDID`.
+
 ## Causal mediation: direct and indirect effects
 
 When a binary treatment works partly through an intermediate variable (a training programme
