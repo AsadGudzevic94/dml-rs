@@ -2,7 +2,7 @@ name: R package
 
 on:
   push:
-    branches: [main, cran-prep]
+    branches: [main]
     paths: ["r/**", "crates/dml-core/**", ".github/workflows/r.yml"]
   pull_request:
     paths: ["r/**", "crates/dml-core/**", ".github/workflows/r.yml"]
