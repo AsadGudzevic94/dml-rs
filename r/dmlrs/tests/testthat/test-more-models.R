@@ -132,3 +132,25 @@ test_that("Lee bounds contain the naive estimate's direction and print", {
   expect_equal(cells$n_cells, 2)
   expect_error(lee_bounds(ifelse(s == 1, NA, y), d, s), "finite")
 })
+
+test_that("learner seeds reach Rust and renamed arguments still work", {
+  set.seed(28)
+  n <- 300
+  x <- matrix(rnorm(n * 3), n)
+  d <- x[, 1] + rnorm(n)
+  y <- 0.5 * d + x[, 2] + rnorm(n)
+  fit_with <- function(learner) coef(dml_plr(y, d, x, ml_l = learner, ml_m = lrn_ols()))
+  expect_identical(fit_with(lrn_random_forest(n_estimators = 20, seed = 1)),
+                   fit_with(lrn_random_forest(n_estimators = 20, seed = 1)))
+  expect_false(identical(fit_with(lrn_random_forest(n_estimators = 20, seed = 1)),
+                         fit_with(lrn_random_forest(n_estimators = 20, seed = 2))))
+  for (make in list(lrn_random_forest, lrn_gradient_boosting, lrn_hist_gradient_boosting,
+                    lrn_regression_forest)) {
+    expect_warning(old <- make(random_state = 3), "`random_state` is deprecated; use `seed`")
+    expect_identical(old, make(seed = 3))
+  }
+  dose <- ifelse(runif(n) < 0.3, 0, runif(n, 0.5, 2))
+  dy <- dose + rnorm(n)
+  expect_warning(old <- dml_contdid(dy, dose, trimming_threshold = 0.05), "clipping_threshold")
+  expect_equal(coef(old$att), coef(dml_contdid(dy, dose, clipping_threshold = 0.05)$att))
+})

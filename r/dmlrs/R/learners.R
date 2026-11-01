@@ -5,6 +5,14 @@ new_learner <- function(type, ...) {
   structure(list(type = type, ...), class = "dmlrs_learner")
 }
 
+# The value of a renamed argument: `old` (passed under the former name, with a
+# deprecation warning) or else `new`.
+renamed_arg <- function(new, old, new_name, old_name) {
+  if (is.null(old)) return(new)
+  warning(sprintf("`%s` is deprecated; use `%s`", old_name, new_name), call. = FALSE)
+  old
+}
+
 #' Built-in nuisance learners
 #'
 #' Learners for the nuisance functions of the DML models, implemented in Rust.
@@ -44,7 +52,8 @@ new_learner <- function(type, ...) {
 #' @param max_leaf_nodes Maximum leaves per tree (`NULL`: unlimited).
 #' @param l2_regularization L2 penalty on leaf values.
 #' @param min_node_size Minimum observations per leaf (grf's `min.node.size`).
-#' @param random_state Seed.
+#' @param seed Seed of the random number generator.
+#' @param random_state Deprecated name of `seed`.
 #' @return A learner specification (class `dmlrs_learner`).
 #' @examples
 #' lrn_lasso_cv()
@@ -79,36 +88,36 @@ lrn_logistic_cv <- function(n_cs = 10, cv = 5) new_learner("logistic_cv", n_cs =
 #' @rdname learners
 #' @export
 lrn_random_forest <- function(n_estimators = 100, max_depth = NULL, min_samples_leaf = 1,
-                              max_features = NULL, random_state = 0) {
+                              max_features = NULL, seed = 0, random_state = NULL) {
   new_learner("random_forest", n_estimators = n_estimators, max_depth = max_depth,
               min_samples_leaf = min_samples_leaf, max_features = max_features,
-              random_state = random_state)
+              seed = renamed_arg(seed, random_state, "seed", "random_state"))
 }
 
 #' @rdname learners
 #' @export
 lrn_gradient_boosting <- function(n_estimators = 100, learning_rate = 0.1, max_depth = 3,
-                                  min_samples_leaf = 1, subsample = 1, random_state = 0) {
+                                  min_samples_leaf = 1, subsample = 1, seed = 0, random_state = NULL) {
   new_learner("gradient_boosting", n_estimators = n_estimators, learning_rate = learning_rate,
               max_depth = max_depth, min_samples_leaf = min_samples_leaf, subsample = subsample,
-              random_state = random_state)
+              seed = renamed_arg(seed, random_state, "seed", "random_state"))
 }
 
 #' @rdname learners
 #' @export
 lrn_hist_gradient_boosting <- function(max_iter = 100, learning_rate = 0.1, max_leaf_nodes = 31,
                                        min_samples_leaf = 20, l2_regularization = 0,
-                                       random_state = 0) {
+                                       seed = 0, random_state = NULL) {
   new_learner("hist_gradient_boosting", max_iter = max_iter, learning_rate = learning_rate,
               max_leaf_nodes = max_leaf_nodes, min_samples_leaf = min_samples_leaf,
-              l2_regularization = l2_regularization, random_state = random_state)
+              l2_regularization = l2_regularization, seed = renamed_arg(seed, random_state, "seed", "random_state"))
 }
 
 #' @rdname learners
 #' @export
-lrn_regression_forest <- function(n_estimators = 2000, min_node_size = 5, random_state = 0) {
+lrn_regression_forest <- function(n_estimators = 2000, min_node_size = 5, seed = 0, random_state = NULL) {
   new_learner("regression_forest", n_estimators = n_estimators, min_node_size = min_node_size,
-              random_state = random_state)
+              seed = renamed_arg(seed, random_state, "seed", "random_state"))
 }
 
 #' @export

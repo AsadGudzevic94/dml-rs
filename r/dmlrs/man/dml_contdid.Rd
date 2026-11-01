@@ -14,10 +14,11 @@ dml_contdid(
   degree = 3,
   num_knots = 0,
   grid = NULL,
-  trimming_threshold = 0.01,
+  clipping_threshold = 0.01,
   n_folds = 5,
   n_rep = 1,
-  seed = 0
+  seed = 0,
+  trimming_threshold = NULL
 )
 }
 \arguments{
@@ -40,7 +41,7 @@ dml_contdid(
 \item{grid}{Doses at which to report the effects (default: 5\% to 95\%
 quantiles of the positive doses).}
 
-\item{trimming_threshold}{Propensity scores are clipped to \eqn{[t, 1 - t]}.}
+\item{clipping_threshold}{Propensity scores are clipped to \eqn{[t, 1 - t]}.}
 
 \item{n_folds}{Number of cross-fitting folds.}
 
@@ -48,6 +49,8 @@ quantiles of the positive doses).}
 aggregated with the median, as in DoubleML.}
 
 \item{seed}{Seed of the sample splits.}
+
+\item{trimming_threshold}{Deprecated name of \code{clipping_threshold}.}
 }
 \value{
 A \code{dmlrs_contdid} object: \code{att} and \code{acrt} (\code{dmlrs_fit} objects with

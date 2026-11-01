@@ -28,7 +28,8 @@ lrn_random_forest(
   max_depth = NULL,
   min_samples_leaf = 1,
   max_features = NULL,
-  random_state = 0
+  seed = 0,
+  random_state = NULL
 )
 
 lrn_gradient_boosting(
@@ -37,7 +38,8 @@ lrn_gradient_boosting(
   max_depth = 3,
   min_samples_leaf = 1,
   subsample = 1,
-  random_state = 0
+  seed = 0,
+  random_state = NULL
 )
 
 lrn_hist_gradient_boosting(
@@ -46,10 +48,16 @@ lrn_hist_gradient_boosting(
   max_leaf_nodes = 31,
   min_samples_leaf = 20,
   l2_regularization = 0,
-  random_state = 0
+  seed = 0,
+  random_state = NULL
 )
 
-lrn_regression_forest(n_estimators = 2000, min_node_size = 5, random_state = 0)
+lrn_regression_forest(
+  n_estimators = 2000,
+  min_node_size = 5,
+  seed = 0,
+  random_state = NULL
+)
 }
 \arguments{
 \item{ridge, alpha, C}{Penalties (see above).}
@@ -69,7 +77,9 @@ number of folds of the cross-validated learners.}
 \item{max_features}{Features tried per split: \code{NULL} (all for regression,
 \code{"sqrt"} for classification), \code{"sqrt"}, \code{"log2"}, a fraction or a number.}
 
-\item{random_state}{Seed.}
+\item{seed}{Seed of the random number generator.}
+
+\item{random_state}{Deprecated name of \code{seed}.}
 
 \item{learning_rate}{Shrinkage of each tree.}
 

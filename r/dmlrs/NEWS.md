@@ -1,3 +1,12 @@
+# dmlrs (development version)
+
+* Built on dml-core 1.0.
+* The learners' `random_state` argument is now `seed`, as in the model
+  functions; `random_state` still works with a deprecation warning.
+* `dml_contdid()`: `trimming_threshold` is now `clipping_threshold`, as in the
+  other models (`dml_mediation()` keeps `trimming_threshold`, the threshold of
+  its trimming rule); the old name still works with a deprecation warning.
+
 # dmlrs 0.2.1
 
 * Prepared for CRAN: the package tarball bundles the Rust crates and builds

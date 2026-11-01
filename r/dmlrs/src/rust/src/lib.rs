@@ -100,7 +100,7 @@ impl Spec {
     }
 
     fn seed(&self) -> Result<u64> {
-        self.count("random_state", 0).map(|s| s as u64)
+        self.count("seed", 0).map(|s| s as u64)
     }
 
     fn max_features(&self, default: MaxFeatures) -> Result<MaxFeatures> {
@@ -160,16 +160,16 @@ fn regressor(spec: &List) -> Result<Box<dyn Regressor>> {
                 .max_leaf_nodes(s.opt_count("max_leaf_nodes", Some(31))?)
                 .min_samples_leaf(s.count("min_samples_leaf", 20)?)
                 .l2_regularization(s.num("l2_regularization", 0.0)?)
-                .random_state(s.seed()? as u32),
+                .seed(s.seed()? as u32),
         ),
-        "regression_forest" => {
-            // Field assignment (not the setters of dml-core 0.32) also builds with dml-core 0.31.
-            let mut settings = ForestSettings::default();
-            settings.num_trees = s.count("n_estimators", 2000)?;
-            settings.min_node_size = s.count("min_node_size", 5)?;
-            settings.seed = s.seed()?;
-            Box::new(RegressionForest::new().settings(settings))
-        }
+        "regression_forest" => Box::new(
+            RegressionForest::new().settings(
+                ForestSettings::default()
+                    .num_trees(s.count("n_estimators", 2000)?)
+                    .min_node_size(s.count("min_node_size", 5)?)
+                    .seed(s.seed()?),
+            ),
+        ),
         other => {
             return Err(err(format!(
                 "learner {other:?} cannot be used as a regressor"
@@ -211,7 +211,7 @@ fn classifier(spec: &List) -> Result<Box<dyn Classifier>> {
                 .max_leaf_nodes(s.opt_count("max_leaf_nodes", Some(31))?)
                 .min_samples_leaf(s.count("min_samples_leaf", 20)?)
                 .l2_regularization(s.num("l2_regularization", 0.0)?)
-                .random_state(s.seed()? as u32),
+                .seed(s.seed()? as u32),
         ),
         other => {
             return Err(err(format!(
@@ -510,7 +510,7 @@ fn rs_fit_contdid(
     degree: i32,
     num_knots: i32,
     grid: Robj,
-    trimming_threshold: f64,
+    clipping_threshold: f64,
     n_folds: i32,
     n_rep: i32,
     seed_: f64,
@@ -522,7 +522,7 @@ fn rs_fit_contdid(
     }
     .degree(degree as usize)
     .num_knots(num_knots as usize)
-    .trimming_threshold(trimming_threshold)
+    .clipping_threshold(clipping_threshold)
     .n_folds(n_folds as usize)
     .n_rep(n_rep as usize)
     .seed(seed(seed_));

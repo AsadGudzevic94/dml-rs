@@ -125,7 +125,8 @@ dml_mediation <- function(y, d, m, x, ml_g = lrn_lasso_cv(), ml_m = lrn_logistic
 #' @param degree,num_knots Degree and number of interior knots of the B-spline.
 #' @param grid Doses at which to report the effects (default: 5% to 95%
 #'   quantiles of the positive doses).
-#' @param trimming_threshold Propensity scores are clipped to \eqn{[t, 1 - t]}.
+#' @param clipping_threshold Propensity scores are clipped to \eqn{[t, 1 - t]}.
+#' @param trimming_threshold Deprecated name of `clipping_threshold`.
 #' @return A `dmlrs_contdid` object: `att` and `acrt` (`dmlrs_fit` objects with
 #'   one estimate per grid dose), `overall` (the overall ATT and ACRT) and
 #'   `grid`. `plot()` draws a curve with pointwise intervals.
@@ -139,8 +140,10 @@ dml_mediation <- function(y, d, m, x, ml_g = lrn_lasso_cv(), ml_m = lrn_logistic
 #' plot(fit)
 #' @export
 dml_contdid <- function(y, d, x = NULL, ml_g = NULL, ml_m = NULL, ml_nested = NULL, degree = 3,
-                        num_knots = 0, grid = NULL, trimming_threshold = 0.01, n_folds = 5,
-                        n_rep = 1, seed = 0) {
+                        num_knots = 0, grid = NULL, clipping_threshold = 0.01, n_folds = 5,
+                        n_rep = 1, seed = 0, trimming_threshold = NULL) {
+  clipping_threshold <- renamed_arg(clipping_threshold, trimming_threshold, "clipping_threshold",
+                                    "trimming_threshold")
   y <- as_numeric_vector(y, "y")
   n <- length(y)
   d <- as_numeric_matrix(d, "d", n)
@@ -157,7 +160,7 @@ dml_contdid <- function(y, d, x = NULL, ml_g = NULL, ml_m = NULL, ml_nested = NU
   ml_nested <- if (is.null(ml_nested)) NULL else check_learner(ml_nested, "regressor", "ml_nested")
   res <- rs_fit_contdid(y, d, x, ml_g, ml_m, ml_nested, check_count(degree, "degree"),
                         check_count(num_knots, "num_knots", 0),
-                        if (is.null(grid)) NULL else as.numeric(grid), trimming_threshold,
+                        if (is.null(grid)) NULL else as.numeric(grid), clipping_threshold,
                         check_count(n_folds, "n_folds", 2), check_count(n_rep, "n_rep"), seed)
   call <- match.call()
   structure(list(att = new_fit(res$att, call), acrt = new_fit(res$acrt, call),

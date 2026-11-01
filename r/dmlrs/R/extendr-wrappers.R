@@ -44,9 +44,9 @@ rs_fit_mediation <- function(y, d, m, x, names, ml_g, ml_m, ml_nested, trimming_
 }
 
 rs_fit_contdid <- function(y, d, x, ml_g, ml_m, ml_nested, degree, num_knots, grid,
-                           trimming_threshold, n_folds, n_rep, seed_) {
+                           clipping_threshold, n_folds, n_rep, seed_) {
   .Call(wrap__rs_fit_contdid, y, d, x, ml_g, ml_m, ml_nested, degree, num_knots, grid,
-        trimming_threshold, n_folds, n_rep, seed_)
+        clipping_threshold, n_folds, n_rep, seed_)
 }
 
 rs_fit_synthdid <- function(y, n0, t0, x, estimator, noise_level, eta_omega, eta_lambda,

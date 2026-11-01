@@ -1,7 +1,7 @@
 Package: dmlrs
 Type: Package
 Title: Fast Double / Debiased Machine Learning Implemented in 'Rust'
-Version: 0.2.1
+Version: 0.2.1.9000
 Authors@R: c(
     person("Asad", "Gudzevic", email = "asadgudzevic94@gmail.com", role = c("aut", "cre", "cph")),
     person("Authors of the bundled Rust crates", role = c("ctb", "cph"),
