@@ -36,7 +36,8 @@ class ConformalITE:
       heteroscedasticity.
 
     The effect interval combines the two counterfactual intervals at ``alpha / 2`` each,
-    ``[L₁ − U₀, U₁ − L₀]``, so it is conservative.
+    ``[L₁ − U₀, U₁ − L₀]``, so it is conservative. Fitted models hold the learners and are not
+    picklable.
 
     Parameters
     ----------
@@ -47,8 +48,6 @@ class ConformalITE:
     train_fraction : share of the sample used to fit the learners (default 0.75).
     trimming_threshold : clip estimated propensity scores to ``[t, 1 − t]`` (default 0.01).
     random_state : seed of the split.
-
-    Fitted models hold the learners and are not picklable.
     """
 
     def __init__(
