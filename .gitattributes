@@ -1,3 +1,7 @@
-# R requires LF line endings in Makevars, also on Windows checkouts.
+# R requires LF line endings in Makevars and the configure scripts, also on Windows checkouts.
 r/dmlrs/src/Makevars* text eol=lf
+r/dmlrs/configure* text eol=lf
+r/dmlrs/cleanup* text eol=lf
+r/dmlrs/tools/* text eol=lf
+r/build-cran.sh text eol=lf
 *.bin binary

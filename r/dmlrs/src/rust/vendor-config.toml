@@ -1,0 +1,6 @@
+# Cargo configuration for a build from the bundled crates (copied to CARGO_HOME by Makevars).
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"

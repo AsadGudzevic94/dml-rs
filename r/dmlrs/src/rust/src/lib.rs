@@ -873,10 +873,18 @@ fn rs_dr_scores(fit: ExternalPtr<DmlFit>) -> Result<RMatrix<f64>> {
 
 /// Called from `.onLoad`. Errors reach R as R errors carrying the message
 /// (extendr raises them by unwinding), so the default panic hook's console
-/// output would only repeat it.
+/// output would only repeat it. `threads` (or `NULL`: rayon's default, all
+/// cores or `RAYON_NUM_THREADS`) sizes the global thread pool, which can be
+/// set only before its first use.
 #[extendr]
-fn rs_init() {
+fn rs_init(threads: Option<i32>) {
     std::panic::set_hook(Box::new(|_| {}));
+    if let Some(n) = threads.filter(|&n| n > 0) {
+        // Fails only when the pool already exists (the package was loaded before).
+        let _ = rayon::ThreadPoolBuilder::new()
+            .num_threads(n as usize)
+            .build_global();
+    }
 }
 
 /// Whether `ptr` still points to a fit (it does not after `readRDS`).

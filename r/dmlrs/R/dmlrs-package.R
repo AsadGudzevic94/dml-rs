@@ -16,10 +16,28 @@
 #' The same Rust library powers the Python package dml-rs, whose results are
 #' validated against DoubleML; see <https://asadgudzevic94.github.io/dml-rs/>.
 #'
+#' @section Threads:
+#' Cross-fitting and the forest and boosting learners run in parallel on all
+#' cores. To use fewer, set `options(dmlrs.threads = n)` or the environment
+#' variable `RAYON_NUM_THREADS` before the package is loaded. Under
+#' `R CMD check` with `_R_CHECK_LIMIT_CORES_` set (as on CRAN), the package
+#' uses two threads.
+#'
 #' @keywords internal
 #' @importFrom stats coef confint nobs predict
 "_PACKAGE"
 
 .onLoad <- function(libname, pkgname) {
-  rs_init()
+  rs_init(default_threads())
+}
+
+# The size of the thread pool, or NULL for rayon's default (all cores, or
+# RAYON_NUM_THREADS).
+default_threads <- function() {
+  threads <- getOption("dmlrs.threads")
+  if (!is.null(threads)) return(as.integer(threads))
+  if (nzchar(Sys.getenv("RAYON_NUM_THREADS"))) return(NULL)
+  limit <- tolower(Sys.getenv("_R_CHECK_LIMIT_CORES_"))
+  if (nzchar(limit) && limit != "false") return(2L)
+  NULL
 }

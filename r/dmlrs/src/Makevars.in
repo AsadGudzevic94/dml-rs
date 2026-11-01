@@ -1,0 +1,32 @@
+# Generated into Makevars by tools/config.R (run by configure).
+TARGET_DIR = ./rust/target
+LIBDIR = $(TARGET_DIR)/@LIBDIR@
+STATLIB = $(LIBDIR)/libdmlrs.a
+PKG_LIBS = -L$(LIBDIR) -ldmlrs
+
+# Cargo's home during a build from the bundled crates (not the user's ~/.cargo).
+CARGOTMP = $(CURDIR)/.cargo-build
+VENDOR_DIR = $(CURDIR)/vendor
+
+all: $(SHLIB) rust_clean
+
+.PHONY: $(STATLIB)
+
+$(SHLIB): $(STATLIB)
+
+# The package tarball bundles the Rust crates in rust/vendor.tar.xz: then cargo builds offline
+# with the locked versions and two jobs. A git checkout has no bundle and downloads the crates.
+$(STATLIB):
+	if [ -f ./rust/vendor.tar.xz ]; then \
+		tar xf rust/vendor.tar.xz && \
+		mkdir -p "$(CARGOTMP)" && \
+		cp rust/vendor-config.toml "$(CARGOTMP)/config.toml"; \
+	fi
+	@CARGO_HOME@export PATH="$(PATH):$(HOME)/.cargo/bin" && \
+		cargo build @CARGO_FLAGS@ --lib --release --manifest-path=./rust/Cargo.toml --target-dir="$(TARGET_DIR)"
+
+rust_clean: $(SHLIB)
+	rm -Rf "$(CARGOTMP)" "$(VENDOR_DIR)" @CLEAN_TARGET@
+
+clean:
+	rm -Rf $(SHLIB) $(STATLIB) $(OBJECTS) "$(TARGET_DIR)" "$(CARGOTMP)" "$(VENDOR_DIR)"

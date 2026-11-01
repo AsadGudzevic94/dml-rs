@@ -23,6 +23,15 @@ policy trees (\code{\link[=policy_tree]{policy_tree()}}, a port of \code{policyt
 The same Rust library powers the Python package dml-rs, whose results are
 validated against DoubleML; see \url{https://asadgudzevic94.github.io/dml-rs/}.
 }
+\section{Threads}{
+
+Cross-fitting and the forest and boosting learners run in parallel on all
+cores. To use fewer, set \code{options(dmlrs.threads = n)} or the environment
+variable \code{RAYON_NUM_THREADS} before the package is loaded. Under
+\verb{R CMD check} with \verb{_R_CHECK_LIMIT_CORES_} set (as on CRAN), the package
+uses two threads.
+}
+
 \seealso{
 Useful links:
 \itemize{
@@ -33,11 +42,16 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: Asad Gudzevic \email{asadgudzevic94@gmail.com}
+\strong{Maintainer}: Asad Gudzevic \email{asadgudzevic94@gmail.com} [copyright holder]
 
 Authors:
 \itemize{
-  \item Asad Gudzevic \email{asadgudzevic94@gmail.com}
+  \item Asad Gudzevic \email{asadgudzevic94@gmail.com} [copyright holder]
+}
+
+Other contributors:
+\itemize{
+  \item Authors of the bundled Rust crates (see inst/AUTHORS) [contributor, copyright holder]
 }
 
 }

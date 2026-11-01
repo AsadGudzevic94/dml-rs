@@ -95,4 +95,4 @@ rs_is_valid <- function(ptr) .Call(wrap__rs_is_valid, ptr)
 
 rs_is_valid_synth <- function(ptr) .Call(wrap__rs_is_valid_synth, ptr)
 
-rs_init <- function() .Call(wrap__rs_init)
+rs_init <- function(threads) .Call(wrap__rs_init, threads)

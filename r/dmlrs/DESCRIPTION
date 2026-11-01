@@ -1,8 +1,12 @@
 Package: dmlrs
 Type: Package
-Title: Fast Double / Debiased Machine Learning Implemented in Rust
-Version: 0.2.0
-Authors@R: person("Asad", "Gudzevic", email = "asadgudzevic94@gmail.com", role = c("aut", "cre"))
+Title: Fast Double / Debiased Machine Learning Implemented in 'Rust'
+Version: 0.2.1
+Authors@R: c(
+    person("Asad", "Gudzevic", email = "asadgudzevic94@gmail.com", role = c("aut", "cre", "cph")),
+    person("Authors of the bundled Rust crates", role = c("ctb", "cph"),
+           comment = "see inst/AUTHORS")
+  )
 Description: Double / debiased machine learning (Chernozhukov et al., 2018,
     <doi:10.1111/ectj.12097>) for causal inference: partially linear,
     interactive, instrumental variable and difference-in-differences models
@@ -11,8 +15,8 @@ Description: Double / debiased machine learning (Chernozhukov et al., 2018,
     differences with a continuous treatment, synthetic difference in
     differences, optimal policy trees and Lee bounds. Estimation, including
     the nuisance learners (lasso, logistic regression, random forests,
-    gradient boosting), runs in Rust through the 'dml-core' crate, in
-    parallel. Results match the Python package 'dml-rs', which is validated
+    gradient boosting), runs in 'Rust' through the 'dml-core' crate, in
+    parallel. Results match the 'Python' package 'dml-rs', which is validated
     against 'DoubleML'.
 License: MIT + file LICENSE
 URL: https://asadgudzevic94.github.io/dml-rs/, https://github.com/AsadGudzevic94/dml-rs
@@ -20,7 +24,7 @@ BugReports: https://github.com/AsadGudzevic94/dml-rs/issues
 Encoding: UTF-8
 Depends: R (>= 4.2)
 Imports: graphics, grDevices, stats
-Suggests: testthat (>= 3.0.0)
+Suggests: policytree, testthat (>= 3.0.0)
 Config/testthat/edition: 3
 SystemRequirements: Cargo (Rust's package manager), rustc >= 1.80
 Roxygen: list(markdown = TRUE)

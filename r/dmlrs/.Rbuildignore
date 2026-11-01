@@ -2,3 +2,7 @@
 ^src/rust/target$
 ^.*\.Rproj$
 ^\.Rproj\.user$
+^src/Makevars$
+^src/Makevars\.win$
+^src/\.cargo-build$
+^src/vendor$

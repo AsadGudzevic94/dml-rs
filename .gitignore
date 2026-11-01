@@ -15,6 +15,11 @@ site/
 # R package build artifacts
 r/dmlrs/src/rust/target/
 r/dmlrs/src/rust/Cargo.lock
+r/dmlrs/src/rust/vendor.tar.xz
+r/dmlrs/src/vendor/
+r/dmlrs/src/.cargo-build/
+r/dmlrs/src/Makevars
+r/dmlrs/src/Makevars.win
 r/dmlrs/src/*.o
 r/dmlrs/src/*.dll
 r/dmlrs/src/*.so

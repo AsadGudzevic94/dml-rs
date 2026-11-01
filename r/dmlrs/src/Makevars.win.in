@@ -1,0 +1,37 @@
+# Generated into Makevars.win by tools/config.R (run by configure.win).
+TARGET = @WINDOWS_TARGET@
+
+TARGET_DIR = ./rust/target
+LIBDIR = $(TARGET_DIR)/$(TARGET)/release
+STATLIB = $(LIBDIR)/libdmlrs.a
+PKG_LIBS = -L$(LIBDIR) -ldmlrs -lws2_32 -ladvapi32 -luserenv -lbcrypt -lntdll
+
+# Cargo's home during a build from the bundled crates (not the user's ~/.cargo).
+CARGOTMP = $(CURDIR)/.cargo-build
+VENDOR_DIR = $(CURDIR)/vendor
+
+all: $(SHLIB) rust_clean
+
+.PHONY: $(STATLIB)
+
+$(SHLIB): $(STATLIB)
+
+# The package tarball bundles the Rust crates in rust/vendor.tar.xz: then cargo builds offline
+# with the locked versions and two jobs. A git checkout has no bundle and downloads the crates.
+$(STATLIB):
+	mkdir -p $(TARGET_DIR)/libgcc_mock
+	# rustc links -lgcc_eh, which Rtools' GCC does not provide: an empty stub satisfies it.
+	touch $(TARGET_DIR)/libgcc_mock/libgcc_eh.a
+	if [ -f ./rust/vendor.tar.xz ]; then \
+		tar xf rust/vendor.tar.xz && \
+		mkdir -p "$(CARGOTMP)" && \
+		cp rust/vendor-config.toml "$(CARGOTMP)/config.toml"; \
+	fi
+	@CARGO_HOME@export LIBRARY_PATH="$${LIBRARY_PATH};$(CURDIR)/$(TARGET_DIR)/libgcc_mock" && \
+		cargo build @CARGO_FLAGS@ --target=$(TARGET) --lib --release --manifest-path=./rust/Cargo.toml --target-dir="$(TARGET_DIR)"
+
+rust_clean: $(SHLIB)
+	rm -Rf "$(CARGOTMP)" "$(VENDOR_DIR)" @CLEAN_TARGET@
+
+clean:
+	rm -Rf $(SHLIB) $(STATLIB) $(OBJECTS) "$(TARGET_DIR)" "$(CARGOTMP)" "$(VENDOR_DIR)"
