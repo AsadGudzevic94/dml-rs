@@ -496,6 +496,7 @@ impl StaggeredInput<'_> {
 /// Which units serve as controls for cohort `g` in period `t`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum ControlGroup {
     /// Units that are never treated.
     #[default]
@@ -508,6 +509,7 @@ pub enum ControlGroup {
 /// Which `(g, t_pre, t_eval)` combinations to estimate (as DoubleML).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum GtCombinations {
     /// Post-treatment periods against the last pre-treatment period; pre-treatment
     /// periods against the period before ("varying base", Callaway & Sant'Anna).
@@ -522,6 +524,7 @@ pub enum GtCombinations {
 /// One group-time combination: cohort, base period and evaluation period.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct GroupTime {
     pub cohort: f64,
     pub t_pre: f64,
@@ -1035,6 +1038,7 @@ fn construct_group_times(
 /// How [`StaggeredDidFit::aggregate`] combines the group-time effects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum Aggregation {
     /// One effect per cohort (average of its post-treatment `ATT(g, t)`);
     /// overall = cohort-size weighted average.

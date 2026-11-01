@@ -13,6 +13,7 @@ use crate::stats::{median, quantile_mut};
 /// Distribution of the multiplier weights `ξ_i` (all mean 0, variance 1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum BootstrapMethod {
     /// `ξ ~ N(0, 1)`
     #[default]

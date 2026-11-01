@@ -73,6 +73,37 @@
 //! # let _ = ci;
 //! # Ok::<(), dml_core::DmlError>(())
 //! ```
+//!
+//! # Stability
+//!
+//! The crate follows semantic versioning. Settings enums and structs with
+//! public fields are `#[non_exhaustive]`, so new options and result fields are
+//! additions: match settings enums with a `_ =>` arm and build settings with
+//! their chained setters (`ForestSettings::default().num_trees(2000)`). The
+//! traits for custom learners and models ([`Regressor`], [`Classifier`],
+//! [`LinearScoreModel`]) only gain methods with default implementations.
+//! Renamed items stay as `#[deprecated]` aliases until the next major version.
+//! The minimum supported Rust version (1.80) is raised only in a minor release,
+//! with a note in the changelog. The `serde` format is not stable across minor
+//! versions.
+
+/// Chained setters named like the fields of a `#[non_exhaustive]` settings
+/// struct, e.g. `PlrCcddhnr2018::default().n_obs(2000)`: other crates cannot
+/// build such structs with a struct literal.
+macro_rules! field_setters {
+    ($name:ident { $($field:ident: $ty:ty),* $(,)? }) => {
+        impl $name {
+            $(
+                #[doc = concat!("Set `", stringify!($field), "`.")]
+                #[must_use]
+                pub fn $field(mut self, $field: $ty) -> Self {
+                    self.$field = $field;
+                    self
+                }
+            )*
+        }
+    };
+}
 
 pub mod blp;
 pub mod bootstrap;
@@ -124,15 +155,16 @@ pub use learner::{
     LogisticRegression, LogisticRegressionCV, MaxFeatures, Ols, RandomForestClassifier,
     RandomForestRegressor, Regressor,
 };
+#[allow(deprecated)]
+pub use model::RdKernel;
 pub use model::{
     Apo, Apos, AposFit, AutoDml, Bandwidth, CateSignal, ConformalFit, ConformalIte, ConformalScore,
     ConformalTarget, ContinuousDid, ContinuousDidFit, Cvar, DensityModel, Did, DidCs, DidScore,
     DoseKernel, DoseResponse, DoseResponseFit, ExternalPredictions, FirstStage, Iivm, Irm,
     IrmScore, LinearScoreModel, LossKind, Lplr, LplrScore, Lpq, Mediation, MediationFit, Name,
     NuisanceLearners, NuisanceTarget, PanelApproach, Pliv, PlivScore, PlivVariant, Plpr, Plr,
-    PlrScore, Pq, Qte, QteFit, RdFlex, RdFlexFit, RdKernel, ScoreEstimate, ScoreInput, Ssm,
-    SsmScore, StaticPanel, SurrogateData, SurrogateFit, SurrogateIndex, TreatmentLearner,
-    TrimmingRule,
+    PlrScore, Pq, Qte, QteFit, RdFlex, RdFlexFit, ScoreEstimate, ScoreInput, Ssm, SsmScore,
+    StaticPanel, SurrogateData, SurrogateFit, SurrogateIndex, TreatmentLearner, TrimmingRule,
 };
 pub use policy::{PolicyNode, PolicyTree};
 pub use policy_search::{policy_value, OptimalPolicyNode, OptimalPolicyTree, OptimalPolicyTreeFit};

@@ -1606,7 +1606,7 @@ class RDFlex(_Params):
         self.se_ = result.se
         self.t_stat_ = result.t_stat
         self.pval_ = result.pval
-        self.ci_ = result.ci
+        self.confint_ = result.ci
         self.all_coef_ = result.all_coef
         self.all_se_ = result.all_se
         self.h_ = result.h
@@ -1617,6 +1617,18 @@ class RDFlex(_Params):
     def confint(self, level: float = 0.95) -> NDArray[np.float64]:
         """Intervals at ``level`` (rows: conventional, bias-corrected, robust), as DoubleML's ``confint``."""
         return self._check_fitted().confint(level)
+
+    @property
+    def ci_(self) -> NDArray[np.float64]:
+        """Former name of ``confint_`` (deprecated in 0.32.0, removed in 2.0)."""
+        import warnings
+
+        warnings.warn(
+            "RDFlex: `ci_` was renamed to `confint_` in dml-rs 0.32.0; the old name will be removed in 2.0",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.confint_
 
     @property
     def summary(self) -> pd.DataFrame:

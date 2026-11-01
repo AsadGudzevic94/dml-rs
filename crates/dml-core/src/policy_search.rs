@@ -350,6 +350,7 @@ fn flatten(root: SearchNode) -> Vec<OptimalPolicyNode> {
 /// A node of an [`OptimalPolicyTreeFit`] (0-based indices).
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct OptimalPolicyNode {
     pub is_leaf: bool,
     /// Action (column of `Γ`) of a leaf.

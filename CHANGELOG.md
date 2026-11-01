@@ -6,6 +6,43 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-11-01
+
+API review before 1.0. Renamed items keep their old names as deprecated aliases until 2.0, except
+where noted under "Breaking".
+
+### Breaking (Rust)
+- The settings enums are `#[non_exhaustive]` (39 enums, e.g. `BootstrapMethod`, `IrmScore`,
+  `Calibration`, `rd::Kernel`, `Aggregation`, `SynthSe`), so new options will not be breaking
+  changes. A `match` on one of them outside the crate needs a `_ =>` arm.
+- Structs with public fields are `#[non_exhaustive]`: the results `SensitivityResult`,
+  `SensitivityBenchmark`, `RdEstimate`, `RdBandwidths`, `GroupTime`, `OptimalPolicyNode`,
+  `NuisanceTarget` and the dataset outputs, and the settings `RdOptions`, `ForestSettings`,
+  `SensitivityParams`, `SampleSplitting` and the dataset generators. Settings are built with the new
+  chained setters, e.g. `PlrCcddhnr2018::default().n_obs(2000).dim_x(10)`,
+  `ForestSettings::default().num_trees(2000)`, `RdOptions::default().p(2)`, or
+  `SampleSplitting::new(n_folds, n_rep, seed)`, instead of struct literals.
+
+### Changed
+- Propensity clipping is `clipping_threshold` everywhere: `ConformalIte` / `ConformalITE`,
+  `ContinuousDid` / `ContinuousDID` and `SurrogateIndex` (was `trimming_threshold`). The density
+  floor of `DoseResponse` is `density_floor` (was `trimming_threshold`). `Mediation` keeps
+  `trimming_threshold`, the threshold of its trimming rule.
+- RDFlex's first-stage kernel is `rd::Kernel` (shared with `RdOptions`); `RdKernel` is a
+  deprecated alias.
+- `HistGradientBoostingRegressor` / `Classifier` (Rust): `random_state(u32)` is `seed(u32)`, like
+  the other learners. The Python classes keep scikit-learn's `random_state`.
+- `set_parallel_folds` is hidden from the documentation: it exists for the Python bindings and is
+  not part of the stable API.
+- Python: `RDFlex.ci_` is `confint_`, as in `LeeBounds`.
+- Python: the low-level layer moved from the top-level namespace to `dml_rs.native`: the `fit_*`
+  functions and `DmlResult`, `AposResult`, `QteResult`, `RdFlexResult`, `CateResult`, `Bootstrap`
+  and `Blp` (not to be confused with the `BLP` class). The old names still work with a
+  `DeprecationWarning`.
+- R package dmlrs 0.2.1 (not part of this release's crates): CRAN-ready build with the Rust crates
+  bundled, `configure` checks of the Rust toolchain, link-time optimisation and at most two threads
+  under `R CMD check`; `options(dmlrs.threads = n)`.
+
 ## [0.31.0] - 2026-11-01
 
 ### Added
@@ -577,7 +614,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.31.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.32.0...HEAD
+[0.32.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.28.0...v0.29.0

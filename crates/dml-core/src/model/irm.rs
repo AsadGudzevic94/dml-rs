@@ -26,6 +26,7 @@ use crate::sensitivity::{Nu2Parts, SensitivityParts};
 /// Target parameter of [`Irm`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum IrmScore {
     /// `E[g(1, X) − g(0, X)]`
     #[default]

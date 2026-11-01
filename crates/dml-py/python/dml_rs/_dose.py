@@ -8,7 +8,7 @@ import numpy as np
 
 from . import _dml_rs
 from ._models import Framework, _DMLEstimator, _pyplot, _splits, _COLORBLIND
-from ._validation import _as_1d, _as_2d
+from ._validation import _as_1d, _as_2d, _renamed_kwarg
 from .data import accepts_data
 
 if TYPE_CHECKING:
@@ -51,7 +51,7 @@ class DoseResponse(_DMLEstimator):
     bandwidth_scale : the constant of the default bandwidth (default 1.0).
     density : ``"kernel"`` (default) or ``"normal"``.
     density_bandwidth : bandwidth ``h₁`` of the kernel density model (default ``h``).
-    trimming_threshold : densities of the standardised treatment ``d / std(d)`` below this value
+    density_floor : densities of the standardised treatment ``d / std(d)`` below this value
         are raised to it (default 0.01).
     partial_effects : also estimate ``∂β(t)/∂t`` by ``(β̂(t + η/2) − β̂(t − η/2))/η``.
     eta : the step ``η`` (default ``h · n^(-1/6)``); setting it turns on ``partial_effects``.
@@ -69,12 +69,13 @@ class DoseResponse(_DMLEstimator):
         bandwidth_scale: float = 1.0,
         density: Literal["kernel", "normal"] = "kernel",
         density_bandwidth: Optional[float] = None,
-        trimming_threshold: float = 1e-2,
+        density_floor: float = 1e-2,
         partial_effects: bool = False,
         eta: Optional[float] = None,
         n_folds: int = 5,
         n_rep: int = 1,
         random_state: int = 0,
+        **kwargs: Any,
     ) -> None:
         self.ml_g = ml_g
         self.ml_m = ml_m
@@ -84,7 +85,9 @@ class DoseResponse(_DMLEstimator):
         self.bandwidth_scale = bandwidth_scale
         self.density = density
         self.density_bandwidth = density_bandwidth
-        self.trimming_threshold = trimming_threshold
+        self.density_floor = _renamed_kwarg(
+            "DoseResponse", kwargs, "trimming_threshold", "density_floor", density_floor
+        )
         self.partial_effects = partial_effects
         self.eta = eta
         self.n_folds = n_folds
@@ -98,7 +101,7 @@ class DoseResponse(_DMLEstimator):
             _as_1d(y, "y"), _as_2d(_as_1d(d, "d"), "d"), _as_2d(X, "X"), self.ml_g, self.ml_m,
             grid=grid, kernel=self.kernel, bandwidth=self.bandwidth, bandwidth_scale=self.bandwidth_scale,
             density=self.density, density_bandwidth=self.density_bandwidth,
-            trimming_threshold=self.trimming_threshold, partial_effects=self.partial_effects, eta=self.eta,
+            density_floor=self.density_floor, partial_effects=self.partial_effects, eta=self.eta,
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state, splits=_splits(folds),
         )
         self.grid_ = np.asarray(self._dose.grid)

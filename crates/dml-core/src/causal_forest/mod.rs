@@ -46,6 +46,7 @@ use crate::error::{DmlError, Result};
 /// Settings of a generalized random forest (grf's defaults).
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct ForestSettings {
     pub num_trees: usize,
     pub sample_fraction: f64,
@@ -61,6 +62,21 @@ pub struct ForestSettings {
     pub ci_group_size: usize,
     pub seed: u64,
 }
+
+field_setters!(ForestSettings {
+    num_trees: usize,
+    sample_fraction: f64,
+    mtry: Option<usize>,
+    min_node_size: usize,
+    honesty: bool,
+    honesty_fraction: f64,
+    prune_empty_leaves: bool,
+    alpha: f64,
+    imbalance_penalty: f64,
+    stabilize_splits: bool,
+    ci_group_size: usize,
+    seed: u64,
+});
 
 impl Default for ForestSettings {
     fn default() -> Self {

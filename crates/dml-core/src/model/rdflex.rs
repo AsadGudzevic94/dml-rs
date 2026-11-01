@@ -18,12 +18,13 @@ use crate::crossfit::{Fold, SampleSplitting};
 use crate::data::{gather, DmlData};
 use crate::error::{DmlError, Result};
 use crate::learner::{Classifier, Regressor};
-use crate::rd::{rd_estimate, rdbwselect, RdBandwidths, RdData, RdEstimate, RdOptions};
+use crate::rd::{rd_estimate, rdbwselect, Kernel, RdBandwidths, RdData, RdEstimate, RdOptions};
 use crate::stats::{median, norm_cdf, norm_ppf};
 
 /// Regressors of the first stage besides the covariates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum FirstStage {
     /// The cutoff indicator `1{score ≥ cutoff}`.
     #[default]
@@ -34,38 +35,31 @@ pub enum FirstStage {
     InteractedCutoffAndScore,
 }
 
-/// Kernel of the first-stage weights.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum RdKernel {
-    Uniform,
-    #[default]
-    Triangular,
-    Epanechnikov,
-}
+/// Former name of the first-stage kernel, now [`Kernel`] (shared with [`RdOptions`]).
+#[deprecated(since = "0.32.0", note = "use `dml_core::rd::Kernel`")]
+pub type RdKernel = Kernel;
 
-impl RdKernel {
-    /// DoubleML's first-stage kernel weight at distance `x` from the cutoff.
-    fn weight(self, x: f64, h: f64) -> f64 {
-        match self {
-            RdKernel::Uniform => f64::from(x.abs() <= h),
-            RdKernel::Triangular => 0.0_f64.max((h - x.abs()) / h),
-            RdKernel::Epanechnikov => {
-                if x.abs() < h {
-                    0.75 * (1.0 - (x / h) * (x / h))
-                } else {
-                    0.0
-                }
+/// DoubleML's first-stage kernel weight at distance `x` from the cutoff (not
+/// normalised by `h`, unlike `rdrobust`'s weights in [`crate::rd`]).
+fn first_stage_weight(kernel: Kernel, x: f64, h: f64) -> f64 {
+    match kernel {
+        Kernel::Uniform => f64::from(x.abs() <= h),
+        Kernel::Triangular => 0.0_f64.max((h - x.abs()) / h),
+        Kernel::Epanechnikov => {
+            if x.abs() < h {
+                0.75 * (1.0 - (x / h) * (x / h))
+            } else {
+                0.0
             }
         }
     }
+}
 
-    fn name(self) -> &'static str {
-        match self {
-            RdKernel::Uniform => "uniform",
-            RdKernel::Triangular => "triangular",
-            RdKernel::Epanechnikov => "epanechnikov",
-        }
+fn kernel_name(kernel: Kernel) -> &'static str {
+    match kernel {
+        Kernel::Uniform => "uniform",
+        Kernel::Triangular => "triangular",
+        Kernel::Epanechnikov => "epanechnikov",
     }
 }
 
@@ -83,7 +77,7 @@ pub struct RdFlex {
     cutoff: f64,
     h_fs: Option<f64>,
     first_stage: FirstStage,
-    kernel: RdKernel,
+    kernel: Kernel,
     n_iterations: usize,
     rd_options: RdOptions,
     rd_covariates: Option<Array2<f64>>,
@@ -132,7 +126,7 @@ impl RdFlex {
             cutoff: 0.0,
             h_fs: None,
             first_stage: FirstStage::default(),
-            kernel: RdKernel::default(),
+            kernel: Kernel::default(),
             n_iterations: 2,
             rd_options: RdOptions::default(),
             rd_covariates: None,
@@ -179,7 +173,8 @@ impl RdFlex {
         self
     }
 
-    pub fn kernel(mut self, kernel: RdKernel) -> Self {
+    /// Kernel of the first-stage weights (default triangular).
+    pub fn kernel(mut self, kernel: Kernel) -> Self {
         self.kernel = kernel;
         self
     }
@@ -241,7 +236,7 @@ impl RdFlex {
             }
         };
         let (zx, zx_left, zx_right) = self.design(score.view(), x);
-        let w0: Array1<f64> = score.mapv(|s| self.kernel.weight(s, h_fs));
+        let w0: Array1<f64> = score.mapv(|s| first_stage_weight(self.kernel, s, h_fs));
 
         let mut reps = Vec::with_capacity(splits.len());
         let outcome = match &self.ml_g {
@@ -279,7 +274,7 @@ impl RdFlex {
                     // update the first-stage weights with it (DoubleML).
                     let est = rd_estimate(&rd_data, &self.rd_options, None)?;
                     let (h, b) = (est.h.0.max(est.h.1), est.b.0.max(est.b.1));
-                    weights = score.mapv(|s| self.kernel.weight(s, h));
+                    weights = score.mapv(|s| first_stage_weight(self.kernel, s, h));
                     bandwidth = Some(RdBandwidths::common(h, b));
                 } else {
                     last = Some(rd_estimate(&rd_data, &self.rd_options, bandwidth)?);
@@ -431,13 +426,13 @@ pub struct RdFlexFit {
     h_fs: f64,
     fuzzy: bool,
     cutoff: f64,
-    kernel: RdKernel,
+    kernel: Kernel,
 }
 
 const LABELS: [&str; 3] = ["Conventional", "Bias-Corrected", "Robust"];
 
 impl RdFlexFit {
-    fn new(reps: Vec<RdEstimate>, h_fs: f64, fuzzy: bool, cutoff: f64, kernel: RdKernel) -> Self {
+    fn new(reps: Vec<RdEstimate>, h_fs: f64, fuzzy: bool, cutoff: f64, kernel: Kernel) -> Self {
         // DoubleML: median estimate; se² = median(se_r² + (θ_r − θ)² / N_h,r).
         let coef: [f64; 3] =
             std::array::from_fn(|k| median(&reps.iter().map(|r| r.coef[k]).collect::<Vec<_>>()));
@@ -556,7 +551,7 @@ impl fmt::Display for RdFlexFit {
             if self.fuzzy { "fuzzy" } else { "sharp" }
         )?;
         writeln!(f, "Cutoff:             {}", self.cutoff)?;
-        writeln!(f, "First-stage kernel: {}", self.kernel.name())?;
+        writeln!(f, "First-stage kernel: {}", kernel_name(self.kernel))?;
         write!(f, "Final bandwidth:    {:?}", self.h())
     }
 }

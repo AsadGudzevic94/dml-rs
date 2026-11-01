@@ -28,6 +28,7 @@ use crate::stats::{median, norm_ppf};
 /// How a model's `ν²` is formed from per-observation elements.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum Nu2Parts {
     /// `ν² = mean(e)` with per-observation elements `e = 2·m(W, α) − α²`.
     Elementwise(Array1<f64>),
@@ -295,6 +296,7 @@ impl SensitivityStore {
 /// A confounding scenario for [`DmlFit::sensitivity_analysis`].
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct SensitivityParams {
     pub cf_y: f64,
     pub cf_d: f64,
@@ -390,6 +392,7 @@ struct Bounds {
 /// Result of [`DmlFit::sensitivity_analysis`].
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct SensitivityResult {
     pub params: SensitivityParams,
     treatment_names: Vec<String>,
@@ -650,6 +653,7 @@ fn robustness_value(bound: impl Fn(f64) -> f64, h0: f64, upper: bool) -> f64 {
 /// Benchmark values for `(c_y, c_d, ρ)` from omitting observed covariates.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct SensitivityBenchmark {
     treatment_names: Vec<String>,
     pub cf_y: Array1<f64>,

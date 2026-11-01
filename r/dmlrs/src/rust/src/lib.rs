@@ -162,12 +162,10 @@ fn regressor(spec: &List) -> Result<Box<dyn Regressor>> {
                 .l2_regularization(s.num("l2_regularization", 0.0)?)
                 .random_state(s.seed()? as u32),
         ),
-        "regression_forest" => Box::new(RegressionForest::new().settings(ForestSettings {
-            num_trees: s.count("n_estimators", 2000)?,
-            min_node_size: s.count("min_node_size", 5)?,
-            seed: s.seed()?,
-            ..ForestSettings::default()
-        })),
+        "regression_forest" => Box::new(RegressionForest::new().settings(ForestSettings::default()
+            .num_trees(s.count("n_estimators", 2000)?)
+            .min_node_size(s.count("min_node_size", 5)?)
+            .seed(s.seed()?))),
         other => {
             return Err(err(format!(
                 "learner {other:?} cannot be used as a regressor"

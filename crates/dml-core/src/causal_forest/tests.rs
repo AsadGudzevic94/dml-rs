@@ -38,10 +38,7 @@ fn recovers_the_effect_function_and_covers() {
         Ols::new(),
         TreatmentLearner::Classifier(Box::new(LogisticRegression::default())),
     )
-    .forest(ForestSettings {
-        num_trees: 1000,
-        ..Default::default()
-    })
+    .forest(ForestSettings::default().num_trees(1000))
     .fit(&data)
     .unwrap();
     let grid = Array2::from_shape_fn(
@@ -94,11 +91,7 @@ fn homogeneous_effect_and_continuous_treatment() {
         Ols::new(),
         TreatmentLearner::Regressor(Box::new(Ols::new())),
     )
-    .forest(ForestSettings {
-        num_trees: 400,
-        seed: 3,
-        ..Default::default()
-    })
+    .forest(ForestSettings::default().num_trees(400).seed(3))
     .fit(&data)
     .unwrap();
     let mean = fit.oob_effect().mean().unwrap();
@@ -113,28 +106,19 @@ fn homogeneous_effect_and_continuous_treatment() {
 #[test]
 fn settings_are_validated_and_seeded() {
     let (x, y, d) = design(300, 2);
-    let s = ForestSettings {
-        num_trees: 50,
-        seed: 9,
-        ..Default::default()
-    };
+    let s = ForestSettings::default().num_trees(50).seed(9);
     let a = CausalForest::fit(x.view(), y.view(), d.view(), s.clone()).unwrap();
     let b = CausalForest::fit(x.view(), y.view(), d.view(), s).unwrap();
     assert_eq!(
         a.predict(x.view()).unwrap().0,
         b.predict(x.view()).unwrap().0
     );
-    let bad = ForestSettings {
-        sample_fraction: 0.8,
-        ..Default::default()
-    };
+    let bad = ForestSettings::default().sample_fraction(0.8);
     assert!(CausalForest::fit(x.view(), y.view(), d.view(), bad).is_err());
-    let one = ForestSettings {
-        num_trees: 20,
-        ci_group_size: 1,
-        sample_fraction: 0.7,
-        ..Default::default()
-    };
+    let one = ForestSettings::default()
+        .num_trees(20)
+        .ci_group_size(1)
+        .sample_fraction(0.7);
     let f = CausalForest::fit(x.view(), y.view(), d.view(), one).unwrap();
     assert!(f.predict(x.view()).unwrap().1.iter().all(|v| v.is_nan()));
 }
@@ -173,10 +157,7 @@ fn policy_tree_treats_where_the_effect_is_large() {
         .collect();
     let data = DmlData::new(y, d, x.clone()).unwrap();
     let fit = CausalForestDml::new(Ols::new(), logit())
-        .forest(ForestSettings {
-            num_trees: 400,
-            ..Default::default()
-        })
+        .forest(ForestSettings::default().num_trees(400))
         .fit(&data)
         .unwrap();
     let tree = fit.policy_tree(x.view(), 1, 8, 0.01).unwrap();
@@ -214,10 +195,7 @@ fn instrumental_forest_recovers_the_local_effect() {
         .with_instrument(z)
         .unwrap();
     let fit = InstrumentalForestDml::new(Ols::new(), logit(), logit())
-        .forest(ForestSettings {
-            num_trees: 1000,
-            ..Default::default()
-        })
+        .forest(ForestSettings::default().num_trees(1000))
         .fit(&data)
         .unwrap();
     let r = corr(fit.oob_effect(), &truth);
@@ -242,10 +220,7 @@ fn instrumental_forest_recovers_the_local_effect() {
         logit(),
         TreatmentLearner::Regressor(Box::new(Ols::new())),
     )
-    .forest(ForestSettings {
-        num_trees: 50,
-        ..Default::default()
-    })
+    .forest(ForestSettings::default().num_trees(50))
     .fit(&cont)
     .unwrap();
     assert!(f2.ate().is_err() && f2.compliance().is_none());
@@ -278,10 +253,7 @@ fn multi_arm_forest_recovers_each_arm() {
     }
     let data = DmlData::new(y, d, x.clone()).unwrap();
     let fit = MultiArmCausalForestDml::new(Ols::new(), LogisticRegression::default())
-        .forest(ForestSettings {
-            num_trees: 1000,
-            ..Default::default()
-        })
+        .forest(ForestSettings::default().num_trees(1000))
         .fit(&data)
         .unwrap();
     assert_eq!(fit.levels(), &[0.0, 1.0, 2.0]);
@@ -319,10 +291,7 @@ fn regression_forest_predicts_with_variance() {
         .into_iter()
         .map(|r| f(r) + 0.3 * rng.sample::<f64, _>(StandardNormal))
         .collect();
-    let mut forest = RegressionForest::new().settings(ForestSettings {
-        num_trees: 500,
-        ..Default::default()
-    });
+    let mut forest = RegressionForest::new().settings(ForestSettings::default().num_trees(500));
     assert!(forest.predict(x.view()).is_err());
     forest.fit(x.view(), y.view()).unwrap();
     let grid = Array2::from_shape_fn((100, 3), |_| rng.gen::<f64>());
@@ -346,11 +315,8 @@ fn quantile_forest_tracks_conditional_quantiles() {
     let y: Array1<f64> = (0..n)
         .map(|i| x[[i, 0]] + (0.5 + 2.0 * x[[i, 1]]) * rng.sample::<f64, _>(StandardNormal))
         .collect();
-    let mut forest = QuantileForest::default().settings(ForestSettings {
-        num_trees: 500,
-        ci_group_size: 1,
-        ..Default::default()
-    });
+    let mut forest = QuantileForest::default()
+        .settings(ForestSettings::default().num_trees(500).ci_group_size(1));
     forest.fit(x.view(), y.view()).unwrap();
     let grid = Array2::from_shape_fn(
         (50, 2),

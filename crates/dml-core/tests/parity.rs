@@ -1252,9 +1252,9 @@ fn check_rdflex(name: &str, tol: f64) {
         _ => dml_core::FirstStage::InteractedCutoffAndScore,
     };
     let kernel = match o["fs_kernel"].as_str().unwrap() {
-        "uniform" => dml_core::RdKernel::Uniform,
-        "triangular" => dml_core::RdKernel::Triangular,
-        _ => dml_core::RdKernel::Epanechnikov,
+        "uniform" => dml_core::rd::Kernel::Uniform,
+        "triangular" => dml_core::rd::Kernel::Triangular,
+        _ => dml_core::rd::Kernel::Epanechnikov,
     };
     let ml_m = o["fuzzy"].as_bool().unwrap().then(|| fx.classifier("ml_m"));
     let model = if o["binary_outcome"].as_bool() == Some(true) {

@@ -27,6 +27,7 @@ const EFFECTS: [(&str, [f64; 4]); 5] = [
 /// How [`Mediation`] guards against propensity scores near 0 or 1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum TrimmingRule {
     /// Clip `P(D = 1 | X)` and `P(D = 1 | M, X)` to `[t, 1 − t]` and keep every
     /// observation (DoubleML's IRM rule).

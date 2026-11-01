@@ -295,6 +295,7 @@ pub trait RieszLearner: Send + Sync {
 
 /// Basis functions `b(w)` in which the Riesz representer is approximated.
 #[derive(Clone)]
+#[non_exhaustive]
 pub enum Dictionary {
     /// `d^a · x^e` for treatment powers `a = 0, …, treatment_degree` and all
     /// monomials `x^e` of the covariates up to total degree `degree`
@@ -410,6 +411,7 @@ impl Dictionary {
 
 /// How [`RieszLasso`] chooses its penalty.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum RieszPenalty {
     /// Cross-validation on the Riesz loss over a grid of penalties.
     CrossValidated,

@@ -17,6 +17,7 @@ const RESOLUTION: f64 = 1e-15;
 /// grid searches.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum CvFolds {
     /// `k` folds without shuffling: scikit-learn's `KFold(k)`, or
     /// `StratifiedKFold(k)` for classifiers.
@@ -429,6 +430,7 @@ impl Regressor for LassoCV {
 /// Criterion for choosing `C` in [`LogisticRegressionCV`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum CvScoring {
     /// Mean log loss of the predicted probabilities (scikit-learn's
     /// `"neg_log_loss"`, its default from version 1.11). The natural choice for

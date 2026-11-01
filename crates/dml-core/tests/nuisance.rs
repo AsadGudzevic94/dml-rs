@@ -6,16 +6,14 @@ use dml_core::{DmlFit, Iivm, Irm, Lasso, LogisticRegression, Ols};
 
 #[test]
 fn per_nuisance_learners_replace_only_their_nuisance() {
-    let data = IrmData {
-        n_obs: 600,
-        dim_x: 5,
-        theta: 0.5,
-        ..Default::default()
-    }
-    .generate(1)
-    .unwrap()
-    .to_data()
-    .unwrap();
+    let data = IrmData::default()
+        .n_obs(600)
+        .dim_x(5)
+        .theta(0.5)
+        .generate(1)
+        .unwrap()
+        .to_data()
+        .unwrap();
     let base = Irm::new(Ols::new(), LogisticRegression::default())
         .fit(&data)
         .unwrap();
@@ -44,16 +42,14 @@ fn per_nuisance_learners_replace_only_their_nuisance() {
         .nuisance_classifier("ml_g0", LogisticRegression::default())
         .fit(&data)
         .is_err());
-    let iv = IivmData {
-        n_obs: 600,
-        dim_x: 5,
-        alpha_x: 1.0,
-        ..Default::default()
-    }
-    .generate(2)
-    .unwrap()
-    .to_data()
-    .unwrap();
+    let iv = IivmData::default()
+        .n_obs(600)
+        .dim_x(5)
+        .alpha_x(1.0)
+        .generate(2)
+        .unwrap()
+        .to_data()
+        .unwrap();
     let a = Iivm::new(
         Ols::new(),
         LogisticRegression::default(),
@@ -75,16 +71,14 @@ fn per_nuisance_learners_replace_only_their_nuisance() {
 
 #[test]
 fn user_scores_and_sequential_folds() {
-    let data = IrmData {
-        n_obs: 500,
-        dim_x: 4,
-        theta: 0.5,
-        ..Default::default()
-    }
-    .generate(3)
-    .unwrap()
-    .to_data()
-    .unwrap();
+    let data = IrmData::default()
+        .n_obs(500)
+        .dim_x(4)
+        .theta(0.5)
+        .generate(3)
+        .unwrap()
+        .to_data()
+        .unwrap();
     let fit = Irm::new(Ols::new(), LogisticRegression::default())
         .fit(&data)
         .unwrap();

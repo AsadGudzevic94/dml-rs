@@ -32,3 +32,19 @@ def _as_clusters(cluster):
         raise ValueError(f"cluster must have one or two columns, got shape {arr.shape}")
     ids = [np.unique(arr[:, j], return_inverse=True)[1].reshape(-1) for j in range(arr.shape[1])]
     return np.ascontiguousarray(np.column_stack(ids), dtype=np.int64)
+
+
+def _renamed_kwarg(owner, kwargs, old, new, value):
+    """``value``, or the value passed under the former name ``old`` (with a DeprecationWarning)."""
+    if old in kwargs:
+        import warnings
+
+        warnings.warn(
+            f"{owner}: `{old}` was renamed to `{new}` in dml-rs 0.32.0; the old name will be removed in 2.0",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        value = kwargs.pop(old)
+    if kwargs:
+        raise TypeError(f"{owner}() got an unexpected keyword argument {next(iter(kwargs))!r}")
+    return value

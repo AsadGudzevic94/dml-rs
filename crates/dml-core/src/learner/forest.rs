@@ -25,6 +25,7 @@ use crate::error::{DmlError, Result};
 /// Number of features considered at each split.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum MaxFeatures {
     /// All `p` features (scikit-learn's regressor default, `max_features=1.0`).
     All,

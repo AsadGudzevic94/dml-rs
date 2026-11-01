@@ -43,20 +43,19 @@ fn settings(
     ci_group_size: usize,
     seed: u64,
 ) -> ForestSettings {
-    ForestSettings {
-        num_trees,
-        sample_fraction,
-        mtry,
-        min_node_size,
-        honesty,
-        honesty_fraction,
-        prune_empty_leaves,
-        alpha,
-        imbalance_penalty,
-        stabilize_splits,
-        ci_group_size,
-        seed,
-    }
+    ForestSettings::default()
+        .num_trees(num_trees)
+        .sample_fraction(sample_fraction)
+        .mtry(mtry)
+        .min_node_size(min_node_size)
+        .honesty(honesty)
+        .honesty_fraction(honesty_fraction)
+        .prune_empty_leaves(prune_empty_leaves)
+        .alpha(alpha)
+        .imbalance_penalty(imbalance_penalty)
+        .stabilize_splits(stabilize_splits)
+        .ci_group_size(ci_group_size)
+        .seed(seed)
 }
 
 // ---------------------------------------------------------------------------

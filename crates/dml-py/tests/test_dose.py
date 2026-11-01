@@ -85,7 +85,7 @@ def test_random_forest_and_density_bandwidth():
     rf = dict(n_estimators=30, min_samples_leaf=10, random_state=0)
     model = dml_rs.DoseResponse(
         RandomForestRegressor(**rf), RandomForestRegressor(**rf), grid=grid, bandwidth=0.5,
-        density_bandwidth=0.3, trimming_threshold=0.05,
+        density_bandwidth=0.3, density_floor=0.05,
     ).fit(X, y, d, folds=splits)
     coef, se, _ = reference(X, y, d, RandomForestRegressor(**rf), RandomForestRegressor(**rf), grid, 0.5,
                             splits, h1=0.3, floor=0.05)

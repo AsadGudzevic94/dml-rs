@@ -14,6 +14,7 @@ use crate::error::{DmlError, Result};
 /// Calibration of propensity scores before clipping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum Calibration {
     /// Clip only (default).
     #[default]

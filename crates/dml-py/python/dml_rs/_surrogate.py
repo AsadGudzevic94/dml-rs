@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from . import _dml_rs
 from ._models import Framework, _DMLEstimator, _splits
-from ._validation import _as_1d, _as_2d
+from ._validation import _as_1d, _as_2d, _renamed_kwarg
 
 if TYPE_CHECKING:
     from numpy.typing import ArrayLike
@@ -43,7 +43,7 @@ class SurrogateIndex(_DMLEstimator):
         ``ml_g``).
     propensity : known treatment probability of a completely randomised experiment (otherwise
         ``P(w=1 | X)`` is learned).
-    trimming_threshold : clip the estimated probabilities to ``[t, 1 − t]`` (default 0.01).
+    clipping_threshold : clip the estimated probabilities to ``[t, 1 − t]`` (default 0.01).
     n_folds, n_rep : cross-fitting folds and repetitions; splits are stratified by treated,
         control and observational units.
     random_state : seed for the sample splits.
@@ -55,16 +55,19 @@ class SurrogateIndex(_DMLEstimator):
         ml_m: Any,
         ml_nested: Any = None,
         propensity: Optional[float] = None,
-        trimming_threshold: float = 1e-2,
+        clipping_threshold: float = 1e-2,
         n_folds: int = 5,
         n_rep: int = 1,
         random_state: int = 0,
+        **kwargs: Any,
     ) -> None:
         self.ml_g = ml_g
         self.ml_m = ml_m
         self.ml_nested = ml_nested
         self.propensity = propensity
-        self.trimming_threshold = trimming_threshold
+        self.clipping_threshold = _renamed_kwarg(
+            "SurrogateIndex", kwargs, "trimming_threshold", "clipping_threshold", clipping_threshold
+        )
         self.n_folds = n_folds
         self.n_rep = n_rep
         self.random_state = random_state
@@ -78,7 +81,7 @@ class SurrogateIndex(_DMLEstimator):
             _as_2d(X_exp, "X_exp"), _as_2d(S_exp, "S_exp"), _as_1d(w, "w"),
             _as_2d(X_obs, "X_obs"), _as_2d(S_obs, "S_obs"), _as_1d(y, "y"),
             self.ml_g, self.ml_m, ml_nested=self.ml_nested, propensity=self.propensity,
-            trimming_threshold=self.trimming_threshold, n_folds=self.n_folds, n_rep=self.n_rep,
+            clipping_threshold=self.clipping_threshold, n_folds=self.n_folds, n_rep=self.n_rep,
             seed=self.random_state, splits=_splits(folds),
         )
         return self._store(self._surrogate.effect)

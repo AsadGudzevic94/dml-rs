@@ -120,6 +120,7 @@ impl KFold {
 /// repetitions of seeded K-fold splitting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct SampleSplitting {
     pub n_folds: usize,
     pub n_rep: usize,
@@ -137,6 +138,15 @@ impl Default for SampleSplitting {
 }
 
 impl SampleSplitting {
+    /// `n_rep` repetitions of `n_folds`-fold splitting seeded by `seed`.
+    pub fn new(n_folds: usize, n_rep: usize, seed: u64) -> Self {
+        Self {
+            n_folds,
+            n_rep,
+            seed,
+        }
+    }
+
     /// Draw the folds for every repetition. Repetition `r` uses its own seed
     /// derived from `seed`, so repetition 0 equals `KFold::new(n_folds, seed)`.
     pub fn draw(&self, n: usize) -> Result<Vec<Vec<Fold>>> {
@@ -289,6 +299,9 @@ static PARALLEL_FOLDS: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 /// `parallel` feature) or one after the other. Sequential folds make learners
 /// see the folds in order, which the Python package uses to record the fitted
 /// learners (`store_models`). The setting is process-wide.
+///
+/// Not part of the stable API: it exists for the Python bindings.
+#[doc(hidden)]
 pub fn set_parallel_folds(on: bool) {
     PARALLEL_FOLDS.store(on, std::sync::atomic::Ordering::SeqCst);
 }

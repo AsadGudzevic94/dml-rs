@@ -456,7 +456,7 @@ available on its own (`dml_core::rd::rd_estimate` and `rd_bandwidths` with `RdOp
 
     ```rust
     let fit = RdFlex::fuzzy(ml_g, ml_m).cutoff(0.0).fit(&data, score.view())?;
-    let options = RdOptions { p: 2, bwselect: BwSelect::Msetwo, ..RdOptions::default() };
+    let options = RdOptions::default().p(2).bwselect(BwSelect::Msetwo);
     let fit = RdFlex::sharp(ml_g).rd_options(options).rd_clusters(school).fit(&data, score.view())?;
     ```
 
@@ -483,7 +483,7 @@ first), and `ml_m` the density, either with Colangelo and Lee's kernel regressio
 (`density="kernel"`, the default: $f(t \mid X) = E[\varphi((D - t)/h_1) \mid X] / h_1$, one fit of
 `ml_m` per grid point, no distributional assumption) or a normal model
 (`density="normal"`: $D \mid X \sim N(m(X), \sigma^2)$, `ml_m` learns $m$). Small densities are
-floored (`trimming_threshold`, on the scale of the standardised treatment).
+floored (`density_floor`, on the scale of the standardised treatment).
 
 The estimate converges at the nonparametric rate $\sqrt{nh}$, and its standard error comes from
 the estimated influence function, as for the other models. The default bandwidth is
@@ -1058,7 +1058,7 @@ split-frequency importance. The defaults are grf's (2000 trees, subsamples of ha
     use dml_core::{CausalForestDml, ForestSettings, TreatmentLearner};
 
     let fit = CausalForestDml::new(ml_y, TreatmentLearner::Classifier(Box::new(ml_d)))
-        .forest(ForestSettings { num_trees: 2000, ..Default::default() })
+        .forest(ForestSettings::default().num_trees(2000))
         .fit(&data)?;
     let (tau, variance) = fit.effect(x_new.view())?;
     let ate = fit.ate()?;

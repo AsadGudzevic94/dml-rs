@@ -18,32 +18,8 @@ scikit-learn estimators but cross-fit fully in Rust, in parallel and
 without the GIL, or any scikit-learn compatible estimator.
 """
 
-from ._dml_rs import (
-    Blp,
-    Bootstrap,
-    CateResult,
-    AposResult,
-    DmlResult,
-    QteResult,
-    RdFlexResult,
-    __version__,
-    fit_apo,
-    fit_apos,
-    fit_cate,
-    fit_did,
-    fit_iivm,
-    fit_irm,
-    fit_lplr,
-    fit_pliv,
-    fit_plpr,
-    fit_plr,
-    fit_qte,
-    fit_quantile,
-    fit_rdflex,
-    fit_ssm,
-    fit_autodml,
-    fit_staggered_did,
-)
+from ._dml_rs import __version__
+from . import native
 from ._learners import (
     GradientBoostingClassifier,
     GradientBoostingRegressor,
@@ -178,30 +154,27 @@ __all__ = [
     "GradientBoostingClassifier",
     "GridSearchRegressor",
     "GridSearchClassifier",
-    "DmlResult",
-    "AposResult",
-    "QteResult",
-    "RdFlexResult",
-    "Bootstrap",
-    "Blp",
-    "CateResult",
-    "fit_apo",
-    "fit_apos",
-    "fit_cate",
-    "fit_iivm",
-    "fit_did",
-    "fit_staggered_did",
-    "fit_plr",
-    "fit_irm",
-    "fit_lplr",
-    "fit_pliv",
-    "fit_plpr",
-    "fit_quantile",
-    "fit_rdflex",
-    "fit_qte",
-    "fit_ssm",
-    "fit_autodml",
     "datasets",
+    "native",
     "DmlData",
     "__version__",
 ]
+
+
+# Moved to dml_rs.native in 0.32.0; the top-level names still work (with a DeprecationWarning)
+# until 2.0.
+_MOVED_TO_NATIVE = frozenset(native.__all__)
+
+
+def __getattr__(name):
+    if name in _MOVED_TO_NATIVE:
+        import warnings
+
+        warnings.warn(
+            f"dml_rs.{name} moved to dml_rs.native.{name} in dml-rs 0.32.0; "
+            "the top-level name will be removed in 2.0",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return getattr(native, name)
+    raise AttributeError(f"module 'dml_rs' has no attribute {name!r}")

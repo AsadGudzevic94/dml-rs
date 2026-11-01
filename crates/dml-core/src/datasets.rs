@@ -10,7 +10,7 @@
 //! use dml_core::datasets::PlrCcddhnr2018;
 //! use dml_core::{learner::Ols, Plr};
 //!
-//! let sim = PlrCcddhnr2018 { n_obs: 300, dim_x: 5, ..Default::default() }.generate(42).unwrap();
+//! let sim = PlrCcddhnr2018::default().n_obs(300).dim_x(5).generate(42).unwrap();
 //! let fit = Plr::new(Ols::new(), Ols::new()).fit(&sim.to_data().unwrap()).unwrap();
 //! assert!((fit.coef()[0] - 0.5).abs() < 0.3);
 //! ```
@@ -55,6 +55,7 @@ use crate::staggered::{PanelData, RepeatedCrossSections};
 /// depending on the design, instruments `z`, a selection indicator `s`, a
 /// time indicator `t` or cluster labels (one column per clustering).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Simulated {
     pub x: Array2<f64>,
     pub y: Array1<f64>,
@@ -203,6 +204,7 @@ fn corr(a: &Array1<f64>, b: &Array1<f64>) -> f64 {
 /// `y = αd + b₀·expit(x₀) + b₁x₂ + s₂ζ` with Toeplitz-correlated
 /// covariates (`0.7^|i−j|`).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct PlrCcddhnr2018 {
     pub n_obs: usize,
     pub dim_x: usize,
@@ -214,6 +216,18 @@ pub struct PlrCcddhnr2018 {
     pub b_1: f64,
     pub s_2: f64,
 }
+
+field_setters!(PlrCcddhnr2018 {
+    n_obs: usize,
+    dim_x: usize,
+    alpha: f64,
+    a_0: f64,
+    a_1: f64,
+    s_1: f64,
+    b_0: f64,
+    b_1: f64,
+    s_2: f64,
+});
 
 impl Default for PlrCcddhnr2018 {
     fn default() -> Self {
@@ -259,6 +273,7 @@ impl PlrCcddhnr2018 {
 /// `b_k = 1/k` and a random positive definite covariance (scikit-learn's
 /// `make_spd_matrix`).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct PlrTurrell2018 {
     pub n_obs: usize,
     pub dim_x: usize,
@@ -266,6 +281,14 @@ pub struct PlrTurrell2018 {
     pub nu: f64,
     pub gamma: f64,
 }
+
+field_setters!(PlrTurrell2018 {
+    n_obs: usize,
+    dim_x: usize,
+    theta: f64,
+    nu: f64,
+    gamma: f64,
+});
 
 impl Default for PlrTurrell2018 {
     fn default() -> Self {
@@ -319,6 +342,7 @@ impl PlrTurrell2018 {
 /// analysis. `ConfoundedPlrSimulated::oracle` holds the long and short
 /// regressions and the confounder.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct ConfoundedPlr {
     pub n_obs: usize,
     pub theta: f64,
@@ -328,6 +352,15 @@ pub struct ConfoundedPlr {
     pub c: f64,
     pub dim_x: usize,
 }
+
+field_setters!(ConfoundedPlr {
+    n_obs: usize,
+    theta: f64,
+    cf_y: f64,
+    cf_d: f64,
+    c: f64,
+    dim_x: usize,
+});
 
 impl Default for ConfoundedPlr {
     fn default() -> Self {
@@ -344,6 +377,7 @@ impl Default for ConfoundedPlr {
 
 /// Oracle values of [`ConfoundedPlr`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ConfoundedPlrOracle {
     pub g_long: Array1<f64>,
     pub g_short: Array1<f64>,
@@ -358,6 +392,7 @@ pub struct ConfoundedPlrOracle {
 
 /// A data set of [`ConfoundedPlr`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ConfoundedPlrSimulated {
     pub data: Simulated,
     pub oracle: ConfoundedPlrOracle,
@@ -428,12 +463,20 @@ impl ConfoundedPlr {
 /// Chernozhukov, Hansen and Spindler (2015): partially linear IV with
 /// `dim_z` instruments `z = x[:, :dim_z] + ξ`.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct PlivChs2015 {
     pub n_obs: usize,
     pub alpha: f64,
     pub dim_x: usize,
     pub dim_z: usize,
 }
+
+field_setters!(PlivChs2015 {
+    n_obs: usize,
+    alpha: f64,
+    dim_x: usize,
+    dim_z: usize,
+});
 
 impl Default for PlivChs2015 {
     fn default() -> Self {
@@ -472,6 +515,7 @@ impl PlivChs2015 {
 /// Chiang, Kato, Ma and Sasaki (2021): partially linear IV on an `n × m`
 /// grid of two-way clusters, with cluster-correlated covariates and errors.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct PlivMultiwayClusterCkms2021 {
     /// Clusters of the first dimension (DoubleML's `N`).
     pub n: usize,
@@ -492,6 +536,23 @@ pub struct PlivMultiwayClusterCkms2021 {
     pub s_x: f64,
     pub s_epsilon_v: f64,
 }
+
+field_setters!(PlivMultiwayClusterCkms2021 {
+    n: usize,
+    m: usize,
+    dim_x: usize,
+    theta: f64,
+    pi_10: f64,
+    zeta_0: Vec<f64>,
+    pi_20: Vec<f64>,
+    xi_0: Vec<f64>,
+    omega_x: [f64; 2],
+    omega_epsilon: [f64; 2],
+    omega_v: [f64; 2],
+    omega_vv: [f64; 2],
+    s_x: f64,
+    s_epsilon_v: f64,
+});
 
 impl Default for PlivMultiwayClusterCkms2021 {
     fn default() -> Self {
@@ -595,6 +656,7 @@ impl PlivMultiwayClusterCkms2021 {
 
 /// Treatment of [`LplrLzz2020`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum LplrTreatment {
     /// `d = a₀(x)`.
     #[default]
@@ -609,6 +671,7 @@ pub enum LplrTreatment {
 /// `P(y = 1) = expit(αd + r₀(x))`, equicorrelated covariates (0.2) clipped
 /// to `[−2, 2]`. `generate` also returns the outcome probabilities.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct LplrLzz2020 {
     pub n_obs: usize,
     pub dim_x: usize,
@@ -616,6 +679,14 @@ pub struct LplrLzz2020 {
     pub balanced_r0: bool,
     pub treatment: LplrTreatment,
 }
+
+field_setters!(LplrLzz2020 {
+    n_obs: usize,
+    dim_x: usize,
+    alpha: f64,
+    balanced_r0: bool,
+    treatment: LplrTreatment,
+});
 
 impl Default for LplrLzz2020 {
     fn default() -> Self {
@@ -681,6 +752,7 @@ impl LplrLzz2020 {
 
 /// Functional form of [`PlprCp2025`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum PlprDesign {
     /// Linear nuisances.
     #[default]
@@ -694,6 +766,7 @@ pub enum PlprDesign {
 /// Clarke and Polselli (2025): a static panel with correlated unit effects,
 /// `d = m₀(x) + cᵢ + v`, `y = θd + g₀(x) + αᵢ + u`.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct PlprCp2025 {
     pub num_id: usize,
     pub num_t: usize,
@@ -701,6 +774,14 @@ pub struct PlprCp2025 {
     pub theta: f64,
     pub design: PlprDesign,
 }
+
+field_setters!(PlprCp2025 {
+    num_id: usize,
+    num_t: usize,
+    dim_x: usize,
+    theta: f64,
+    design: PlprDesign,
+});
 
 impl Default for PlprCp2025 {
     fn default() -> Self {
@@ -716,6 +797,7 @@ impl Default for PlprCp2025 {
 
 /// A simulated panel in long format (one row per unit and period).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SimulatedPanel {
     pub id: Array1<i64>,
     pub t: Array1<f64>,
@@ -803,6 +885,7 @@ impl PlprCp2025 {
 /// with `P(d = 1 | x) = expit(c_d x'β)` and `y = θd + d·c_y x'β + ζ`, with
 /// `c_d`, `c_y` set by the target `R²` values.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct IrmData {
     pub n_obs: usize,
     pub dim_x: usize,
@@ -810,6 +893,14 @@ pub struct IrmData {
     pub r2_d: f64,
     pub r2_y: f64,
 }
+
+field_setters!(IrmData {
+    n_obs: usize,
+    dim_x: usize,
+    theta: f64,
+    r2_d: f64,
+    r2_y: f64,
+});
 
 impl Default for IrmData {
     fn default() -> Self {
@@ -857,6 +948,7 @@ impl IrmData {
 /// `make_confounded_irm_data` (Sant'Anna and Zhao covariates), with oracle
 /// confounding strengths for sensitivity analysis.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct ConfoundedIrm {
     pub n_obs: usize,
     pub theta: f64,
@@ -867,6 +959,17 @@ pub struct ConfoundedIrm {
     pub trimming_threshold: f64,
     pub var_eps_y: f64,
 }
+
+field_setters!(ConfoundedIrm {
+    n_obs: usize,
+    theta: f64,
+    gamma_a: f64,
+    beta_a: f64,
+    linear: bool,
+    dim_x: usize,
+    trimming_threshold: f64,
+    var_eps_y: f64,
+});
 
 impl Default for ConfoundedIrm {
     fn default() -> Self {
@@ -885,6 +988,7 @@ impl Default for ConfoundedIrm {
 
 /// Oracle values of [`ConfoundedIrm`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ConfoundedIrmOracle {
     pub g_long: Array1<f64>,
     pub g_short: Array1<f64>,
@@ -905,6 +1009,7 @@ pub struct ConfoundedIrmOracle {
 
 /// A data set of [`ConfoundedIrm`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ConfoundedIrmSimulated {
     pub data: Simulated,
     pub oracle: ConfoundedIrmOracle,
@@ -1007,6 +1112,7 @@ impl ConfoundedIrm {
 /// `make_irm_data_discrete_treatments`: a latent continuous treatment cut at
 /// its quantiles, with a share `1 / n_levels` of untreated units.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct IrmDiscreteTreatments {
     pub n_obs: usize,
     pub n_levels: usize,
@@ -1015,6 +1121,15 @@ pub struct IrmDiscreteTreatments {
     pub c: f64,
     pub dim_x: usize,
 }
+
+field_setters!(IrmDiscreteTreatments {
+    n_obs: usize,
+    n_levels: usize,
+    linear: bool,
+    xi: f64,
+    c: f64,
+    dim_x: usize,
+});
 
 impl Default for IrmDiscreteTreatments {
     fn default() -> Self {
@@ -1031,6 +1146,7 @@ impl Default for IrmDiscreteTreatments {
 
 /// Oracle values of [`IrmDiscreteTreatments`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct DiscreteTreatmentOracle {
     pub cont_d: Array1<f64>,
     pub level_bounds: Array1<f64>,
@@ -1041,6 +1157,7 @@ pub struct DiscreteTreatmentOracle {
 
 /// A data set of [`IrmDiscreteTreatments`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct DiscreteTreatmentSimulated {
     pub data: Simulated,
     pub oracle: DiscreteTreatmentOracle,
@@ -1106,12 +1223,20 @@ impl IrmDiscreteTreatments {
 /// A binary instrument `z` shifting a binary treatment, `d = 1{α_x z + v > 0}`,
 /// `y = θd + x'β + u` with `corr(u, v) = 0.3`.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct IivmData {
     pub n_obs: usize,
     pub dim_x: usize,
     pub theta: f64,
     pub alpha_x: f64,
 }
+
+field_setters!(IivmData {
+    n_obs: usize,
+    dim_x: usize,
+    theta: f64,
+    alpha_x: f64,
+});
 
 impl Default for IivmData {
     fn default() -> Self {
@@ -1148,12 +1273,20 @@ impl IivmData {
 /// independent and `γ = 0`) or nonignorable (`corr(e₀, e₁) = 0.8`, `γ = 1`).
 /// Unobserved outcomes are 0.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct SsmData {
     pub n_obs: usize,
     pub dim_x: usize,
     pub theta: f64,
     pub mar: bool,
 }
+
+field_setters!(SsmData {
+    n_obs: usize,
+    dim_x: usize,
+    theta: f64,
+    mar: bool,
+});
 
 impl Default for SsmData {
     fn default() -> Self {
@@ -1203,6 +1336,7 @@ impl SsmData {
 /// `3 sin(4x₁)` with `n_x = 2`) on uniform covariates, as
 /// `make_heterogeneous_data`.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct HeterogeneousData {
     pub n_obs: usize,
     /// Number of covariates.
@@ -1213,6 +1347,14 @@ pub struct HeterogeneousData {
     pub n_x: usize,
     pub binary_treatment: bool,
 }
+
+field_setters!(HeterogeneousData {
+    n_obs: usize,
+    p: usize,
+    support_size: usize,
+    n_x: usize,
+    binary_treatment: bool,
+});
 
 impl Default for HeterogeneousData {
     fn default() -> Self {
@@ -1228,6 +1370,7 @@ impl Default for HeterogeneousData {
 
 /// A data set of [`HeterogeneousData`] with the individual effects.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct HeterogeneousSimulated {
     pub data: Simulated,
     pub effects: Array1<f64>,
@@ -1304,6 +1447,7 @@ fn did_features<'a>(
 /// transformed covariates `Z`. `generate` gives a panel (`y = Y₁ − Y₀`);
 /// `generate_cross_sections` repeated cross-sections with a time indicator.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct DidSz2020 {
     pub n_obs: usize,
     pub dgp_type: u8,
@@ -1312,6 +1456,14 @@ pub struct DidSz2020 {
     /// Share of post-period observations (cross-sections).
     pub lambda_t: f64,
 }
+
+field_setters!(DidSz2020 {
+    n_obs: usize,
+    dgp_type: u8,
+    xi: f64,
+    c: f64,
+    lambda_t: f64,
+});
 
 impl Default for DidSz2020 {
     fn default() -> Self {
@@ -1391,6 +1543,7 @@ impl DidSz2020 {
 /// periods, with cohorts first treated from period `n_pre_treat_periods`
 /// on, dynamic and heterogeneous effects, unit and time effects.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct DidCs2021 {
     pub n_obs: usize,
     pub dgp_type: u8,
@@ -1401,6 +1554,17 @@ pub struct DidCs2021 {
     pub anticipation_periods: usize,
     pub n_pre_treat_periods: usize,
 }
+
+field_setters!(DidCs2021 {
+    n_obs: usize,
+    dgp_type: u8,
+    include_never_treated: bool,
+    c: f64,
+    xi: f64,
+    n_periods: usize,
+    anticipation_periods: usize,
+    n_pre_treat_periods: usize,
+});
 
 impl Default for DidCs2021 {
     fn default() -> Self {
@@ -1421,6 +1585,7 @@ impl Default for DidCs2021 {
 /// `0, 1, …`); `cohort` is the first treated period, `f64::INFINITY` for
 /// never treated units.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SimulatedStaggered {
     pub id: Array1<i64>,
     pub t: Array1<f64>,
@@ -1616,6 +1781,7 @@ impl DidCs2021 {
 /// covariates entering through polynomials of order `p`, effect `tau` at the
 /// cutoff; sharp or fuzzy, with a continuous or binary outcome.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct SimpleRdd {
     pub n_obs: usize,
     pub p: usize,
@@ -1626,6 +1792,17 @@ pub struct SimpleRdd {
     pub a: f64,
     pub tau: f64,
 }
+
+field_setters!(SimpleRdd {
+    n_obs: usize,
+    p: usize,
+    fuzzy: bool,
+    binary_outcome: bool,
+    cutoff: f64,
+    dim_x: usize,
+    a: f64,
+    tau: f64,
+});
 
 impl Default for SimpleRdd {
     fn default() -> Self {
@@ -1645,6 +1822,7 @@ impl Default for SimpleRdd {
 /// A data set of [`SimpleRdd`]: running variable, covariates, outcome,
 /// treatment and both potential outcomes.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SimulatedRdd {
     pub score: Array1<f64>,
     pub x: Array2<f64>,
@@ -1760,23 +1938,8 @@ mod tests {
         let a = PlrCcddhnr2018::default().generate(7).unwrap();
         let b = PlrCcddhnr2018::default().generate(7).unwrap();
         assert_eq!(a.y, b.y);
-        assert!(PlrCcddhnr2018 {
-            dim_x: 2,
-            ..Default::default()
-        }
-        .generate(0)
-        .is_err());
-        assert!(LplrLzz2020 {
-            dim_x: 10,
-            ..Default::default()
-        }
-        .generate(0)
-        .is_err());
-        assert!(DidSz2020 {
-            dgp_type: 7,
-            ..Default::default()
-        }
-        .generate(0)
-        .is_err());
+        assert!(PlrCcddhnr2018::default().dim_x(2).generate(0).is_err());
+        assert!(LplrLzz2020::default().dim_x(10).generate(0).is_err());
+        assert!(DidSz2020::default().dgp_type(7).generate(0).is_err());
     }
 }

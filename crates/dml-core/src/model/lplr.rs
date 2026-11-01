@@ -39,6 +39,7 @@ use crate::learner::{Classifier, Regressor};
 /// Score of [`Lplr`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum LplrScore {
     /// `m(X)` estimated on the observations with `Y = 0`.
     #[default]
@@ -49,6 +50,7 @@ pub enum LplrScore {
 
 /// A learner for `E[D | X]`: a regressor, or for a binary treatment a
 /// classifier whose class-1 probability is used.
+#[non_exhaustive]
 pub enum TreatmentLearner {
     Regressor(Box<dyn Regressor>),
     Classifier(Box<dyn Classifier>),

@@ -104,6 +104,18 @@ Regeneration is deterministic: existing fixtures should come out unchanged.
   where DoubleML offers the same estimator, and, for inference, a Monte-Carlo coverage test.
 - Keep the core free of heavy dependencies: no BLAS or C libraries.
 
+## API stability
+
+The project follows semantic versioning. When changing a public API:
+
+- Rust: new settings enums and structs with public fields are `#[non_exhaustive]`; give settings
+  structs chained setters (`field_setters!`). Traits implemented by users (`Regressor`,
+  `Classifier`, `LinearScoreModel`) only gain methods with default implementations.
+- Renames keep the old name as a `#[deprecated(since = ...)]` alias (Rust) or a
+  `DeprecationWarning` (Python) until the next major version; list them in the changelog.
+- `dml_rs.native` (the low-level functions and result classes) may change in minor releases.
+- The minimum supported Rust version is raised only in a minor release, with a changelog note.
+
 ## Releasing (maintainers)
 
 Releases are published from GitHub Actions with Trusted Publishing; no API tokens are involved.

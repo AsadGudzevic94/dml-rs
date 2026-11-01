@@ -13,6 +13,7 @@ use crate::error::{DmlError, Result};
 use crate::learner::{Classifier, Regressor};
 
 /// Conformity score of [`ConformalIte`].
+#[non_exhaustive]
 pub enum ConformalScore {
     /// `|y − μ(x)|` with a regressor for the conditional mean (intervals of
     /// constant width `μ(x) ± Q`).
@@ -83,6 +84,7 @@ impl FittedScore {
 
 /// Population whose counterfactual outcomes the interval should cover.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum ConformalTarget {
     /// All units (the default; the target of individual-effect intervals).
     #[default]
@@ -142,7 +144,7 @@ pub struct ConformalIte {
     ml_m: Option<Box<dyn Classifier>>,
     propensity: Option<f64>,
     train_fraction: f64,
-    trimming_threshold: f64,
+    clipping_threshold: f64,
     seed: u64,
 }
 
@@ -153,7 +155,7 @@ impl ConformalIte {
             ml_m: None,
             propensity: None,
             train_fraction: 0.75,
-            trimming_threshold: 1e-2,
+            clipping_threshold: 1e-2,
             seed: 0,
         }
     }
@@ -177,9 +179,15 @@ impl ConformalIte {
     }
 
     /// Clip estimated propensity scores to `[t, 1 − t]` (default 0.01).
-    pub fn trimming_threshold(mut self, threshold: f64) -> Self {
-        self.trimming_threshold = threshold;
+    pub fn clipping_threshold(mut self, threshold: f64) -> Self {
+        self.clipping_threshold = threshold;
         self
+    }
+
+    /// Former name of [`clipping_threshold`](Self::clipping_threshold).
+    #[deprecated(since = "0.32.0", note = "renamed to `clipping_threshold`")]
+    pub fn trimming_threshold(self, threshold: f64) -> Self {
+        self.clipping_threshold(threshold)
     }
 
     /// Seed of the random split (default 0).
@@ -215,10 +223,10 @@ impl ConformalIte {
                 "ConformalIte needs exactly one binary (0/1) treatment".into(),
             ));
         }
-        let t = self.trimming_threshold;
+        let t = self.clipping_threshold;
         if t.is_nan() || !(0.0..0.5).contains(&t) {
             return Err(DmlError::InvalidArgument(
-                "trimming_threshold must be in [0, 0.5)".into(),
+                "clipping_threshold must be in [0, 0.5)".into(),
             ));
         }
         let propensity = match (self.propensity, &self.ml_m) {

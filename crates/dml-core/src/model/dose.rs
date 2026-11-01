@@ -14,6 +14,7 @@ use crate::learner::Regressor;
 /// Kernel `k` of the localisation `K_h(D − t) = k((D − t)/h)/h`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum DoseKernel {
     /// `0.75·(1 − u²)` on `|u| ≤ 1` (the kernel of Colangelo and Lee's simulations).
     #[default]
@@ -44,6 +45,7 @@ fn gaussian(u: f64) -> f64 {
 /// Bandwidth `h` of the kernel.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum Bandwidth {
     /// `h = c·σ_D·n^(−1/5)` with `σ_D` the sample standard deviation of the
     /// treatment (Colangelo and Lee's choice). Constants below the AMSE-optimal
@@ -63,6 +65,7 @@ impl Default for Bandwidth {
 /// density of the treatment.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum DensityModel {
     /// Colangelo and Lee's MultiGPS: `f(t | X) = E[φ((D − t)/h₁) | X]/h₁` with
     /// `φ` the normal density, learned by `ml_m` separately for every
@@ -95,7 +98,7 @@ pub enum DensityModel {
 /// ([`DoseResponseFit::contrast`]). With [`partial_effects`](Self::partial_effects)
 /// the fit also estimates `∂β(t)/∂t` by `(β̂(t + η/2) − β̂(t − η/2))/η`.
 ///
-/// Small density estimates are raised to `trimming_threshold / σ_D` (default
+/// Small density estimates are raised to `density_floor / σ_D` (default
 /// `0.01 / σ_D`, i.e. 0.01 on the scale of the standardised treatment).
 ///
 /// ```
@@ -124,7 +127,7 @@ pub struct DoseResponse {
     bandwidth: Bandwidth,
     density: DensityModel,
     density_bandwidth: Option<f64>,
-    trimming_threshold: f64,
+    density_floor: f64,
     partial_effects: bool,
     eta: Option<f64>,
     splitting: SampleSplitting,
@@ -145,7 +148,7 @@ impl DoseResponse {
             bandwidth: Bandwidth::default(),
             density: DensityModel::default(),
             density_bandwidth: None,
-            trimming_threshold: 1e-2,
+            density_floor: 1e-2,
             partial_effects: false,
             eta: None,
             splitting: SampleSplitting::default(),
@@ -184,9 +187,15 @@ impl DoseResponse {
     }
 
     /// Lower bound on the density of the standardised treatment (default 0.01).
-    pub fn trimming_threshold(mut self, threshold: f64) -> Self {
-        self.trimming_threshold = threshold;
+    pub fn density_floor(mut self, threshold: f64) -> Self {
+        self.density_floor = threshold;
         self
+    }
+
+    /// Former name of [`density_floor`](Self::density_floor).
+    #[deprecated(since = "0.32.0", note = "renamed to `density_floor`")]
+    pub fn trimming_threshold(self, threshold: f64) -> Self {
+        self.density_floor(threshold)
     }
 
     /// Also estimate the partial effects `∂β(t)/∂t` at the grid points.
@@ -259,9 +268,9 @@ impl DoseResponse {
         positive("bandwidth", h)?;
         let h1 = self.density_bandwidth.unwrap_or(h);
         positive("density bandwidth", h1)?;
-        if self.trimming_threshold.is_nan() || self.trimming_threshold < 0.0 {
+        if self.density_floor.is_nan() || self.density_floor < 0.0 {
             return Err(DmlError::InvalidArgument(
-                "trimming_threshold must be non-negative".into(),
+                "density_floor must be non-negative".into(),
             ));
         }
         let grid = match &self.grid {
@@ -290,7 +299,7 @@ impl DoseResponse {
 
         let settings = Settings {
             h1,
-            floor: self.trimming_threshold / sd,
+            floor: self.density_floor / sd,
         };
         let n_points = points.len();
         let n_rep = splits.len();

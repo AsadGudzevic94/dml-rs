@@ -101,6 +101,7 @@ impl SynthPanel {
 /// Which estimator of the family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum SynthEstimator {
     /// Unit and time weights (`synthdid_estimate`).
     #[default]
@@ -113,6 +114,7 @@ pub enum SynthEstimator {
 
 /// Standard error method (`vcov.synthdid_estimate`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SynthSe {
     /// Leave-one-unit-out jackknife with the weights held fixed (needs at least
     /// two treated units).

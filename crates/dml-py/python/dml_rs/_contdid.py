@@ -9,7 +9,7 @@ import numpy as np
 
 from . import _dml_rs
 from ._models import Framework, _DMLEstimator, _pyplot, _splits, _COLORBLIND
-from ._validation import _as_1d, _as_2d
+from ._validation import _as_1d, _as_2d, _renamed_kwarg
 from .data import accepts_data
 
 if TYPE_CHECKING:
@@ -53,7 +53,7 @@ class ContinuousDID(_DMLEstimator):
     num_knots : interior knots at quantiles of the positive doses (default 0).
     grid : doses at which to report ``ATT(d)`` and ``ACRT(d)`` (default: the 5%, …, 95%
         quantiles of the positive doses); within the range of the positive doses.
-    trimming_threshold : clip ``P(D > 0 | X)`` to ``[t, 1 − t]`` (default 0.01).
+    clipping_threshold : clip ``P(D > 0 | X)`` to ``[t, 1 − t]`` (default 0.01).
     n_folds, n_rep : cross-fitting folds and repetitions (with covariates).
     random_state : seed for the sample splits.
     """
@@ -66,10 +66,11 @@ class ContinuousDID(_DMLEstimator):
         degree: int = 3,
         num_knots: int = 0,
         grid: Optional[Sequence[float]] = None,
-        trimming_threshold: float = 1e-2,
+        clipping_threshold: float = 1e-2,
         n_folds: int = 5,
         n_rep: int = 1,
         random_state: int = 0,
+        **kwargs: Any,
     ) -> None:
         self.ml_g = ml_g
         self.ml_m = ml_m
@@ -77,7 +78,9 @@ class ContinuousDID(_DMLEstimator):
         self.degree = degree
         self.num_knots = num_knots
         self.grid = grid
-        self.trimming_threshold = trimming_threshold
+        self.clipping_threshold = _renamed_kwarg(
+            "ContinuousDID", kwargs, "trimming_threshold", "clipping_threshold", clipping_threshold
+        )
         self.n_folds = n_folds
         self.n_rep = n_rep
         self.random_state = random_state
@@ -92,7 +95,7 @@ class ContinuousDID(_DMLEstimator):
         self._contdid = _dml_rs.fit_continuous_did(
             y_arr, _as_2d(_as_1d(d, "d"), "d"), x_arr, ml_g=self.ml_g, ml_m=self.ml_m,
             ml_nested=self.ml_nested, degree=self.degree, num_knots=self.num_knots, grid=grid,
-            trimming_threshold=self.trimming_threshold, n_folds=self.n_folds, n_rep=self.n_rep,
+            clipping_threshold=self.clipping_threshold, n_folds=self.n_folds, n_rep=self.n_rep,
             seed=self.random_state, splits=_splits(folds),
         )
         self.grid_ = np.asarray(self._contdid.grid)

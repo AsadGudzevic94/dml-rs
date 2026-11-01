@@ -34,6 +34,7 @@ use crate::score::LinearScore;
 /// Selection mechanism of [`Ssm`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum SsmScore {
     /// Selection depends on `D` and `X` only.
     #[default]

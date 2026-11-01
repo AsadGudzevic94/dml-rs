@@ -56,40 +56,37 @@ pub(crate) fn simulate<'py>(
     match name {
         "plr_CCDDHNR2018" => {
             let d = PlrCcddhnr2018::default();
-            let g = PlrCcddhnr2018 {
-                n_obs: get(params, "n_obs", d.n_obs)?,
-                dim_x: get(params, "dim_x", d.dim_x)?,
-                alpha: get(params, "alpha", d.alpha)?,
-                a_0: get(params, "a_0", d.a_0)?,
-                a_1: get(params, "a_1", d.a_1)?,
-                s_1: get(params, "s_1", d.s_1)?,
-                b_0: get(params, "b_0", d.b_0)?,
-                b_1: get(params, "b_1", d.b_1)?,
-                s_2: get(params, "s_2", d.s_2)?,
-            };
+            let g = PlrCcddhnr2018::default()
+                .n_obs(get(params, "n_obs", d.n_obs)?)
+                .dim_x(get(params, "dim_x", d.dim_x)?)
+                .alpha(get(params, "alpha", d.alpha)?)
+                .a_0(get(params, "a_0", d.a_0)?)
+                .a_1(get(params, "a_1", d.a_1)?)
+                .s_1(get(params, "s_1", d.s_1)?)
+                .b_0(get(params, "b_0", d.b_0)?)
+                .b_1(get(params, "b_1", d.b_1)?)
+                .s_2(get(params, "s_2", d.s_2)?);
             put_simulated(py, &out, g.generate(seed).map_err(to_py_err)?)?;
         }
         "plr_turrell2018" => {
             let d = PlrTurrell2018::default();
-            let g = PlrTurrell2018 {
-                n_obs: get(params, "n_obs", d.n_obs)?,
-                dim_x: get(params, "dim_x", d.dim_x)?,
-                theta: get(params, "theta", d.theta)?,
-                nu: get(params, "nu", d.nu)?,
-                gamma: get(params, "gamma", d.gamma)?,
-            };
+            let g = PlrTurrell2018::default()
+                .n_obs(get(params, "n_obs", d.n_obs)?)
+                .dim_x(get(params, "dim_x", d.dim_x)?)
+                .theta(get(params, "theta", d.theta)?)
+                .nu(get(params, "nu", d.nu)?)
+                .gamma(get(params, "gamma", d.gamma)?);
             put_simulated(py, &out, g.generate(seed).map_err(to_py_err)?)?;
         }
         "confounded_plr_data" => {
             let d = ConfoundedPlr::default();
-            let g = ConfoundedPlr {
-                n_obs: get(params, "n_obs", d.n_obs)?,
-                theta: get(params, "theta", d.theta)?,
-                cf_y: get(params, "cf_y", d.cf_y)?,
-                cf_d: get(params, "cf_d", d.cf_d)?,
-                c: get(params, "c", d.c)?,
-                dim_x: get(params, "dim_x", d.dim_x)?,
-            };
+            let g = ConfoundedPlr::default()
+                .n_obs(get(params, "n_obs", d.n_obs)?)
+                .theta(get(params, "theta", d.theta)?)
+                .cf_y(get(params, "cf_y", d.cf_y)?)
+                .cf_d(get(params, "cf_d", d.cf_d)?)
+                .c(get(params, "c", d.c)?)
+                .dim_x(get(params, "dim_x", d.dim_x)?);
             let sim = g.generate(seed).map_err(to_py_err)?;
             put_simulated(py, &out, sim.data)?;
             let o = sim.oracle;
@@ -107,12 +104,11 @@ pub(crate) fn simulate<'py>(
         }
         "pliv_CHS2015" => {
             let d = PlivChs2015::default();
-            let g = PlivChs2015 {
-                n_obs: get(params, "n_obs", d.n_obs)?,
-                alpha: get(params, "alpha", d.alpha)?,
-                dim_x: get(params, "dim_x", d.dim_x)?,
-                dim_z: get(params, "dim_z", d.dim_z)?,
-            };
+            let g = PlivChs2015::default()
+                .n_obs(get(params, "n_obs", d.n_obs)?)
+                .alpha(get(params, "alpha", d.alpha)?)
+                .dim_x(get(params, "dim_x", d.dim_x)?)
+                .dim_z(get(params, "dim_z", d.dim_z)?);
             put_simulated(py, &out, g.generate(seed).map_err(to_py_err)?)?;
         }
         "pliv_multiway_cluster_CKMS2021" => {
@@ -122,22 +118,21 @@ pub(crate) fn simulate<'py>(
                 v.try_into()
                     .map_err(|_| PyValueError::new_err(format!("{key} needs two values")))
             };
-            let g = PlivMultiwayClusterCkms2021 {
-                n: get(params, "N", d.n)?,
-                m: get(params, "M", d.m)?,
-                dim_x: get(params, "dim_X", d.dim_x)?,
-                theta: get(params, "theta", d.theta)?,
-                pi_10: get(params, "pi_10", d.pi_10)?,
-                zeta_0: get(params, "zeta_0", Vec::new())?,
-                pi_20: get(params, "pi_20", Vec::new())?,
-                xi_0: get(params, "xi_0", Vec::new())?,
-                omega_x: pair("omega_X", d.omega_x)?,
-                omega_epsilon: pair("omega_epsilon", d.omega_epsilon)?,
-                omega_v: pair("omega_v", d.omega_v)?,
-                omega_vv: pair("omega_V", d.omega_vv)?,
-                s_x: get(params, "s_X", d.s_x)?,
-                s_epsilon_v: get(params, "s_epsilon_v", d.s_epsilon_v)?,
-            };
+            let g = PlivMultiwayClusterCkms2021::default()
+                .n(get(params, "N", d.n)?)
+                .m(get(params, "M", d.m)?)
+                .dim_x(get(params, "dim_X", d.dim_x)?)
+                .theta(get(params, "theta", d.theta)?)
+                .pi_10(get(params, "pi_10", d.pi_10)?)
+                .zeta_0(get(params, "zeta_0", Vec::new())?)
+                .pi_20(get(params, "pi_20", Vec::new())?)
+                .xi_0(get(params, "xi_0", Vec::new())?)
+                .omega_x(pair("omega_X", d.omega_x)?)
+                .omega_epsilon(pair("omega_epsilon", d.omega_epsilon)?)
+                .omega_v(pair("omega_v", d.omega_v)?)
+                .omega_vv(pair("omega_V", d.omega_vv)?)
+                .s_x(get(params, "s_X", d.s_x)?)
+                .s_epsilon_v(get(params, "s_epsilon_v", d.s_epsilon_v)?);
             put_simulated(py, &out, g.generate(seed).map_err(to_py_err)?)?;
         }
         "lplr_LZZ2020" => {
@@ -152,13 +147,12 @@ pub(crate) fn simulate<'py>(
                     )))
                 }
             };
-            let g = LplrLzz2020 {
-                n_obs: get(params, "n_obs", d.n_obs)?,
-                dim_x: get(params, "dim_x", d.dim_x)?,
-                alpha: get(params, "alpha", d.alpha)?,
-                balanced_r0: get(params, "balanced_r0", d.balanced_r0)?,
-                treatment,
-            };
+            let g = LplrLzz2020::default()
+                .n_obs(get(params, "n_obs", d.n_obs)?)
+                .dim_x(get(params, "dim_x", d.dim_x)?)
+                .alpha(get(params, "alpha", d.alpha)?)
+                .balanced_r0(get(params, "balanced_r0", d.balanced_r0)?)
+                .treatment(treatment);
             let (sim, p) = g.generate(seed).map_err(to_py_err)?;
             put_simulated(py, &out, sim)?;
             out.set_item("p", p.into_pyarray(py))?;
@@ -171,13 +165,12 @@ pub(crate) fn simulate<'py>(
                 "dgp3" => PlprDesign::Dgp3,
                 other => return Err(PyValueError::new_err(format!("invalid dgp type {other:?}"))),
             };
-            let g = PlprCp2025 {
-                num_id: get(params, "num_id", d.num_id)?,
-                num_t: get(params, "num_t", d.num_t)?,
-                dim_x: get(params, "dim_x", d.dim_x)?,
-                theta: get(params, "theta", d.theta)?,
-                design,
-            };
+            let g = PlprCp2025::default()
+                .num_id(get(params, "num_id", d.num_id)?)
+                .num_t(get(params, "num_t", d.num_t)?)
+                .dim_x(get(params, "dim_x", d.dim_x)?)
+                .theta(get(params, "theta", d.theta)?)
+                .design(design);
             let panel = g.generate(seed).map_err(to_py_err)?;
             out.set_item("id", panel.id.into_pyarray(py))?;
             out.set_item("t", panel.t.into_pyarray(py))?;
@@ -187,27 +180,25 @@ pub(crate) fn simulate<'py>(
         }
         "irm_data" => {
             let d = IrmData::default();
-            let g = IrmData {
-                n_obs: get(params, "n_obs", d.n_obs)?,
-                dim_x: get(params, "dim_x", d.dim_x)?,
-                theta: get(params, "theta", d.theta)?,
-                r2_d: get(params, "R2_d", d.r2_d)?,
-                r2_y: get(params, "R2_y", d.r2_y)?,
-            };
+            let g = IrmData::default()
+                .n_obs(get(params, "n_obs", d.n_obs)?)
+                .dim_x(get(params, "dim_x", d.dim_x)?)
+                .theta(get(params, "theta", d.theta)?)
+                .r2_d(get(params, "R2_d", d.r2_d)?)
+                .r2_y(get(params, "R2_y", d.r2_y)?);
             put_simulated(py, &out, g.generate(seed).map_err(to_py_err)?)?;
         }
         "confounded_irm_data" => {
             let d = ConfoundedIrm::default();
-            let g = ConfoundedIrm {
-                n_obs: get(params, "n_obs", d.n_obs)?,
-                theta: get(params, "theta", d.theta)?,
-                gamma_a: get(params, "gamma_a", d.gamma_a)?,
-                beta_a: get(params, "beta_a", d.beta_a)?,
-                linear: get(params, "linear", d.linear)?,
-                dim_x: get(params, "dim_x", d.dim_x)?,
-                trimming_threshold: get(params, "trimming_threshold", d.trimming_threshold)?,
-                var_eps_y: get(params, "var_eps_y", d.var_eps_y)?,
-            };
+            let g = ConfoundedIrm::default()
+                .n_obs(get(params, "n_obs", d.n_obs)?)
+                .theta(get(params, "theta", d.theta)?)
+                .gamma_a(get(params, "gamma_a", d.gamma_a)?)
+                .beta_a(get(params, "beta_a", d.beta_a)?)
+                .linear(get(params, "linear", d.linear)?)
+                .dim_x(get(params, "dim_x", d.dim_x)?)
+                .trimming_threshold(get(params, "trimming_threshold", d.trimming_threshold)?)
+                .var_eps_y(get(params, "var_eps_y", d.var_eps_y)?);
             let sim = g.generate(seed).map_err(to_py_err)?;
             put_simulated(py, &out, sim.data)?;
             let o = sim.oracle;
@@ -231,14 +222,13 @@ pub(crate) fn simulate<'py>(
         }
         "irm_data_discrete_treatments" => {
             let d = IrmDiscreteTreatments::default();
-            let g = IrmDiscreteTreatments {
-                n_obs: get(params, "n_obs", d.n_obs)?,
-                n_levels: get(params, "n_levels", d.n_levels)?,
-                linear: get(params, "linear", d.linear)?,
-                xi: get(params, "xi", d.xi)?,
-                c: get(params, "c", d.c)?,
-                dim_x: get(params, "dim_x", d.dim_x)?,
-            };
+            let g = IrmDiscreteTreatments::default()
+                .n_obs(get(params, "n_obs", d.n_obs)?)
+                .n_levels(get(params, "n_levels", d.n_levels)?)
+                .linear(get(params, "linear", d.linear)?)
+                .xi(get(params, "xi", d.xi)?)
+                .c(get(params, "c", d.c)?)
+                .dim_x(get(params, "dim_x", d.dim_x)?);
             let sim = g.generate(seed).map_err(to_py_err)?;
             put_simulated(py, &out, sim.data)?;
             let o = sim.oracle;
@@ -252,46 +242,42 @@ pub(crate) fn simulate<'py>(
         }
         "iivm_data" => {
             let d = IivmData::default();
-            let g = IivmData {
-                n_obs: get(params, "n_obs", d.n_obs)?,
-                dim_x: get(params, "dim_x", d.dim_x)?,
-                theta: get(params, "theta", d.theta)?,
-                alpha_x: get(params, "alpha_x", d.alpha_x)?,
-            };
+            let g = IivmData::default()
+                .n_obs(get(params, "n_obs", d.n_obs)?)
+                .dim_x(get(params, "dim_x", d.dim_x)?)
+                .theta(get(params, "theta", d.theta)?)
+                .alpha_x(get(params, "alpha_x", d.alpha_x)?);
             put_simulated(py, &out, g.generate(seed).map_err(to_py_err)?)?;
         }
         "ssm_data" => {
             let d = SsmData::default();
-            let g = SsmData {
-                n_obs: get(params, "n_obs", d.n_obs)?,
-                dim_x: get(params, "dim_x", d.dim_x)?,
-                theta: get(params, "theta", d.theta)?,
-                mar: get(params, "mar", d.mar)?,
-            };
+            let g = SsmData::default()
+                .n_obs(get(params, "n_obs", d.n_obs)?)
+                .dim_x(get(params, "dim_x", d.dim_x)?)
+                .theta(get(params, "theta", d.theta)?)
+                .mar(get(params, "mar", d.mar)?);
             put_simulated(py, &out, g.generate(seed).map_err(to_py_err)?)?;
         }
         "heterogeneous_data" => {
             let d = HeterogeneousData::default();
-            let g = HeterogeneousData {
-                n_obs: get(params, "n_obs", d.n_obs)?,
-                p: get(params, "p", d.p)?,
-                support_size: get(params, "support_size", d.support_size)?,
-                n_x: get(params, "n_x", d.n_x)?,
-                binary_treatment: get(params, "binary_treatment", d.binary_treatment)?,
-            };
+            let g = HeterogeneousData::default()
+                .n_obs(get(params, "n_obs", d.n_obs)?)
+                .p(get(params, "p", d.p)?)
+                .support_size(get(params, "support_size", d.support_size)?)
+                .n_x(get(params, "n_x", d.n_x)?)
+                .binary_treatment(get(params, "binary_treatment", d.binary_treatment)?);
             let sim = g.generate(seed).map_err(to_py_err)?;
             put_simulated(py, &out, sim.data)?;
             out.set_item("effects", sim.effects.into_pyarray(py))?;
         }
         "did_SZ2020" => {
             let d = DidSz2020::default();
-            let g = DidSz2020 {
-                n_obs: get(params, "n_obs", d.n_obs)?,
-                dgp_type: get(params, "dgp_type", d.dgp_type)?,
-                xi: get(params, "xi", d.xi)?,
-                c: get(params, "c", d.c)?,
-                lambda_t: get(params, "lambda_t", d.lambda_t)?,
-            };
+            let g = DidSz2020::default()
+                .n_obs(get(params, "n_obs", d.n_obs)?)
+                .dgp_type(get(params, "dgp_type", d.dgp_type)?)
+                .xi(get(params, "xi", d.xi)?)
+                .c(get(params, "c", d.c)?)
+                .lambda_t(get(params, "lambda_t", d.lambda_t)?);
             let sim = if get(params, "cross_sectional_data", false)? {
                 g.generate_cross_sections(seed)
             } else {
@@ -301,20 +287,19 @@ pub(crate) fn simulate<'py>(
         }
         "did_CS2021" | "did_cs_CS2021" => {
             let d = DidCs2021::default();
-            let g = DidCs2021 {
-                n_obs: get(params, "n_obs", d.n_obs)?,
-                dgp_type: get(params, "dgp_type", d.dgp_type)?,
-                include_never_treated: get(
+            let g = DidCs2021::default()
+                .n_obs(get(params, "n_obs", d.n_obs)?)
+                .dgp_type(get(params, "dgp_type", d.dgp_type)?)
+                .include_never_treated(get(
                     params,
                     "include_never_treated",
                     d.include_never_treated,
-                )?,
-                c: get(params, "c", d.c)?,
-                xi: get(params, "xi", d.xi)?,
-                n_periods: get(params, "n_periods", d.n_periods)?,
-                anticipation_periods: get(params, "anticipation_periods", d.anticipation_periods)?,
-                n_pre_treat_periods: get(params, "n_pre_treat_periods", d.n_pre_treat_periods)?,
-            };
+                )?)
+                .c(get(params, "c", d.c)?)
+                .xi(get(params, "xi", d.xi)?)
+                .n_periods(get(params, "n_periods", d.n_periods)?)
+                .anticipation_periods(get(params, "anticipation_periods", d.anticipation_periods)?)
+                .n_pre_treat_periods(get(params, "n_pre_treat_periods", d.n_pre_treat_periods)?);
             let panel = if name == "did_cs_CS2021" {
                 g.generate_cross_sections(seed, get(params, "lambda_t", 0.5)?)
             } else {
@@ -331,16 +316,15 @@ pub(crate) fn simulate<'py>(
         }
         "simple_rdd_data" => {
             let d = SimpleRdd::default();
-            let g = SimpleRdd {
-                n_obs: get(params, "n_obs", d.n_obs)?,
-                p: get(params, "p", d.p)?,
-                fuzzy: get(params, "fuzzy", d.fuzzy)?,
-                binary_outcome: get(params, "binary_outcome", d.binary_outcome)?,
-                cutoff: get(params, "cutoff", d.cutoff)?,
-                dim_x: get(params, "dim_x", d.dim_x)?,
-                a: get(params, "a", d.a)?,
-                tau: get(params, "tau", d.tau)?,
-            };
+            let g = SimpleRdd::default()
+                .n_obs(get(params, "n_obs", d.n_obs)?)
+                .p(get(params, "p", d.p)?)
+                .fuzzy(get(params, "fuzzy", d.fuzzy)?)
+                .binary_outcome(get(params, "binary_outcome", d.binary_outcome)?)
+                .cutoff(get(params, "cutoff", d.cutoff)?)
+                .dim_x(get(params, "dim_x", d.dim_x)?)
+                .a(get(params, "a", d.a)?)
+                .tau(get(params, "tau", d.tau)?);
             let sim = g.generate(seed).map_err(to_py_err)?;
             out.set_item("score", sim.score.into_pyarray(py))?;
             out.set_item("x", sim.x.into_pyarray(py))?;

@@ -238,6 +238,8 @@ macro_rules! with_cv {
         match $folds {
             CvFolds::K(k) => $builder.cv(k),
             CvFolds::Explicit(f) => $builder.folds(f),
+            // CvFolds is #[non_exhaustive]; parse_cv only builds the two variants above.
+            _ => unreachable!("parse_cv returns CvFolds::K or CvFolds::Explicit"),
         }
     };
 }
@@ -1006,7 +1008,7 @@ macro_rules! hist_pyclass {
                         .validation_fraction(validation_fraction)
                         .n_iter_no_change(n_iter_no_change)
                         .tol(tol)
-                        .random_state(random_state),
+                        .seed(random_state),
                     learning_rate,
                     max_iter,
                     max_leaf_nodes,

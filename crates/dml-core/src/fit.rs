@@ -318,6 +318,7 @@ pub(crate) fn aggregate(
 /// Multiple-testing adjustment for [`DmlFit::p_adjust`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum PAdjust {
     Bonferroni,
     /// Holm's step-down procedure.

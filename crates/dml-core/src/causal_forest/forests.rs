@@ -297,10 +297,7 @@ impl QuantileForest {
     /// `ci_group_size = 1`).
     pub fn new(quantiles: Vec<f64>) -> Self {
         Self {
-            settings: ForestSettings {
-                ci_group_size: 1,
-                ..Default::default()
-            },
+            settings: ForestSettings::default().ci_group_size(1),
             quantiles,
             grf: None,
         }

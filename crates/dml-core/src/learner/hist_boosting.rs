@@ -32,6 +32,7 @@ const BINNING_SUBSAMPLE: usize = 200_000;
 /// When to stop adding trees early.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum EarlyStopping {
     /// On for more than 10 000 samples (scikit-learn's `"auto"`).
     #[default]
@@ -1446,11 +1447,18 @@ macro_rules! hist_api {
             self
         }
 
-        /// Seed of the validation split and binning subsample (NumPy
-        /// `RandomState` semantics, as scikit-learn's integer `random_state`).
-        pub fn random_state(mut self, seed: u32) -> Self {
+        /// Seed of the validation split and binning subsample (default 0).
+        /// A `u32` with NumPy `RandomState` semantics, so the same seed gives
+        /// the same model as scikit-learn's integer `random_state`.
+        pub fn seed(mut self, seed: u32) -> Self {
             self.inner.random_state = seed;
             self
+        }
+
+        /// Former name of [`seed`](Self::seed).
+        #[deprecated(since = "0.32.0", note = "renamed to `seed`")]
+        pub fn random_state(self, seed: u32) -> Self {
+            self.seed(seed)
         }
 
         /// Number of fitted trees (fewer than `max_iter` after early stopping).

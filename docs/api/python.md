@@ -1,6 +1,8 @@
 # Python API
 
-All classes are available from the top-level package, e.g. `dml_rs.PLR`.
+All classes are available from the top-level package, e.g. `dml_rs.PLR`. The low-level layer under
+them (`fit_plr`, `DmlResult`, ...) lives in `dml_rs.native`; its signatures follow the Rust crate
+and may change in minor releases.
 
 ## Models
 

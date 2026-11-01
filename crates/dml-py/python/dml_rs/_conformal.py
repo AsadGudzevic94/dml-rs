@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Sequence
 import numpy as np
 
 from . import _dml_rs
-from ._validation import _as_1d, _as_2d
+from ._validation import _as_1d, _as_2d, _renamed_kwarg
 from .data import accepts_data
 
 if TYPE_CHECKING:
@@ -46,7 +46,7 @@ class ConformalITE:
     ml_lower, ml_upper : quantile regressors for the quantile score.
     propensity : known treatment probability of a randomised experiment.
     train_fraction : share of the sample used to fit the learners (default 0.75).
-    trimming_threshold : clip estimated propensity scores to ``[t, 1 − t]`` (default 0.01).
+    clipping_threshold : clip estimated propensity scores to ``[t, 1 − t]`` (default 0.01).
     random_state : seed of the split.
     """
 
@@ -58,8 +58,9 @@ class ConformalITE:
         ml_upper: Any = None,
         propensity: Optional[float] = None,
         train_fraction: float = 0.75,
-        trimming_threshold: float = 1e-2,
+        clipping_threshold: float = 1e-2,
         random_state: int = 0,
+        **kwargs: Any,
     ) -> None:
         self.ml_m = ml_m
         self.ml_y = ml_y
@@ -67,7 +68,9 @@ class ConformalITE:
         self.ml_upper = ml_upper
         self.propensity = propensity
         self.train_fraction = train_fraction
-        self.trimming_threshold = trimming_threshold
+        self.clipping_threshold = _renamed_kwarg(
+            "ConformalITE", kwargs, "trimming_threshold", "clipping_threshold", clipping_threshold
+        )
         self.random_state = random_state
 
     @accepts_data("x", "y", "d")
@@ -79,7 +82,7 @@ class ConformalITE:
         self._result = _dml_rs.fit_conformal(
             _as_1d(y, "y"), _as_2d(_as_1d(d, "d"), "d"), x, ml_m=self.ml_m, ml_y=self.ml_y,
             ml_lower=self.ml_lower, ml_upper=self.ml_upper, propensity=self.propensity,
-            train_fraction=self.train_fraction, trimming_threshold=self.trimming_threshold,
+            train_fraction=self.train_fraction, clipping_threshold=self.clipping_threshold,
             seed=self.random_state,
             split=None if split is None else ([int(i) for i in split[0]], [int(i) for i in split[1]]),
         )

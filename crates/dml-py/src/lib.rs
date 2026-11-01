@@ -1141,7 +1141,7 @@ impl PyDoseResponseResult {
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g, ml_m, grid = None, kernel = "epanechnikov", bandwidth = None,
                     bandwidth_scale = 1.0, density = "kernel", density_bandwidth = None,
-                    trimming_threshold = 1e-2, partial_effects = false, eta = None, n_folds = 5,
+                    density_floor = 1e-2, partial_effects = false, eta = None, n_folds = 5,
                     n_rep = 1, seed = 0, splits = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_dose_response(
@@ -1157,7 +1157,7 @@ fn fit_dose_response(
     bandwidth_scale: f64,
     density: &str,
     density_bandwidth: Option<f64>,
-    trimming_threshold: f64,
+    density_floor: f64,
     partial_effects: bool,
     eta: Option<f64>,
     n_folds: usize,
@@ -1192,7 +1192,7 @@ fn fit_dose_response(
         .kernel(kernel)
         .bandwidth(bandwidth)
         .density(density)
-        .trimming_threshold(trimming_threshold)
+        .density_floor(density_floor)
         .partial_effects(partial_effects)
         .n_folds(n_folds)
         .n_rep(n_rep)
@@ -1340,7 +1340,7 @@ impl PySurrogateResult {
 
 #[pyfunction]
 #[pyo3(signature = (x_exp, s_exp, w, x_obs, s_obs, y, ml_g, ml_m, ml_nested = None,
-                    propensity = None, trimming_threshold = 1e-2, n_folds = 5, n_rep = 1,
+                    propensity = None, clipping_threshold = 1e-2, n_folds = 5, n_rep = 1,
                     seed = 0, splits = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_surrogate_index(
@@ -1355,7 +1355,7 @@ fn fit_surrogate_index(
     ml_m: &Bound<'_, PyAny>,
     ml_nested: Option<&Bound<'_, PyAny>>,
     propensity: Option<f64>,
-    trimming_threshold: f64,
+    clipping_threshold: f64,
     n_folds: usize,
     n_rep: usize,
     seed: u64,
@@ -1371,7 +1371,7 @@ fn fit_surrogate_index(
     )
     .map_err(to_py_err)?;
     let mut model = SurrogateIndex::from_boxed(to_regressor(ml_g)?, to_classifier(ml_m)?)
-        .trimming_threshold(trimming_threshold)
+        .clipping_threshold(clipping_threshold)
         .n_folds(n_folds)
         .n_rep(n_rep)
         .seed(seed);
@@ -1433,7 +1433,7 @@ impl PyContinuousDidResult {
 
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g = None, ml_m = None, ml_nested = None, degree = 3,
-                    num_knots = 0, grid = None, trimming_threshold = 1e-2, n_folds = 5,
+                    num_knots = 0, grid = None, clipping_threshold = 1e-2, n_folds = 5,
                     n_rep = 1, seed = 0, splits = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_continuous_did(
@@ -1447,7 +1447,7 @@ fn fit_continuous_did(
     degree: usize,
     num_knots: usize,
     grid: Option<Vec<f64>>,
-    trimming_threshold: f64,
+    clipping_threshold: f64,
     n_folds: usize,
     n_rep: usize,
     seed: u64,
@@ -1465,7 +1465,7 @@ fn fit_continuous_did(
     }
     .degree(degree)
     .num_knots(num_knots)
-    .trimming_threshold(trimming_threshold)
+    .clipping_threshold(clipping_threshold)
     .n_folds(n_folds)
     .n_rep(n_rep)
     .seed(seed);
@@ -1677,7 +1677,7 @@ impl PyConformalResult {
 
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_m = None, ml_y = None, ml_lower = None, ml_upper = None,
-                    propensity = None, train_fraction = 0.75, trimming_threshold = 1e-2, seed = 0,
+                    propensity = None, train_fraction = 0.75, clipping_threshold = 1e-2, seed = 0,
                     split = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_conformal(
@@ -1691,7 +1691,7 @@ fn fit_conformal(
     ml_upper: Option<&Bound<'_, PyAny>>,
     propensity: Option<f64>,
     train_fraction: f64,
-    trimming_threshold: f64,
+    clipping_threshold: f64,
     seed: u64,
     split: Option<(Vec<usize>, Vec<usize>)>,
 ) -> PyResult<PyConformalResult> {
@@ -1709,7 +1709,7 @@ fn fit_conformal(
         };
     let mut model = dml_core::ConformalIte::new(score)
         .train_fraction(train_fraction)
-        .trimming_threshold(trimming_threshold)
+        .clipping_threshold(clipping_threshold)
         .seed(seed);
     if let Some(m) = ml_m {
         model = model.ml_m(to_classifier(m)?);
@@ -2117,9 +2117,9 @@ fn fit_rdflex(
         }
     };
     let kernel = match fs_kernel.to_ascii_lowercase().as_str() {
-        "uniform" => dml_core::RdKernel::Uniform,
-        "triangular" => dml_core::RdKernel::Triangular,
-        "epanechnikov" => dml_core::RdKernel::Epanechnikov,
+        "uniform" => dml_core::rd::Kernel::Uniform,
+        "triangular" => dml_core::rd::Kernel::Triangular,
+        "epanechnikov" => dml_core::rd::Kernel::Epanechnikov,
         other => {
             return Err(PyValueError::new_err(format!(
                 "unknown fs_kernel {other:?} (use 'uniform', 'triangular' or 'epanechnikov')"
@@ -2801,11 +2801,7 @@ fn draw_folds<'py>(
     seed: u64,
     strata: Option<Vec<usize>>,
 ) -> PyResult<Vec<Vec<(Bound<'py, PyArray1<i64>>, Bound<'py, PyArray1<i64>>)>>> {
-    let splitting = dml_core::SampleSplitting {
-        n_folds,
-        n_rep,
-        seed,
-    };
+    let splitting = dml_core::SampleSplitting::new(n_folds, n_rep, seed);
     let reps = match strata {
         Some(s) => {
             if s.len() != n {

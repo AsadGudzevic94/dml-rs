@@ -63,7 +63,7 @@ DoubleML's names, parameters and defaults.
     ```rust
     use dml_core::datasets::{DidCs2021, PlrCcddhnr2018};
 
-    let sim = PlrCcddhnr2018 { n_obs: 500, ..Default::default() }.generate(42)?;
+    let sim = PlrCcddhnr2018::default().n_obs(500).generate(42)?;
     let fit = Plr::new(Ols::new(), Ols::new()).fit(&sim.to_data()?)?;
 
     let panel = DidCs2021::default().generate(42)?;

@@ -31,7 +31,7 @@ def assert_same(ours, ref, tol=TOL):
     np.testing.assert_allclose(ours.coef_, ref.coef, rtol=tol)
     np.testing.assert_allclose(ours.se_, ref.se, rtol=tol)
     # Interval bounds near zero lose relative precision to cancellation.
-    np.testing.assert_allclose(ours.ci_, ref.ci, rtol=tol, atol=1e-10)
+    np.testing.assert_allclose(ours.confint_, ref.ci, rtol=tol, atol=1e-10)
     np.testing.assert_allclose(ours.all_coef_, ref.all_coef, rtol=tol)
     np.testing.assert_allclose(ours.confint(0.9), ref.confint(level=0.9).to_numpy(), rtol=tol, atol=1e-10)
     np.testing.assert_allclose(ours.h_fs_, ref.h_fs, rtol=tol)

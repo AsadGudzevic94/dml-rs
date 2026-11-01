@@ -42,7 +42,9 @@ pub use pliv::{Pliv, PlivScore, PlivVariant};
 pub use plpr::{PanelApproach, Plpr, StaticPanel};
 pub use plr::{Plr, PlrScore};
 pub use quantile::{Cvar, Lpq, Pq, Qte, QteFit};
-pub use rdflex::{FirstStage, RdFlex, RdFlexFit, RdKernel};
+#[allow(deprecated)]
+pub use rdflex::RdKernel;
+pub use rdflex::{FirstStage, RdFlex, RdFlexFit};
 pub use ssm::{Ssm, SsmScore};
 pub use surrogate::{SurrogateData, SurrogateFit, SurrogateIndex};
 
@@ -237,6 +239,7 @@ pub type Name = std::borrow::Cow<'static, str>;
 /// Loss used to evaluate a nuisance learner out of sample.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum LossKind {
     /// Root mean squared error (regression learners).
     Rmse,
@@ -248,6 +251,7 @@ pub enum LossKind {
 /// nuisance does not apply (e.g. `g₀` on treated rows).
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct NuisanceTarget {
     pub name: Name,
     pub target: Array1<f64>,

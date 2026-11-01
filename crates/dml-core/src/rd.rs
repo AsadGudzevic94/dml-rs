@@ -26,6 +26,7 @@ use crate::stats::norm_ppf;
 /// Kernel of the local polynomial fits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum Kernel {
     #[default]
     Triangular,
@@ -58,6 +59,7 @@ impl Kernel {
 /// Bandwidth selector, as `rdrobust`'s `bwselect`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum BwSelect {
     /// One common MSE-optimal bandwidth for the RD effect.
     #[default]
@@ -130,6 +132,7 @@ impl BwSelect {
 /// to `Hc1`, `Hc2` and `Hc3`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum Vce {
     /// Nearest-neighbour residuals (with at least `nnmatch` neighbours).
     #[default]
@@ -150,6 +153,7 @@ pub enum Vce {
 /// `masspoints`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum MassPoints {
     /// With many repeated values, enlarge the pilot bandwidths to contain at
     /// least `bwcheck` (default 10) distinct values, and count distinct
@@ -166,6 +170,7 @@ pub enum MassPoints {
 /// defaults.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct RdOptions {
     /// Polynomial order of the point estimate (default 1).
     pub p: usize,
@@ -200,6 +205,25 @@ pub struct RdOptions {
     pub covs_drop: bool,
 }
 
+field_setters!(RdOptions {
+    p: usize,
+    q: Option<usize>,
+    kernel: Kernel,
+    bwselect: BwSelect,
+    vce: Vce,
+    nnmatch: usize,
+    level: f64,
+    masspoints: MassPoints,
+    bwcheck: Option<usize>,
+    bwrestrict: bool,
+    stdvars: bool,
+    scaleregul: f64,
+    sharpbw: bool,
+    rho: Option<f64>,
+    scalepar: f64,
+    covs_drop: bool,
+});
+
 impl Default for RdOptions {
     fn default() -> Self {
         Self {
@@ -224,12 +248,12 @@ impl Default for RdOptions {
 }
 
 impl RdOptions {
-    fn q(&self) -> usize {
+    fn q_order(&self) -> usize {
         self.q.unwrap_or(self.p + 1)
     }
 
     fn validate(&self) -> Result<()> {
-        let q = self.q();
+        let q = self.q_order();
         let bad = |msg: &str| Err(DmlError::InvalidArgument(format!("rdrobust: {msg}")));
         if self.p > 20 || q > 20 || q <= self.p {
             return bad("polynomial orders need p <= 20 and p < q <= 20");
@@ -305,6 +329,7 @@ impl<'a> RdData<'a> {
 /// Bandwidths below (`.0`) and above (`.1`) the cutoff.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct RdBandwidths {
     /// Main bandwidth.
     pub h: (f64, f64),
@@ -326,6 +351,7 @@ impl RdBandwidths {
 /// robust (bias-corrected with robust standard error) estimates.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct RdEstimate {
     pub coef: [f64; 3],
     pub se: [f64; 3],
@@ -1157,7 +1183,7 @@ impl BwCtx<'_> {
 
 /// The inline bandwidth selection of `rdrobust` (`_rdbwselect_compute`).
 fn select_bandwidths(left: &Side, right: &Side, c: f64, opts: &RdOptions) -> Result<RdBandwidths> {
-    let (p, q) = (opts.p, opts.q());
+    let (p, q) = (opts.p, opts.q_order());
     let x_all: Vec<f64> = left.x.iter().chain(&right.x).copied().collect();
     let y_all: Vec<f64> = left.y.iter().chain(&right.y).copied().collect();
     let n = x_all.len();
@@ -1445,7 +1471,7 @@ struct SideFit {
 }
 
 fn fit_side(side: &Side, c: f64, h: f64, b: f64, opts: &RdOptions, vce: Vce) -> Result<SideFit> {
-    let (p, q, kernel) = (opts.p, opts.q(), opts.kernel);
+    let (p, q, kernel) = (opts.p, opts.q_order(), opts.kernel);
     let w_h: Vec<f64> = side.x.iter().map(|&x| kernel.weight(x, c, h)).collect();
     let w_b: Vec<f64> = side.x.iter().map(|&x| kernel.weight(x, c, b)).collect();
     let in_h: Vec<bool> = w_h.iter().map(|&w| w > 0.0).collect();
@@ -1572,7 +1598,7 @@ pub fn rd_estimate(
     bandwidths: Option<RdBandwidths>,
 ) -> Result<RdEstimate> {
     opts.validate()?;
-    let q = opts.q();
+    let q = opts.q_order();
     let c = data.cutoff;
     let (left, right) = prepare(data, opts)?;
     check_support(&left, &right, q)?;
@@ -1791,22 +1817,10 @@ mod tests {
     #[test]
     fn options_are_validated() {
         let bad = |o: RdOptions| o.validate().is_err();
-        assert!(bad(RdOptions {
-            q: Some(1),
-            ..RdOptions::default()
-        }));
-        assert!(bad(RdOptions {
-            level: 95.0,
-            ..RdOptions::default()
-        }));
-        assert!(bad(RdOptions {
-            nnmatch: 0,
-            ..RdOptions::default()
-        }));
-        assert!(bad(RdOptions {
-            rho: Some(0.0),
-            ..RdOptions::default()
-        }));
+        assert!(bad(RdOptions::default().q(Some(1))));
+        assert!(bad(RdOptions::default().level(95.0)));
+        assert!(bad(RdOptions::default().nnmatch(0)));
+        assert!(bad(RdOptions::default().rho(Some(0.0))));
         assert!(RdOptions::default().validate().is_ok());
         assert_eq!(effective_vce(Vce::Hc2, true), Vce::Cr2);
         assert_eq!(effective_vce(Vce::Nn, true), Vce::Cr1);

@@ -149,7 +149,7 @@ impl SurrogateData {
 /// to the experimental population. `ml_g` learns `ν̄` (on the observational
 /// sample), `ml_nested` the `μ̄_w` (regressions of the predicted index on `X`
 /// in each arm of the experiment), `ml_m` the three probabilities, which are
-/// clipped to `[t, 1 − t]` (`trimming_threshold`, default 0.01). Sample splits
+/// clipped to `[t, 1 − t]` (`clipping_threshold`, default 0.01). Sample splits
 /// are stratified by treated, control and observational units.
 ///
 /// ```
@@ -183,7 +183,7 @@ pub struct SurrogateIndex {
     ml_m: Box<dyn Classifier>,
     ml_nested: Box<dyn Regressor>,
     propensity: Option<f64>,
-    trimming_threshold: f64,
+    clipping_threshold: f64,
     splitting: SampleSplitting,
 }
 
@@ -203,7 +203,7 @@ impl SurrogateIndex {
             ml_m,
             ml_nested,
             propensity: None,
-            trimming_threshold: 1e-2,
+            clipping_threshold: 1e-2,
             splitting: SampleSplitting::default(),
         }
     }
@@ -227,9 +227,15 @@ impl SurrogateIndex {
     }
 
     /// Clip the estimated probabilities to `[t, 1 − t]` (default 0.01).
-    pub fn trimming_threshold(mut self, threshold: f64) -> Self {
-        self.trimming_threshold = threshold;
+    pub fn clipping_threshold(mut self, threshold: f64) -> Self {
+        self.clipping_threshold = threshold;
         self
+    }
+
+    /// Former name of [`clipping_threshold`](Self::clipping_threshold).
+    #[deprecated(since = "0.32.0", note = "renamed to `clipping_threshold`")]
+    pub fn trimming_threshold(self, threshold: f64) -> Self {
+        self.clipping_threshold(threshold)
     }
 
     /// Number of cross-fitting folds (default 5).
@@ -264,10 +270,10 @@ impl SurrogateIndex {
         data: &SurrogateData,
         splits: &[Vec<Fold>],
     ) -> Result<SurrogateFit> {
-        let t = self.trimming_threshold;
+        let t = self.clipping_threshold;
         if t.is_nan() || !(0.0..0.5).contains(&t) {
             return Err(DmlError::InvalidArgument(
-                "trimming_threshold must be in [0, 0.5)".into(),
+                "clipping_threshold must be in [0, 0.5)".into(),
             ));
         }
         if let Some(p) = self.propensity {

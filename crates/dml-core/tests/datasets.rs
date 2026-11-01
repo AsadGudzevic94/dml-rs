@@ -20,39 +20,33 @@ fn assert_recovers(what: &str, estimate: f64, se: f64, truth: f64) {
 
 #[test]
 fn partially_linear_designs() {
-    let sim = PlrCcddhnr2018 {
-        n_obs: 2000,
-        dim_x: 10,
-        ..Default::default()
-    }
-    .generate(1)
-    .unwrap();
+    let sim = PlrCcddhnr2018::default()
+        .n_obs(2000)
+        .dim_x(10)
+        .generate(1)
+        .unwrap();
     let fit = Plr::new(Ols::new(), Ols::new())
         .fit(&sim.to_data().unwrap())
         .unwrap();
     assert_recovers("PLR", fit.coef()[0], fit.se()[0], 0.5);
 
-    let sim = PlivChs2015 {
-        n_obs: 2000,
-        dim_x: 20,
-        dim_z: 1,
-        ..Default::default()
-    }
-    .generate(2)
-    .unwrap();
+    let sim = PlivChs2015::default()
+        .n_obs(2000)
+        .dim_x(20)
+        .dim_z(1)
+        .generate(2)
+        .unwrap();
     let fit = Pliv::new(Ols::new(), Ols::new(), Ols::new())
         .fit(&sim.to_data().unwrap())
         .unwrap();
     assert_recovers("PLIV", fit.coef()[0], fit.se()[0], 1.0);
 
-    let sim = PlivMultiwayClusterCkms2021 {
-        n: 30,
-        m: 30,
-        dim_x: 10,
-        ..Default::default()
-    }
-    .generate(3)
-    .unwrap();
+    let sim = PlivMultiwayClusterCkms2021::default()
+        .n(30)
+        .m(30)
+        .dim_x(10)
+        .generate(3)
+        .unwrap();
     assert_eq!(sim.clusters.as_ref().unwrap().row(31).to_vec(), vec![1, 1]);
     let fit = Pliv::new(Ols::new(), Ols::new(), Ols::new())
         .fit(&sim.to_data().unwrap())
@@ -60,12 +54,7 @@ fn partially_linear_designs() {
     assert!(fit.n_clusters().is_some());
     assert_recovers("PLIV two-way clustered", fit.coef()[0], fit.se()[0], 1.0);
 
-    let (sim, p) = LplrLzz2020 {
-        n_obs: 3000,
-        ..Default::default()
-    }
-    .generate(4)
-    .unwrap();
+    let (sim, p) = LplrLzz2020::default().n_obs(3000).generate(4).unwrap();
     assert!(p.iter().all(|&q| q > 0.0 && q < 1.0));
     let fit = Lplr::new(LogisticRegression::default(), Ols::new(), Ols::new())
         .fit(&sim.to_data().unwrap())
@@ -73,14 +62,12 @@ fn partially_linear_designs() {
     // Linear nuisances approximate r₀ only roughly: a loose check.
     assert!((fit.coef()[0] - 0.5).abs() < 0.5, "LPLR {}", fit.coef()[0]);
 
-    let panel = PlprCp2025 {
-        num_id: 300,
-        num_t: 6,
-        dim_x: 5,
-        ..Default::default()
-    }
-    .generate(5)
-    .unwrap();
+    let panel = PlprCp2025::default()
+        .num_id(300)
+        .num_t(6)
+        .dim_x(5)
+        .generate(5)
+        .unwrap();
     let fit = Plpr::new(Ols::new(), Ols::new())
         .fit(&panel.to_static_panel().unwrap())
         .unwrap();
@@ -89,27 +76,23 @@ fn partially_linear_designs() {
 
 #[test]
 fn interactive_designs() {
-    let sim = IrmData {
-        n_obs: 3000,
-        dim_x: 10,
-        theta: 0.5,
-        ..Default::default()
-    }
-    .generate(6)
-    .unwrap();
+    let sim = IrmData::default()
+        .n_obs(3000)
+        .dim_x(10)
+        .theta(0.5)
+        .generate(6)
+        .unwrap();
     let fit = Irm::new(Ols::new(), LogisticRegression::default())
         .fit(&sim.to_data().unwrap())
         .unwrap();
     assert_recovers("IRM", fit.coef()[0], fit.se()[0], 0.5);
 
-    let sim = IivmData {
-        n_obs: 4000,
-        dim_x: 10,
-        alpha_x: 1.0,
-        ..Default::default()
-    }
-    .generate(7)
-    .unwrap();
+    let sim = IivmData::default()
+        .n_obs(4000)
+        .dim_x(10)
+        .alpha_x(1.0)
+        .generate(7)
+        .unwrap();
     let fit = Iivm::new(
         Ols::new(),
         LogisticRegression::default(),
@@ -119,14 +102,12 @@ fn interactive_designs() {
     .unwrap();
     assert_recovers("IIVM", fit.coef()[0], fit.se()[0], 1.0);
 
-    let sim = SsmData {
-        n_obs: 3000,
-        dim_x: 10,
-        mar: false,
-        ..Default::default()
-    }
-    .generate(8)
-    .unwrap();
+    let sim = SsmData::default()
+        .n_obs(3000)
+        .dim_x(10)
+        .mar(false)
+        .generate(8)
+        .unwrap();
     let fit = Ssm::new(
         Ols::new(),
         LogisticRegression::default(),
@@ -137,25 +118,21 @@ fn interactive_designs() {
     .unwrap();
     assert_recovers("SSM", fit.coef()[0], fit.se()[0], 1.0);
 
-    let conf = ConfoundedIrm {
-        n_obs: 2000,
-        theta: 5.0,
-        ..Default::default()
-    }
-    .generate(9)
-    .unwrap();
+    let conf = ConfoundedIrm::default()
+        .n_obs(2000)
+        .theta(5.0)
+        .generate(9)
+        .unwrap();
     let o = &conf.oracle;
     assert!(o.cf_y > 0.0 && o.cf_y < 1.0 && o.cf_d_ate > 0.0 && o.rho_ate.abs() <= 1.0);
     let d = &conf.data;
     let y = &d.d * &o.y_1 + &(&d.d.mapv(|v| 1.0 - v) * &o.y_0);
     assert!(y.iter().zip(&d.y).all(|(a, b)| (a - b).abs() < 1e-12));
 
-    let disc = IrmDiscreteTreatments {
-        n_obs: 3000,
-        ..Default::default()
-    }
-    .generate(10)
-    .unwrap();
+    let disc = IrmDiscreteTreatments::default()
+        .n_obs(3000)
+        .generate(10)
+        .unwrap();
     let levels = [0.0, 1.0, 2.0, 3.0];
     assert!(disc.data.d.iter().all(|v| levels.contains(v)));
     let apos = Apos::new(Ols::new(), LogisticRegression::default(), levels.to_vec())
@@ -167,30 +144,23 @@ fn interactive_designs() {
 
 #[test]
 fn difference_in_differences_designs() {
-    let sim = DidSz2020 {
-        n_obs: 2000,
-        dgp_type: 5,
-        ..Default::default()
-    }
-    .generate(11)
-    .unwrap();
+    let sim = DidSz2020::default()
+        .n_obs(2000)
+        .dgp_type(5)
+        .generate(11)
+        .unwrap();
     let fit = Did::new(Ols::new(), LogisticRegression::default())
         .fit(&sim.to_data().unwrap())
         .unwrap();
     // The ATT of the Sant'Anna–Zhao design is 0.
     assert_recovers("DID", fit.coef()[0], fit.se()[0], 0.0);
-    let cs = DidSz2020 {
-        n_obs: 2000,
-        ..Default::default()
-    }
-    .generate_cross_sections(11)
-    .unwrap();
+    let cs = DidSz2020::default()
+        .n_obs(2000)
+        .generate_cross_sections(11)
+        .unwrap();
     assert!(cs.t.as_ref().unwrap().iter().all(|&t| t == 0.0 || t == 1.0));
 
-    let staggered = DidCs2021 {
-        n_obs: 1500,
-        ..Default::default()
-    };
+    let staggered = DidCs2021::default().n_obs(1500);
     let panel = staggered.generate(12).unwrap();
     let fit = StaggeredDid::new(Ols::new(), LogisticRegression::default())
         .fit(&panel.to_panel().unwrap())
@@ -210,26 +180,22 @@ fn difference_in_differences_designs() {
     }
     let cross = staggered.generate_cross_sections(13, 0.5).unwrap();
     assert!(cross.to_cross_sections().is_ok());
-    let anticipating = DidCs2021 {
-        n_obs: 300,
-        anticipation_periods: 1,
-        ..Default::default()
-    }
-    .generate(14)
-    .unwrap();
+    let anticipating = DidCs2021::default()
+        .n_obs(300)
+        .anticipation_periods(1)
+        .generate(14)
+        .unwrap();
     assert!(anticipating.cohort.iter().any(|g| g.is_infinite()));
     assert_eq!(anticipating.t.iter().fold(0.0_f64, |m, &t| m.max(t)), 4.0);
 }
 
 #[test]
 fn regression_discontinuity_design() {
-    let sim = SimpleRdd {
-        n_obs: 4000,
-        fuzzy: false,
-        ..Default::default()
-    }
-    .generate(15)
-    .unwrap();
+    let sim = SimpleRdd::default()
+        .n_obs(4000)
+        .fuzzy(false)
+        .generate(15)
+        .unwrap();
     let fit = RdFlex::sharp(Ols::new())
         .fit(&sim.to_data().unwrap(), sim.score.view())
         .unwrap();

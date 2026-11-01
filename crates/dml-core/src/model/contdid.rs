@@ -169,7 +169,7 @@ pub struct ContinuousDid {
     degree: usize,
     num_knots: usize,
     grid: Option<Vec<f64>>,
-    trimming_threshold: f64,
+    clipping_threshold: f64,
     splitting: SampleSplitting,
 }
 
@@ -189,7 +189,7 @@ impl ContinuousDid {
             degree: 3,
             num_knots: 0,
             grid: None,
-            trimming_threshold: 1e-2,
+            clipping_threshold: 1e-2,
             splitting: SampleSplitting::default(),
         }
     }
@@ -243,9 +243,15 @@ impl ContinuousDid {
     }
 
     /// Clip `P(D > 0 | X)` to `[t, 1 − t]` (default 0.01; covariates only).
-    pub fn trimming_threshold(mut self, threshold: f64) -> Self {
-        self.trimming_threshold = threshold;
+    pub fn clipping_threshold(mut self, threshold: f64) -> Self {
+        self.clipping_threshold = threshold;
         self
+    }
+
+    /// Former name of [`clipping_threshold`](Self::clipping_threshold).
+    #[deprecated(since = "0.32.0", note = "renamed to `clipping_threshold`")]
+    pub fn trimming_threshold(self, threshold: f64) -> Self {
+        self.clipping_threshold(threshold)
     }
 
     /// Number of cross-fitting folds (default 5; covariates only).
@@ -308,10 +314,10 @@ impl ContinuousDid {
                 "need both untreated (dose 0) and treated units".into(),
             ));
         }
-        let t = self.trimming_threshold;
+        let t = self.clipping_threshold;
         if t.is_nan() || !(0.0..0.5).contains(&t) {
             return Err(DmlError::InvalidArgument(
-                "trimming_threshold must be in [0, 0.5)".into(),
+                "clipping_threshold must be in [0, 0.5)".into(),
             ));
         }
         // Spline in the dose: knots at quantiles of the positive doses (contdid).
