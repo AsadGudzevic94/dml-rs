@@ -40,7 +40,7 @@ for crate in sorted(vendor.iterdir(), key=lambda p: p.name.lower()):
     lines.append(f"{package['name']} {package['version']} ({package.get('license', 'see crate')})")
     lines.append(f"  {authors}")
 out.parent.mkdir(exist_ok=True)
-out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+out.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 EOF
 mkdir -p "$stage/dmlrs/inst" && cp "$here/dmlrs/inst/AUTHORS" "$stage/dmlrs/inst/AUTHORS"
 tar -cJf vendor.tar.xz vendor

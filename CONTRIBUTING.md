@@ -15,6 +15,7 @@ Python package) and, for numerical questions, the result you expected.
 crates/
   dml-core/   Rust library: data, learners, cross-fitting, models, inference
   dml-py/     Python bindings (PyO3 + maturin), published as the `dml-rs` package
+r/dmlrs/      R package (extendr), on r-universe
 parity/       DoubleML fixture generator and benchmark scripts
 ```
 
@@ -46,6 +47,24 @@ python -m mypy -p dml_rs
 
 Every pull request runs the same checks in CI on Linux, macOS and Windows, plus a build on the
 minimum supported Rust version.
+
+### R package
+
+`r/dmlrs` needs R 4.2 or newer and, on Windows, Rtools and the `x86_64-pc-windows-gnu` Rust
+target. Inside the repository `r/dmlrs/src/.cargo/config.toml` builds it against the local
+`dml-core`; the package tarball uses `dml-core` from crates.io, so R code that needs a new
+`dml-core` API waits for a `dml-core` release. `R/extendr-wrappers.R` is written by hand: add a
+wrapper for every new `#[extendr]` function.
+
+```sh
+R CMD INSTALL r/dmlrs
+Rscript -e 'testthat::test_local("r/dmlrs", load_package = "installed")'
+Rscript -e 'roxygen2::roxygenise("r/dmlrs", roclets = c("rd", "namespace"))'   # after doc changes
+
+# The CRAN tarball: Rust crates bundled (offline build), inst/AUTHORS regenerated
+r/build-cran.sh r
+R CMD check --as-cran r/dmlrs_*.tar.gz
+```
 
 ## Documentation
 
@@ -95,6 +114,12 @@ Releases are published from GitHub Actions with Trusted Publishing; no API token
 3. Approve the two deployments in the Actions tab: `release-crate.yml` publishes `dml-core` to
    crates.io and `wheels.yml` publishes `dml-rs` to PyPI. Both stop if the tag does not match the
    `Cargo.toml` version.
+
+The R package is versioned separately (`r/dmlrs/DESCRIPTION`, `NEWS.md`). r-universe rebuilds it
+from `main`. For CRAN: bump the version, run `r/build-cran.sh r`, commit any change to
+`inst/AUTHORS`, check the tarball with `R CMD check --as-cran` (also on win-builder and
+macbuilder), update `r/dmlrs/cran-comments.md` and upload the tarball at
+https://cran.r-project.org/submit.html.
 
 ## License
 

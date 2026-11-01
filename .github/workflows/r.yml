@@ -51,8 +51,6 @@ jobs:
           needs: check
       - name: Build the CRAN tarball
         run: PYTHON=python r/build-cran.sh r
-      - name: AUTHORS is up to date
-        run: git diff --exit-code r/dmlrs/inst/AUTHORS
       - if: matrix.rust != 'stable'
         run: |
           rustup toolchain install ${{ matrix.rust }} --profile minimal

@@ -16,6 +16,9 @@ extendr-api = "0.9.0"
 ndarray = "0.16"
 rayon = "1.10"
 
+# A workspace of its own, also when the package is built inside another Cargo workspace.
+[workspace]
+
 # Link-time optimisation keeps only the code the package uses: a smaller library, and no
 # references to the C library's abort/exit from unused parts of Rust's standard library
 # (R CMD check warns about those).
