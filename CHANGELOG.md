@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-01
+
 ### Added
 - Synthetic difference-in-differences: `SyntheticDID` (Arkhangelsky, Athey, Hirshberg, Imbens and
   Wager 2021), with synthetic control and DiD as special cases, time-varying covariates, effect
@@ -548,7 +550,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.28.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.25.0...v0.26.0
