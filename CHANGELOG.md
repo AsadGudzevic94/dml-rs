@@ -10,6 +10,10 @@ All notable changes to this project are documented here. The format follows
 - Example notebooks: synthetic DiD on California's Proposition 99, causal mediation, policy
   learning on the 401(k) data, prediction intervals for individual effects, and Lee bounds.
 - `datasets.fetch_california_prop99()`: the Proposition 99 panel of R's `synthdid`.
+- R package dmlrs 0.2.0: `dml_apos()`, `dml_mediation()`, `dml_contdid()`, `synth_did()` /
+  `synth_did_panel()` / `synth_se()`, `policy_tree()`, `policy_value()`, `double_robust_scores()`,
+  `lee_bounds()` and `linear_combination()`, with parity tests against the Python package (and
+  against `policytree` when installed).
 
 ### Changed
 - `SyntheticDID.plot` labels at most eight periods on the x axis.

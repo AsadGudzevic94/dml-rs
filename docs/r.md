@@ -1,9 +1,11 @@
 # R package
 
 The R package **dmlrs** runs the same Rust engine as the Python package. On the same data the two
-give the same estimates (the R tests check this against Python results to 1e-10). It is a first
-version: the partially linear, interactive, IV and difference-in-differences models with the
-built-in learners, multiplier bootstrap and sensitivity analysis.
+give the same estimates (the R tests check this against Python results). It covers the partially
+linear, interactive, IV, difference-in-differences and multi-valued treatment models with the
+built-in learners, multiplier bootstrap and sensitivity analysis, plus causal mediation, difference
+in differences with a continuous treatment, synthetic difference in differences, optimal policy
+trees and Lee bounds.
 
 ## Installation
 
@@ -54,12 +56,37 @@ sensitivity_analysis(fit, cf_y = 0.03, cf_d = 0.03)
 | `dml_pliv()` | Partially linear IV regression, one instrument | `PLIV` |
 | `dml_iivm()` | Interactive IV model: LATE | `IIVM` |
 | `dml_did()` | Difference in differences, panels (`t = NULL`) or repeated cross-sections | `DID`, `DIDCS` |
+| `dml_apos()` | Average potential outcomes of a discrete treatment | `APOS` |
+| `dml_mediation()` | Natural direct and indirect effects | `Mediation` |
+| `dml_contdid()` | Difference in differences with a continuous dose | `ContinuousDID` |
+| `synth_did()`, `synth_did_panel()` | Synthetic DiD, synthetic control and DiD | `SyntheticDID` |
+| `policy_tree()`, `policy_value()` | Exact optimal policy trees and policy values | `OptimalPolicyTree`, `policy_value` |
+| `lee_bounds()` | Lee bounds under sample selection | `LeeBounds` |
 
 Learners are specifications that the Rust code turns into learners, so cross-fitting never calls
 back into R: `lrn_ols()`, `lrn_lasso()`, `lrn_lasso_cv()`, `lrn_logistic()`, `lrn_logistic_cv()`,
 `lrn_random_forest()`, `lrn_gradient_boosting()`, `lrn_hist_gradient_boosting()` and
 `lrn_regression_forest()`, with the parameters of the Python learners.
 
-Fitted models have `print()`, `summary()`, `coef()`, `confint()` and `nobs()` methods. A model saved
-with `saveRDS()` keeps its estimates; intervals, the bootstrap and the sensitivity analysis need a
-refit.
+Fitted models have `print()`, `summary()`, `coef()`, `confint()` and `nobs()` methods, and
+`linear_combination()` estimates contrasts such as differences between treatment levels or between
+policies. Synthetic DiD fits have `plot()` and `synth_se()` for further standard errors. A model
+saved with `saveRDS()` keeps its estimates; intervals, the bootstrap and the sensitivity analysis
+need a refit.
+
+```r
+# Synthetic DiD on a long panel (Proposition 99 data, as in synthdid)
+url <- "https://raw.githubusercontent.com/synth-inference/synthdid/master/data/california_prop99.csv"
+prop99 <- read.csv(url, sep = ";")
+fit <- synth_did_panel(prop99, "State", "Year", "PacksPerCapita", "treated")
+fit
+plot(fit)
+
+# Learn a policy on half of the units, evaluate it on the other half
+apos <- dml_apos(y, d, x, ml_g = lrn_random_forest(), ml_m = lrn_random_forest())
+gamma <- double_robust_scores(apos)
+tree <- policy_tree(x[learn, ], gamma[learn, ], depth = 2)
+values <- policy_value(gamma[test, ], tree = predict(tree, x[test, ]),
+                       treat_all = rep(2, length(test)))
+linear_combination(values, c(1, -1))     # gain of the tree over treating everyone
+```

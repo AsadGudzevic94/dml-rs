@@ -3,10 +3,12 @@
 
 read_parity <- function() {
   n <- 400
-  raw <- readBin(test_path("fixtures", "parity_data.bin"), "double", n = 10 * n, size = 8,
-                 endian = "little")
+  names <- c(paste0("x", 1:4), "y", "d", "dcont", "z", "d_iv", "ydid", "m", "ymed", "dose", "ycd",
+             "d3", "y3", "s", "ylee", "strata")
+  raw <- readBin(test_path("fixtures", "parity_data.bin"), "double", n = length(names) * n,
+                 size = 8, endian = "little")
   cols <- matrix(raw, nrow = n)
-  colnames(cols) <- c(paste0("x", 1:4), "y", "d", "dcont", "z", "d_iv", "ydid")
+  colnames(cols) <- names
   expected <- utils::read.csv(test_path("fixtures", "parity_expected.csv"))
   list(data = cols, x = cols[, 1:4], expected = split(expected$value, expected$name))
 }
@@ -47,4 +49,56 @@ test_that("IRM, PLIV, IIVM and DID match Python", {
     expect_equal(c(unname(coef(fits[[name]])), unname(fits[[name]]$se)), p$expected[[name]],
                  tolerance = tol, label = name)
   }
+})
+
+test_that("APOS, contrasts, policy trees and policy values match Python", {
+  apos <- dml_apos(p$data[, "y3"], p$data[, "d3"], p$x, ml_g = lrn_ols(), ml_m = lrn_logistic())
+  contrast <- linear_combination(apos, rbind(c(-1, 1, 0), c(-1, 0, 1)))
+  expect_equal(c(coef(apos), apos$se, coef(contrast), contrast$se), p$expected$apos,
+               tolerance = tol, ignore_attr = TRUE)
+  gamma <- double_robust_scores(apos)
+  tree <- policy_tree(p$x, gamma, depth = 2, min_node_size = 20)
+  actions <- predict(tree, p$x)
+  expect_equal(actions, as.integer(p$expected$policy_tree))
+  values <- policy_value(gamma, tree = actions, treat_all = rep(3, nrow(gamma)))
+  expect_equal(c(coef(values), values$se), p$expected$policy_value, tolerance = tol,
+               ignore_attr = TRUE)
+})
+
+test_that("mediation and continuous DiD match Python", {
+  med <- dml_mediation(p$data[, "ymed"], p$data[, "d"], p$data[, "m"], p$x, ml_g = lrn_ols(),
+                       ml_m = lrn_logistic())
+  expect_equal(c(coef(med), med$se, coef(med$potential_outcomes)), p$expected$mediation,
+               tolerance = tol, ignore_attr = TRUE)
+  cd <- dml_contdid(p$data[, "ycd"], p$data[, "dose"])
+  expect_equal(c(coef(cd$att), cd$att$se, coef(cd$overall), cd$overall$se), p$expected$contdid,
+               tolerance = tol, ignore_attr = TRUE)
+  cd_x <- dml_contdid(p$data[, "ycd"], p$data[, "dose"], p$x, ml_g = lrn_ols(),
+                      ml_m = lrn_logistic())
+  expect_equal(c(coef(cd_x$overall), cd_x$overall$se), p$expected$contdid_covariates,
+               tolerance = tol, ignore_attr = TRUE)
+})
+
+test_that("Lee bounds match Python", {
+  for (case in c("lee", "lee_strata")) {
+    strata <- if (case == "lee") NULL else p$data[, "strata"]
+    lee <- lee_bounds(p$data[, "ylee"], p$data[, "d"], p$data[, "s"], strata = strata,
+                      n_boot = 200, seed = 3)
+    expect_equal(c(lee$lower, lee$upper, lee$se, lee$confint), p$expected[[case]],
+                 tolerance = tol, label = case)
+  }
+})
+
+test_that("synthetic DiD matches Python", {
+  y <- matrix(readBin(test_path("fixtures", "parity_synth.bin"), "double", n = 30 * 15, size = 8,
+                      endian = "little"), 30, 15)
+  fit <- synth_did(y, 27, 10, se_method = "none")
+  ref <- p$expected$synthdid
+  expect_equal(fit$estimate, ref[1], tolerance = tol)
+  expect_equal(synth_se(fit, "placebo", replications = 50, seed = 1), ref[2], tolerance = tol)
+  expect_equal(synth_se(fit, "jackknife"), ref[3], tolerance = tol)
+  expect_equal(synth_se(fit, "bootstrap", replications = 50, seed = 2), ref[4], tolerance = tol)
+  expect_equal(unname(fit$effect_curve), ref[-(1:4)], tolerance = tol)
+  sc <- synth_did(y, 27, 10, estimator = "sc", se_method = "none")
+  expect_equal(c(sc$estimate, unname(sc$unit_weights)), p$expected$synthdid_sc, tolerance = tol)
 })

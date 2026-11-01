@@ -8,15 +8,16 @@ use std::collections::HashMap;
 
 use dml_core::learner::{Classifier, Regressor};
 use dml_core::{
-    BootstrapMethod, DidScore, DmlData, DmlFit, ForestSettings, GradientBoostingClassifier,
-    GradientBoostingRegressor, HistGradientBoostingClassifier, HistGradientBoostingRegressor, Iivm,
-    Irm, IrmScore, Lasso, LassoCV, LogisticRegression, LogisticRegressionCV, MaxFeatures, Ols,
-    Pliv, Plr, PlrScore, RandomForestClassifier, RandomForestRegressor, RegressionForest,
-    SensitivityParams,
+    policy_value, Apos, BootstrapMethod, ContinuousDid, DidScore, DmlData, DmlFit, ForestSettings,
+    GradientBoostingClassifier, GradientBoostingRegressor, HistGradientBoostingClassifier,
+    HistGradientBoostingRegressor, Iivm, Irm, IrmScore, Lasso, LassoCV, LeeBounds,
+    LogisticRegression, LogisticRegressionCV, MaxFeatures, Mediation, Ols, OptimalPolicyTree, Pliv,
+    Plr, PlrScore, RandomForestClassifier, RandomForestRegressor, RegressionForest,
+    SensitivityParams, SynthEstimator, SynthFit, SynthPanel, SynthSe, SyntheticDid, TrimmingRule,
 };
 use extendr_api::prelude::*;
 use extendr_api::Result;
-use ndarray::{Array1, Array2, ShapeBuilder};
+use ndarray::{Array1, Array2, Array3, ShapeBuilder};
 
 fn err(e: impl std::fmt::Display) -> Error {
     Error::Other(e.to_string())
@@ -410,6 +411,352 @@ fn rs_fit_did(
     Ok(ExternalPtr::new(fit))
 }
 
+/// Average potential outcomes of the levels of a discrete treatment.
+#[extendr]
+#[allow(clippy::too_many_arguments)]
+fn rs_fit_apos(
+    y: &[f64],
+    d: RMatrix<f64>,
+    x: RMatrix<f64>,
+    names: Vec<String>,
+    ml_g: List,
+    ml_m: List,
+    treatment_levels: &[f64],
+    clipping_threshold: f64,
+    normalize_ipw: bool,
+    n_folds: i32,
+    n_rep: i32,
+    seed_: f64,
+) -> Result<ExternalPtr<DmlFit>> {
+    let fit = Apos::from_boxed(
+        regressor(&ml_g)?,
+        classifier(&ml_m)?,
+        treatment_levels.to_vec(),
+    )
+    .clipping_threshold(clipping_threshold)
+    .normalize_ipw(normalize_ipw)
+    .n_folds(n_folds as usize)
+    .n_rep(n_rep as usize)
+    .seed(seed(seed_))
+    .fit(&data(y, &d, &x, names)?)
+    .map_err(err)?;
+    Ok(ExternalPtr::new(fit.apos().clone()))
+}
+
+/// Natural direct and indirect effects: the effects and the four potential
+/// outcome means as two fits.
+#[extendr]
+#[allow(clippy::too_many_arguments)]
+fn rs_fit_mediation(
+    y: &[f64],
+    d: RMatrix<f64>,
+    m: RMatrix<f64>,
+    x: RMatrix<f64>,
+    names: Vec<String>,
+    ml_g: List,
+    ml_m: List,
+    ml_nested: Robj,
+    trimming_rule: &str,
+    trimming_threshold: f64,
+    normalize_ipw: bool,
+    nested_split: bool,
+    debias_nested: bool,
+    n_folds: i32,
+    n_rep: i32,
+    seed_: f64,
+) -> Result<List> {
+    let rule = match trimming_rule {
+        "truncate" => TrimmingRule::Truncate,
+        "drop" => TrimmingRule::Drop,
+        other => return Err(err(format!("unknown trimming rule {other:?}"))),
+    };
+    let data = data(y, &d, &x, names)?
+        .with_mediators(matrix(&m))
+        .map_err(err)?;
+    let mut model = Mediation::from_boxed(regressor(&ml_g)?, classifier(&ml_m)?)
+        .trimming_rule(rule)
+        .trimming_threshold(trimming_threshold)
+        .normalize_ipw(normalize_ipw)
+        .nested_split(nested_split)
+        .debias_nested(debias_nested)
+        .n_folds(n_folds as usize)
+        .n_rep(n_rep as usize)
+        .seed(seed(seed_));
+    if let Some(nested) = optional_list(&ml_nested)? {
+        model = model.ml_nested_boxed(regressor(&nested)?);
+    }
+    let fit = model.fit(&data).map_err(err)?;
+    let n_trimmed: Vec<i32> = fit.n_trimmed().iter().map(|&v| v as i32).collect();
+    Ok(list!(
+        effects = ExternalPtr::new(fit.effects().clone()),
+        potential_outcomes = ExternalPtr::new(fit.potential_outcomes().clone()),
+        n_trimmed = n_trimmed
+    ))
+}
+
+/// Two-period difference in differences with a continuous dose: ATT(d|d),
+/// ACRT(d|d) on the grid and the overall summaries, as three fits.
+#[extendr]
+#[allow(clippy::too_many_arguments)]
+fn rs_fit_contdid(
+    y: &[f64],
+    d: RMatrix<f64>,
+    x: RMatrix<f64>,
+    ml_g: Robj,
+    ml_m: Robj,
+    ml_nested: Robj,
+    degree: i32,
+    num_knots: i32,
+    grid: Robj,
+    trimming_threshold: f64,
+    n_folds: i32,
+    n_rep: i32,
+    seed_: f64,
+) -> Result<List> {
+    let mut model = match (optional_list(&ml_g)?, optional_list(&ml_m)?) {
+        (Some(g), Some(m)) => ContinuousDid::from_boxed(regressor(&g)?, classifier(&m)?),
+        (None, None) => ContinuousDid::new(),
+        _ => return Err(err("pass both ml_g and ml_m (with covariates) or neither")),
+    }
+    .degree(degree as usize)
+    .num_knots(num_knots as usize)
+    .trimming_threshold(trimming_threshold)
+    .n_folds(n_folds as usize)
+    .n_rep(n_rep as usize)
+    .seed(seed(seed_));
+    if let Some(nested) = optional_list(&ml_nested)? {
+        model = model.ml_nested_boxed(regressor(&nested)?);
+    }
+    if !grid.is_null() {
+        let grid = grid
+            .as_real_vector()
+            .ok_or_else(|| err("grid must be a numeric vector"))?;
+        model = model.grid(grid);
+    }
+    let fit = model
+        .fit(&data(y, &d, &x, vec!["dose".into()])?)
+        .map_err(err)?;
+    Ok(list!(
+        att = ExternalPtr::new(fit.att().clone()),
+        acrt = ExternalPtr::new(fit.acrt().clone()),
+        overall = ExternalPtr::new(fit.overall().clone()),
+        grid = fit.grid().to_vec()
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// Synthetic difference in differences
+// ---------------------------------------------------------------------------
+
+fn opt_num(v: &Robj, name: &str) -> Result<Option<f64>> {
+    if v.is_null() {
+        return Ok(None);
+    }
+    v.as_real()
+        .or_else(|| v.as_integer().map(f64::from))
+        .map(Some)
+        .ok_or_else(|| err(format!("`{name}` must be a number or NULL")))
+}
+
+/// A units x periods x covariates R array as an ndarray.
+fn array3(x: &Robj) -> Result<Array3<f64>> {
+    let dims: Vec<usize> = x
+        .get_attrib("dim")
+        .and_then(|d| d.as_integer_vector())
+        .ok_or_else(|| err("X must be a 3-dimensional array"))?
+        .into_iter()
+        .map(|v| v as usize)
+        .collect();
+    let values = x.as_real_vector().ok_or_else(|| err("X must be numeric"))?;
+    if dims.len() != 3 {
+        return Err(err("X must be a 3-dimensional array"));
+    }
+    Ok(
+        Array3::from_shape_vec((dims[0], dims[1], dims[2]).f(), values)
+            .map_err(err)?
+            .as_standard_layout()
+            .to_owned(),
+    )
+}
+
+#[extendr]
+#[allow(clippy::too_many_arguments)]
+fn rs_fit_synthdid(
+    y: RMatrix<f64>,
+    n0: i32,
+    t0: i32,
+    x: Robj,
+    estimator: &str,
+    noise_level: Robj,
+    eta_omega: Robj,
+    eta_lambda: Robj,
+    min_decrease: Robj,
+    max_iter: Robj,
+    sparsify: bool,
+) -> Result<ExternalPtr<SynthFit>> {
+    let mut panel = SynthPanel::new(matrix(&y), n0 as usize, t0 as usize).map_err(err)?;
+    if !x.is_null() {
+        panel = panel.with_covariates(array3(&x)?).map_err(err)?;
+    }
+    let estimator = match estimator {
+        "sdid" => SynthEstimator::SyntheticDid,
+        "sc" => SynthEstimator::SyntheticControl,
+        "did" => SynthEstimator::Did,
+        other => return Err(err(format!("unknown estimator {other:?}"))),
+    };
+    let mut model = SyntheticDid::new().estimator(estimator).sparsify(sparsify);
+    if let Some(v) = opt_num(&noise_level, "noise_level")? {
+        model = model.noise_level(v);
+    }
+    if let Some(v) = opt_num(&eta_omega, "eta_omega")? {
+        model = model.eta_omega(v);
+    }
+    if let Some(v) = opt_num(&eta_lambda, "eta_lambda")? {
+        model = model.eta_lambda(v);
+    }
+    if let Some(v) = opt_num(&min_decrease, "min_decrease")? {
+        model = model.min_decrease(v);
+    }
+    if let Some(v) = opt_num(&max_iter, "max_iter")? {
+        model = model.max_iter(v as usize);
+    }
+    Ok(ExternalPtr::new(model.fit(&panel).map_err(err)?))
+}
+
+/// Estimate, weights, effect curve and trajectories of a synthetic DiD fit.
+#[extendr]
+fn rs_synth_info(fit: ExternalPtr<SynthFit>) -> List {
+    let (synthetic, treated) = fit.trajectories();
+    list!(
+        estimate = fit.estimate(),
+        unit_weights = fit.unit_weights().to_vec(),
+        time_weights = fit.time_weights().to_vec(),
+        beta = fit.beta().to_vec(),
+        effect_curve = fit.effect_curve().to_vec(),
+        noise_level = fit.noise_level(),
+        synthetic = synthetic.to_vec(),
+        treated = treated.to_vec()
+    )
+}
+
+/// Standard error by `"placebo"`, `"jackknife"` or `"bootstrap"`.
+#[extendr]
+fn rs_synth_se(
+    fit: ExternalPtr<SynthFit>,
+    method: &str,
+    replications: i32,
+    seed_: i32,
+) -> Result<f64> {
+    let method = match method {
+        "placebo" => SynthSe::Placebo {
+            replications: replications as usize,
+            seed: seed_,
+        },
+        "bootstrap" => SynthSe::Bootstrap {
+            replications: replications as usize,
+            seed: seed_,
+        },
+        "jackknife" => SynthSe::Jackknife,
+        other => return Err(err(format!("unknown standard error method {other:?}"))),
+    };
+    fit.se(method).map_err(err)
+}
+
+// ---------------------------------------------------------------------------
+// Policy learning and bounds
+// ---------------------------------------------------------------------------
+
+/// Exact optimal policy tree; the nodes as columns (0-based positions and actions).
+#[extendr]
+fn rs_policy_tree(
+    x: RMatrix<f64>,
+    gamma: RMatrix<f64>,
+    depth: i32,
+    split_step: i32,
+    min_node_size: i32,
+) -> Result<List> {
+    let (x, gamma) = (matrix(&x), matrix(&gamma));
+    let fit = OptimalPolicyTree::new(depth as usize)
+        .split_step(split_step as usize)
+        .min_node_size(min_node_size as usize)
+        .fit(x.view(), gamma.view())
+        .map_err(err)?;
+    let nodes = fit.nodes();
+    let col = |f: &dyn Fn(&dml_core::OptimalPolicyNode) -> f64| -> Vec<f64> {
+        nodes.iter().map(f).collect()
+    };
+    Ok(list!(
+        is_leaf = nodes.iter().map(|n| n.is_leaf).collect::<Vec<bool>>(),
+        action = col(&|n| n.action as f64),
+        split_variable = col(&|n| n.split_variable as f64),
+        split_value = col(&|n| n.split_value),
+        left = col(&|n| n.left as f64),
+        right = col(&|n| n.right as f64),
+        reward = col(&|n| n.reward)
+    ))
+}
+
+/// Doubly robust values of policies; `actions` has one column of 0-based
+/// actions per policy.
+#[extendr]
+fn rs_policy_value(
+    gamma: RMatrix<f64>,
+    actions: RMatrix<f64>,
+    names: Vec<String>,
+) -> Result<ExternalPtr<DmlFit>> {
+    let actions = matrix(&actions);
+    let columns: Vec<Vec<usize>> = actions
+        .columns()
+        .into_iter()
+        .map(|c| c.iter().map(|&a| a as usize).collect())
+        .collect();
+    let policies: Vec<(&str, &[usize])> = names
+        .iter()
+        .zip(&columns)
+        .map(|(n, a)| (n.as_str(), a.as_slice()))
+        .collect();
+    let fit = policy_value(matrix(&gamma).view(), &policies).map_err(err)?;
+    Ok(ExternalPtr::new(fit))
+}
+
+/// Lee (2009) bounds with bootstrap standard errors.
+#[extendr]
+fn rs_lee_bounds(
+    y: &[f64],
+    d: &[f64],
+    s: &[f64],
+    strata: Robj,
+    n_boot: i32,
+    level: f64,
+    seed_: f64,
+) -> Result<List> {
+    let model = LeeBounds::new()
+        .n_boot(n_boot as usize)
+        .level(level)
+        .seed(seed(seed_));
+    let fit = if strata.is_null() {
+        model.fit(y, d, s)
+    } else {
+        let cells: Vec<i64> = strata
+            .as_integer_vector()
+            .ok_or_else(|| err("strata must be an integer vector"))?
+            .into_iter()
+            .map(i64::from)
+            .collect();
+        model.fit_with_strata(y, d, s, &cells)
+    }
+    .map_err(err)?;
+    Ok(list!(
+        lower = fit.lower(),
+        upper = fit.upper(),
+        se = fit.se().to_vec(),
+        confint = fit.confint().to_vec(),
+        trimming = fit.trimming(),
+        trimmed_treated = fit.trimmed_treated(),
+        n_cells = fit.n_cells() as i32
+    ))
+}
+
 // ---------------------------------------------------------------------------
 // Results
 // ---------------------------------------------------------------------------
@@ -497,6 +844,33 @@ fn rs_sensitivity(
     ))
 }
 
+/// Linear combinations `weights %*% theta` with standard errors from the scores.
+#[extendr]
+fn rs_linear_combination(
+    fit: ExternalPtr<DmlFit>,
+    weights: RMatrix<f64>,
+    names: Vec<String>,
+) -> Result<ExternalPtr<DmlFit>> {
+    let combined = fit
+        .linear_combination(matrix(&weights).view(), names)
+        .map_err(err)?;
+    Ok(ExternalPtr::new(combined))
+}
+
+/// Doubly robust scores of an APOS fit (first repetition): units x levels.
+#[extendr]
+fn rs_dr_scores(fit: ExternalPtr<DmlFit>) -> Result<RMatrix<f64>> {
+    if fit.model_name() != "APOS" {
+        return Err(err("doubly robust scores need a fit from dml_apos()"));
+    }
+    let psi = fit.psi();
+    let theta = fit.all_coef();
+    Ok(RMatrix::new_matrix(psi.dim().0, psi.dim().1, |i, j| {
+        // The APO score has psi_a = -1, so psi = psi_b - theta.
+        psi[[i, j, 0]] + theta[[j, 0]]
+    }))
+}
+
 /// Called from `.onLoad`. Errors reach R as R errors carrying the message
 /// (extendr raises them by unwinding), so the default panic hook's console
 /// output would only repeat it.
@@ -511,6 +885,12 @@ fn rs_is_valid(ptr: Robj) -> bool {
     ExternalPtr::<DmlFit>::try_from(&ptr).is_ok()
 }
 
+/// Whether `ptr` still points to a synthetic DiD fit.
+#[extendr]
+fn rs_is_valid_synth(ptr: Robj) -> bool {
+    ExternalPtr::<SynthFit>::try_from(&ptr).is_ok()
+}
+
 extendr_module! {
     mod dmlrs;
     fn rs_fit_plr;
@@ -518,11 +898,23 @@ extendr_module! {
     fn rs_fit_pliv;
     fn rs_fit_iivm;
     fn rs_fit_did;
+    fn rs_fit_apos;
+    fn rs_fit_mediation;
+    fn rs_fit_contdid;
+    fn rs_fit_synthdid;
+    fn rs_synth_info;
+    fn rs_synth_se;
+    fn rs_policy_tree;
+    fn rs_policy_value;
+    fn rs_lee_bounds;
+    fn rs_linear_combination;
+    fn rs_dr_scores;
     fn rs_summary;
     fn rs_format;
     fn rs_confint;
     fn rs_joint_confint;
     fn rs_sensitivity;
     fn rs_is_valid;
+    fn rs_is_valid_synth;
     fn rs_init;
 }

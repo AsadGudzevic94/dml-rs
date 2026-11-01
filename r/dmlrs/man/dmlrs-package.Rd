@@ -9,10 +9,17 @@
 Double / debiased machine learning (Chernozhukov et al., 2018) with the
 estimation, including the nuisance learners, implemented in Rust. The
 models follow the DoubleML package: \code{\link[=dml_plr]{dml_plr()}}, \code{\link[=dml_irm]{dml_irm()}}, \code{\link[=dml_pliv]{dml_pliv()}},
-\code{\link[=dml_iivm]{dml_iivm()}} and \code{\link[=dml_did]{dml_did()}}. Nuisance learners are created with the
-\link{learners} constructors such as \code{\link[=lrn_lasso_cv]{lrn_lasso_cv()}} or \code{\link[=lrn_random_forest]{lrn_random_forest()}}.
+\code{\link[=dml_iivm]{dml_iivm()}}, \code{\link[=dml_did]{dml_did()}} and \code{\link[=dml_apos]{dml_apos()}}. Nuisance learners are created
+with the \link{learners} constructors such as \code{\link[=lrn_lasso_cv]{lrn_lasso_cv()}} or
+\code{\link[=lrn_random_forest]{lrn_random_forest()}}.
 }
 \details{
+Beyond DoubleML: causal mediation (\code{\link[=dml_mediation]{dml_mediation()}}), difference in
+differences with a continuous treatment (\code{\link[=dml_contdid]{dml_contdid()}}), synthetic
+difference in differences (\code{\link[=synth_did]{synth_did()}}, a port of \code{synthdid}), optimal
+policy trees (\code{\link[=policy_tree]{policy_tree()}}, a port of \code{policytree}) with
+\code{\link[=policy_value]{policy_value()}}, and Lee bounds under sample selection (\code{\link[=lee_bounds]{lee_bounds()}}).
+
 The same Rust library powers the Python package dml-rs, whose results are
 validated against DoubleML; see \url{https://asadgudzevic94.github.io/dml-rs/}.
 }
