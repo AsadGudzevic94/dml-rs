@@ -58,6 +58,7 @@ jobs:
       - name: R CMD check
         run: |
           Rscript -e 'rcmdcheck::rcmdcheck(Sys.glob("r/dmlrs_*.tar.gz"), args = c("--as-cran", "--no-manual"), error_on = "warning", check_dir = "check")'
+          grep "Using rustc" check/dmlrs.Rcheck/00install.out
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
