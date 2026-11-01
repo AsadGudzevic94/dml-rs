@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-01
+
 ### Added
 - Prediction intervals for individual effects: `ConformalITE` (Lei and Candès 2021) gives
   intervals for potential outcomes and the individual effect `Y(1) − Y(0)` of new units by
@@ -561,7 +563,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.29.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.30.0...HEAD
+[0.30.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.26.0...v0.27.0
