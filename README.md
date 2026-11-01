@@ -113,12 +113,19 @@ pip install dml-rs
 cargo add dml-core
 ```
 
-**R** (first version: PLR, IRM, PLIV, IIVM and DID with the built-in learners; binaries from
-[r-universe](https://asadgudzevic94.r-universe.dev), see [r/dmlrs](r/dmlrs/README.md)):
+**R** (the DoubleML models, mediation, continuous and synthetic DiD, policy trees and Lee bounds
+with the built-in learners; binaries from [r-universe](https://asadgudzevic94.r-universe.dev), see
+[r/dmlrs](r/dmlrs/README.md)):
 
 ```r
 install.packages("dmlrs", repos = c("https://asadgudzevic94.r-universe.dev", "https://cloud.r-project.org"))
 ```
+
+**Stability.** From 1.0 the Rust crate and the Python package follow semantic versioning: no
+breaking changes without a new major version, and renamed items keep working, with a deprecation
+warning, until the next one. `dml_rs.native` (the low-level layer under the estimators) is
+excluded. Details in the [crate documentation](https://docs.rs/dml-core/latest/dml_core/#stability)
+and [CONTRIBUTING.md](CONTRIBUTING.md#api-stability).
 
 ## Quick start
 
@@ -339,6 +346,7 @@ If you use dml-rs in your work, please cite the package and the underlying metho
   author  = {Gudzevic, Asad},
   title   = {dml-rs: Double / debiased machine learning in Rust and Python},
   url     = {https://github.com/AsadGudzevic94/dml-rs},
+  version = {1.0.0},
   year    = {2026}
 }
 

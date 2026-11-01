@@ -12,7 +12,7 @@ license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
 authors = [{ name = "Asad Gudzevic", email = "asadgudzevic94@gmail.com" }]
 keywords = ["causal-inference", "double-machine-learning", "econometrics", "statistics"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Programming Language :: Rust",
     "Programming Language :: Python :: 3 :: Only",
     "Operating System :: OS Independent",

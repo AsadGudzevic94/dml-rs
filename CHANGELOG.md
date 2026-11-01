@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-02
+
+The API of 0.32.0, now stable: the Rust crate and the Python package follow semantic versioning,
+with no breaking changes until 2.0. The deprecated aliases of 0.32.0 keep working until then.
+`dml_rs.native` is excluded from the promise. The rules are in the crate documentation
+("Stability") and CONTRIBUTING.md ("API stability").
+
+### Changed
+- Python package classified as "Development Status :: 5 - Production/Stable".
+- CITATION.cff and the README citation give the version.
+
 ## [0.32.0] - 2026-11-01
 
 API review before 1.0. Renamed items keep their old names as deprecated aliases until 2.0, except
@@ -614,7 +625,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.32.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.32.0...v1.0.0
 [0.32.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.29.0...v0.30.0

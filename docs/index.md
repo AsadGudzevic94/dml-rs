@@ -49,6 +49,9 @@ tested for numerical agreement with the reference [DoubleML](https://docs.double
     cargo add dml-core
     ```
 
+From 1.0 both packages follow semantic versioning: no breaking changes before 2.0, and renamed
+items keep working with a deprecation warning until then (`dml_rs.native` excepted).
+
 ## A first estimate
 
 ```python
