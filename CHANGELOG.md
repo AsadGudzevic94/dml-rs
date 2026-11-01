@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-11-01
+
 ### Added
 - Example notebooks: synthetic DiD on California's Proposition 99, causal mediation, policy
   learning on the 401(k) data, prediction intervals for individual effects, and Lee bounds.
@@ -575,7 +577,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.30.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.31.0...HEAD
+[0.31.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.27.0...v0.28.0
