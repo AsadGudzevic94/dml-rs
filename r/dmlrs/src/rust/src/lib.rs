@@ -162,10 +162,14 @@ fn regressor(spec: &List) -> Result<Box<dyn Regressor>> {
                 .l2_regularization(s.num("l2_regularization", 0.0)?)
                 .random_state(s.seed()? as u32),
         ),
-        "regression_forest" => Box::new(RegressionForest::new().settings(ForestSettings::default()
-            .num_trees(s.count("n_estimators", 2000)?)
-            .min_node_size(s.count("min_node_size", 5)?)
-            .seed(s.seed()?))),
+        "regression_forest" => {
+            // Field assignment (not the setters of dml-core 0.32) also builds with dml-core 0.31.
+            let mut settings = ForestSettings::default();
+            settings.num_trees = s.count("n_estimators", 2000)?;
+            settings.min_node_size = s.count("min_node_size", 5)?;
+            settings.seed = s.seed()?;
+            Box::new(RegressionForest::new().settings(settings))
+        }
         other => {
             return Err(err(format!(
                 "learner {other:?} cannot be used as a regressor"
