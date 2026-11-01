@@ -45,6 +45,11 @@ nav:
       - Sensitivity analysis: examples/04_sensitivity_analysis.ipynb
       - Clustered data and diagnostics: examples/05_clusters_and_diagnostics.ipynb
       - Causal forests: examples/06_causal_forests.ipynb
+      - Synthetic difference-in-differences: examples/07_synthetic_did.ipynb
+      - Causal mediation: examples/08_mediation.ipynb
+      - Policy learning: examples/09_policy_learning.ipynb
+      - Prediction intervals for individual effects: examples/10_prediction_intervals.ipynb
+      - Lee bounds: examples/11_lee_bounds.ipynb
   - API reference:
       - Python: api/python.md
       - Rust: api/rust.md

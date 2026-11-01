@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Example notebooks: synthetic DiD on California's Proposition 99, causal mediation, policy
+  learning on the 401(k) data, prediction intervals for individual effects, and Lee bounds.
+- `datasets.fetch_california_prop99()`: the Proposition 99 panel of R's `synthdid`.
+
+### Changed
+- `SyntheticDID.plot` labels at most eight periods on the x axis.
+
 ## [0.30.0] - 2026-11-01
 
 ### Added

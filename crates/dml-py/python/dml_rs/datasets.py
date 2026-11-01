@@ -40,6 +40,7 @@ __all__ = [
     "make_simple_rdd_data",
     "fetch_401K",
     "fetch_bonus",
+    "fetch_california_prop99",
 ]
 
 
@@ -448,6 +449,7 @@ def make_simple_rdd_data(
 
 _URL_401K = "https://github.com/VC2015/DMLonGitHub/raw/master/sipp1991.dta"
 _URL_BONUS = "https://raw.githubusercontent.com/VC2015/DMLonGitHub/master/penn_jae.dat"
+_URL_PROP99 = "https://raw.githubusercontent.com/synth-inference/synthdid/master/data/california_prop99.csv"
 
 
 def _check_fetch_return_type(return_type: str) -> None:
@@ -517,3 +519,13 @@ def fetch_bonus(return_type: Literal["DmlData", "DataFrame"] = "DmlData", polyno
     if return_type == "DataFrame":
         return data
     return DmlData(data, "inuidur1", "tg", x_cols=x_cols)
+
+
+def fetch_california_prop99():
+    """California's Proposition 99 tobacco tax (Abadie, Diamond and Hainmueller, 2010), as the
+    ``california_prop99`` data of R's ``synthdid``: cigarette sales per capita (``PacksPerCapita``)
+    of 39 US states from 1970 to 2000, with ``treated`` = 1 for California from 1989. A long
+    panel with columns ``State``, ``Year``, ``PacksPerCapita`` and ``treated``, ready for
+    `SyntheticDID.fit_panel`. Downloaded from the synthdid authors' repository (needs internet
+    access)."""
+    return _pandas().read_csv(_URL_PROP99, sep=";")

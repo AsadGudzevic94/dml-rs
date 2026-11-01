@@ -200,7 +200,7 @@ class SyntheticDID:
             lo, hi = ax.get_ylim()
             ax.bar(x[: self.n_pre_], lam * 0.15 * (hi - lo), bottom=lo, color="grey", alpha=0.4,
                    width=0.8, label="time weights")
-        ticks = x[:: max(1, len(x) // 10)]
+        ticks = x[:: max(1, -(-len(x) // 8))]  # at most 8 labels
         ax.set_xticks(ticks)
         ax.set_xticklabels([str(self.periods_[i]) for i in ticks])
         ax.set_ylabel("outcome")

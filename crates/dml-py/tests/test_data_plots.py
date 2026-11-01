@@ -202,3 +202,15 @@ def test_fetch_401k_matches_doubleml():
     pd.testing.assert_frame_equal(ours, theirs)
     data = ds.fetch_401K()
     assert data.y_col == "net_tfa" and data.d_cols == ["e401"] and data.n_obs == 9915
+
+
+def test_fetch_california_prop99():
+    """Downloads the data (skipped without internet access); the synthdid estimate of the paper."""
+    try:
+        df = ds.fetch_california_prop99()
+    except (urllib.error.URLError, OSError) as err:  # pragma: no cover - network
+        pytest.skip(f"no network: {err}")
+    assert list(df.columns) == ["State", "Year", "PacksPerCapita", "treated"] and df.shape == (1209, 4)
+    assert df["treated"].sum() == 12
+    fit = dml_rs.SyntheticDID(se_method=None).fit_panel(df, "State", "Year", "PacksPerCapita", "treated")
+    assert round(fit.coef_[0], 1) == -15.6

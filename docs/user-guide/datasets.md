@@ -30,7 +30,8 @@ data.
 `fetch_401K` (the 401(k) data of Chernozhukov and Hansen, 2004) and `fetch_bonus` (the
 Pennsylvania reemployment bonus experiment) download the data sets of DoubleML's tutorials and
 return them as a `DmlData` or a DataFrame, prepared as DoubleML prepares them (with
-`polynomial_features` for the bonus data).
+`polynomial_features` for the bonus data). `fetch_california_prop99` downloads the Proposition 99
+tobacco-tax panel of R's `synthdid` as a long DataFrame for `SyntheticDID.fit_panel`.
 
 ```python
 from dml_rs.datasets import fetch_401K

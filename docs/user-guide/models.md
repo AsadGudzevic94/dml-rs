@@ -668,6 +668,8 @@ weights (as `synthdid`).
     treated (as in `synthdid`). For staggered adoption, estimate each adoption cohort
     separately against the not-yet-treated units, or use `StaggeredDID`.
 
+See the [Proposition 99 example](../examples/07_synthetic_did.ipynb).
+
 ## Causal mediation: direct and indirect effects
 
 When a binary treatment works partly through an intermediate variable (a training programme
@@ -753,6 +755,8 @@ observations with propensity products below 0.05 (`trimming_rule="drop"`,
     learners. Propensities $q(M, X)$ near 0 or 1 (see `predictions_["ml_m_mediator"]`) mean that
     the mediator nearly reveals the treatment, and the cross-world means rest on few
     observations.
+
+See the [mediation example](../examples/08_mediation.ipynb).
 
 ## Long-term effects from surrogates
 
@@ -861,6 +865,8 @@ model.predict_ite(X_new, alpha=0.1)
 model.predict_counterfactual(X_new, treatment=0, target="treated")
 ```
 
+See the [prediction intervals example](../examples/10_prediction_intervals.ipynb).
+
 ## Policy learning and policy evaluation
 
 Given doubly robust scores $\Gamma_i(a)$ of every unit under every action $a$ (the potential
@@ -895,6 +901,8 @@ The search is exact, so its cost grows like $(p\,n)^{\text{depth}}$: depth 2 sui
 units and tens of features, depth 3 small problems (`split_step` > 1 evaluates only every
 `split_step`-th split). The greedy `PolicyTree` of the IRM and APO models scales further.
 
+See the [policy learning example](../examples/09_policy_learning.ipynb).
+
 ## Bounds under sample selection
 
 When the treatment changes *whether* the outcome is observed (training changes employment, so
@@ -911,6 +919,8 @@ lee = dml_rs.LeeBounds().fit(wage, treated, employed, strata=region)
 lee.bounds_, lee.confint_
 lee.summary
 ```
+
+See the [Lee bounds example](../examples/11_lee_bounds.ipynb).
 
 ## Automatic debiased ML (AutoDML)
 
