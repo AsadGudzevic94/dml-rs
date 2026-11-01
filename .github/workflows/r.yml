@@ -10,17 +10,22 @@ on:
 jobs:
   check:
     # R CMD check --as-cran on the CRAN tarball (r/build-cran.sh: Rust crates bundled, dml-core from
-    # crates.io), failing on warnings. The rust job repeats it with the oldest supported Rust.
-    name: R CMD check --as-cran (${{ matrix.os }}, Rust ${{ matrix.rust }})
+    # crates.io), failing on warnings; on Ubuntu also with the oldest supported Rust and R-devel.
+    name: R CMD check --as-cran (${{ matrix.os }}, R ${{ matrix.r }}, Rust ${{ matrix.rust }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        r: [release]
         rust: [stable]
         include:
           - os: ubuntu-latest
+            r: release
             rust: "1.80"
+          - os: ubuntu-latest
+            r: devel
+            rust: stable
     env:
       _R_CHECK_FORCE_SUGGESTS_: false
       _R_CHECK_CRAN_INCOMING_REMOTE_: false
@@ -43,6 +48,7 @@ jobs:
       - uses: r-lib/actions/setup-pandoc@v2
       - uses: r-lib/actions/setup-r@v2
         with:
+          r-version: ${{ matrix.r }}
           use-public-rspm: true
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
@@ -62,7 +68,7 @@ jobs:
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: check-${{ matrix.os }}-${{ matrix.rust }}
+          name: check-${{ matrix.os }}-${{ matrix.r }}-${{ matrix.rust }}
           path: check
 
   local-core:

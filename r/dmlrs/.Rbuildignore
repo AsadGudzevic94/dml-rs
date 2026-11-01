@@ -6,3 +6,4 @@
 ^src/Makevars\.win$
 ^src/\.cargo-build$
 ^src/vendor$
+^cran-comments\.md$
