@@ -44,13 +44,20 @@ __all__ = [
     "fit_staggered_did",
     "fit_surrogate_index",
     "fit_continuous_did",
+    "fit_conformal",
     "fit_synthdid",
+    "fit_optimal_policy_tree",
+    "policy_value",
+    "fit_lee_bounds",
     "AposResult",
     "DoseResponseResult",
     "MediationResult",
     "SurrogateResult",
     "ContinuousDidResult",
+    "ConformalResult",
     "SynthResult",
+    "OptimalPolicyTreeResult",
+    "LeeBoundsResult",
     "Blp",
     "Bootstrap",
     "CateResult",
@@ -356,6 +363,50 @@ class SynthResult:
         """``(synthetic control, treated average)`` for every period."""
     def se(self, method: str = "placebo", replications: int = 200, seed: int = 0) -> float:
         """Standard error: "jackknife", "placebo" or "bootstrap" (``seed`` = R's set.seed)."""
+
+@final
+class ConformalResult:
+    """Fitted learners and calibration scores of conformal counterfactual intervals."""
+
+    def predict_counterfactual(
+        self, x: NDArray[np.float64], arm: int, target: str = "all", alpha: float = 0.1
+    ) -> NDArray[np.float64]:
+        """Intervals (m, 2) for the potential outcome ``Y(arm)`` of new units."""
+    def predict_ite(self, x: NDArray[np.float64], alpha: float = 0.1) -> NDArray[np.float64]:
+        """Intervals (m, 2) for the individual effect ``Y(1) − Y(0)`` of new units."""
+    @property
+    def n_calibration(self) -> list[int]:
+        """Calibration units per arm: ``[controls, treated]``."""
+
+@final
+class OptimalPolicyTreeResult:
+    """An exact depth-k policy tree (port of policytree)."""
+
+    def predict(self, x: NDArray[np.float64]) -> list[int]:
+        """Recommended action (column of Gamma) per row."""
+    def nodes(self) -> list[dict[str, Any]]:
+        """Nodes in breadth-first order."""
+
+@final
+class LeeBoundsResult:
+    """Lee bounds on the effect for always-observed units."""
+
+    @property
+    def lower(self) -> float: ...
+    @property
+    def upper(self) -> float: ...
+    @property
+    def trimming(self) -> float: ...
+    @property
+    def trimmed_treated(self) -> bool: ...
+    @property
+    def se(self) -> list[float]: ...
+    @property
+    def confint(self) -> list[float]: ...
+    @property
+    def level(self) -> float: ...
+    @property
+    def n_cells(self) -> int: ...
 
 @final
 class QteResult:
@@ -1056,6 +1107,39 @@ def fit_synthdid(
     max_iter: Optional[int] = None,
     sparsify: bool = True,
 ) -> SynthResult: ...
+def fit_conformal(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    ml_m: Any = None,
+    ml_y: Any = None,
+    ml_lower: Any = None,
+    ml_upper: Any = None,
+    propensity: Optional[float] = None,
+    train_fraction: float = 0.75,
+    trimming_threshold: float = 1e-2,
+    seed: int = 0,
+    split: Optional[tuple[Sequence[int], Sequence[int]]] = None,
+) -> ConformalResult: ...
+def fit_optimal_policy_tree(
+    x: NDArray[np.float64],
+    gamma: NDArray[np.float64],
+    depth: int = 2,
+    split_step: int = 1,
+    min_node_size: int = 1,
+) -> OptimalPolicyTreeResult: ...
+def policy_value(
+    gamma: NDArray[np.float64], names: Sequence[str], actions: Sequence[Sequence[int]]
+) -> DmlResult: ...
+def fit_lee_bounds(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    s: NDArray[np.float64],
+    strata: Optional[NDArray[np.int64]] = None,
+    n_boot: int = 500,
+    level: float = 0.95,
+    seed: int = 0,
+) -> LeeBoundsResult: ...
 def fit_plpr(
     y: NDArray[np.float64],
     d: NDArray[np.float64],

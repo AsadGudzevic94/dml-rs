@@ -1615,6 +1615,285 @@ fn fit_synthdid(
         .map_err(to_py_err)
 }
 
+/// Result of `fit_conformal`: fitted learners and calibration scores (not picklable).
+#[pyclass(name = "ConformalResult", module = "dml_rs", frozen)]
+pub struct PyConformalResult {
+    inner: dml_core::ConformalFit,
+}
+
+fn conformal_target(target: &str) -> PyResult<dml_core::ConformalTarget> {
+    match target {
+        "all" => Ok(dml_core::ConformalTarget::All),
+        "treated" => Ok(dml_core::ConformalTarget::Treated),
+        "control" => Ok(dml_core::ConformalTarget::Control),
+        other => Err(PyValueError::new_err(format!(
+            "target must be 'all', 'treated' or 'control', got {other:?}"
+        ))),
+    }
+}
+
+#[pymethods]
+impl PyConformalResult {
+    /// Intervals (m, 2) for the potential outcome `Y(arm)` of new units.
+    #[pyo3(signature = (x, arm, target = "all", alpha = 0.1))]
+    fn predict_counterfactual<'py>(
+        &self,
+        py: Python<'py>,
+        x: PyReadonlyArray2<'_, f64>,
+        arm: usize,
+        target: &str,
+        alpha: f64,
+    ) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let target = conformal_target(target)?;
+        let x = x.as_array().to_owned();
+        py.detach(|| {
+            self.inner
+                .predict_counterfactual(x.view(), arm, target, alpha)
+        })
+        .map(|a| a.into_pyarray(py))
+        .map_err(to_py_err)
+    }
+
+    /// Intervals (m, 2) for the individual effect `Y(1) − Y(0)` of new units.
+    #[pyo3(signature = (x, alpha = 0.1))]
+    fn predict_ite<'py>(
+        &self,
+        py: Python<'py>,
+        x: PyReadonlyArray2<'_, f64>,
+        alpha: f64,
+    ) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let x = x.as_array().to_owned();
+        py.detach(|| self.inner.predict_ite(x.view(), alpha))
+            .map(|a| a.into_pyarray(py))
+            .map_err(to_py_err)
+    }
+
+    /// Calibration units per arm: `[controls, treated]`.
+    #[getter]
+    fn n_calibration(&self) -> [usize; 2] {
+        self.inner.n_calibration()
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (y, d, x, ml_m = None, ml_y = None, ml_lower = None, ml_upper = None,
+                    propensity = None, train_fraction = 0.75, trimming_threshold = 1e-2, seed = 0,
+                    split = None))]
+#[allow(clippy::too_many_arguments)]
+fn fit_conformal(
+    py: Python<'_>,
+    y: PyReadonlyArray1<'_, f64>,
+    d: PyReadonlyArray2<'_, f64>,
+    x: PyReadonlyArray2<'_, f64>,
+    ml_m: Option<&Bound<'_, PyAny>>,
+    ml_y: Option<&Bound<'_, PyAny>>,
+    ml_lower: Option<&Bound<'_, PyAny>>,
+    ml_upper: Option<&Bound<'_, PyAny>>,
+    propensity: Option<f64>,
+    train_fraction: f64,
+    trimming_threshold: f64,
+    seed: u64,
+    split: Option<(Vec<usize>, Vec<usize>)>,
+) -> PyResult<PyConformalResult> {
+    let data = build_data(y, d, x, None, None, None, None)?;
+    let score =
+        match (ml_y, ml_lower, ml_upper) {
+            (Some(m), None, None) => dml_core::ConformalScore::Residual(to_regressor(m)?),
+            (None, Some(lo), Some(hi)) => dml_core::ConformalScore::Quantile {
+                lower: to_regressor(lo)?,
+                upper: to_regressor(hi)?,
+            },
+            _ => return Err(PyValueError::new_err(
+                "pass either ml_y (residual score) or both ml_lower and ml_upper (quantile score)",
+            )),
+        };
+    let mut model = dml_core::ConformalIte::new(score)
+        .train_fraction(train_fraction)
+        .trimming_threshold(trimming_threshold)
+        .seed(seed);
+    if let Some(m) = ml_m {
+        model = model.ml_m(to_classifier(m)?);
+    }
+    if let Some(p) = propensity {
+        model = model.propensity(p);
+    }
+    let result = match split {
+        Some((train, calib)) => py.detach(|| model.fit_with_split(&data, &train, &calib)),
+        None => py.detach(|| model.fit(&data)),
+    };
+    result
+        .map(|inner| PyConformalResult { inner })
+        .map_err(to_py_err)
+}
+
+/// Result of `fit_optimal_policy_tree`: an exact depth-k policy tree.
+#[pyclass(name = "OptimalPolicyTreeResult", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct PyOptimalPolicyTree {
+    inner: dml_core::OptimalPolicyTreeFit,
+}
+
+#[pymethods]
+impl PyOptimalPolicyTree {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "OptimalPolicyTreeResult", self)
+    }
+
+    /// Recommended action (column of Gamma) per row.
+    fn predict(&self, x: PyReadonlyArray2<'_, f64>) -> PyResult<Vec<usize>> {
+        self.inner.predict(x.as_array()).map_err(to_py_err)
+    }
+
+    /// Nodes in breadth-first order: dicts with is_leaf, action or split_variable,
+    /// split_value, left, right, and reward.
+    fn nodes<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyDict>>> {
+        self.inner
+            .nodes()
+            .iter()
+            .map(|n| {
+                let d = PyDict::new(py);
+                d.set_item("is_leaf", n.is_leaf)?;
+                if n.is_leaf {
+                    d.set_item("action", n.action)?;
+                } else {
+                    d.set_item("split_variable", n.split_variable)?;
+                    d.set_item("split_value", n.split_value)?;
+                    d.set_item("left", n.left)?;
+                    d.set_item("right", n.right)?;
+                }
+                d.set_item("reward", n.reward)?;
+                Ok(d)
+            })
+            .collect()
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (x, gamma, depth = 2, split_step = 1, min_node_size = 1))]
+fn fit_optimal_policy_tree(
+    py: Python<'_>,
+    x: PyReadonlyArray2<'_, f64>,
+    gamma: PyReadonlyArray2<'_, f64>,
+    depth: usize,
+    split_step: usize,
+    min_node_size: usize,
+) -> PyResult<PyOptimalPolicyTree> {
+    let (x, gamma) = (x.as_array().to_owned(), gamma.as_array().to_owned());
+    let model = dml_core::OptimalPolicyTree::new(depth)
+        .split_step(split_step)
+        .min_node_size(min_node_size);
+    py.detach(|| model.fit(x.view(), gamma.view()))
+        .map(|inner| PyOptimalPolicyTree { inner })
+        .map_err(to_py_err)
+}
+
+/// Doubly robust value of policies: one estimate per (name, actions) pair.
+#[pyfunction]
+fn policy_value(
+    gamma: PyReadonlyArray2<'_, f64>,
+    names: Vec<String>,
+    actions: Vec<Vec<usize>>,
+) -> PyResult<PyDmlResult> {
+    if names.len() != actions.len() {
+        return Err(PyValueError::new_err("one name per policy"));
+    }
+    let policies: Vec<(&str, &[usize])> = names
+        .iter()
+        .zip(&actions)
+        .map(|(n, a)| (n.as_str(), a.as_slice()))
+        .collect();
+    dml_core::policy_value(gamma.as_array(), &policies)
+        .map(PyDmlResult::from_fit)
+        .map_err(to_py_err)
+}
+
+/// Result of `fit_lee_bounds`: Lee bounds with bootstrap standard errors.
+#[pyclass(name = "LeeBoundsResult", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct PyLeeBounds {
+    inner: dml_core::LeeBoundsFit,
+}
+
+#[pymethods]
+impl PyLeeBounds {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "LeeBoundsResult", self)
+    }
+
+    #[getter]
+    fn lower(&self) -> f64 {
+        self.inner.lower()
+    }
+
+    #[getter]
+    fn upper(&self) -> f64 {
+        self.inner.upper()
+    }
+
+    #[getter]
+    fn trimming(&self) -> f64 {
+        self.inner.trimming()
+    }
+
+    #[getter]
+    fn trimmed_treated(&self) -> bool {
+        self.inner.trimmed_treated()
+    }
+
+    #[getter]
+    fn se(&self) -> [f64; 2] {
+        self.inner.se()
+    }
+
+    #[getter]
+    fn confint(&self) -> [f64; 2] {
+        self.inner.confint()
+    }
+
+    #[getter]
+    fn level(&self) -> f64 {
+        self.inner.level()
+    }
+
+    #[getter]
+    fn n_cells(&self) -> usize {
+        self.inner.n_cells()
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (y, d, s, strata = None, n_boot = 500, level = 0.95, seed = 0))]
+#[allow(clippy::too_many_arguments)]
+fn fit_lee_bounds(
+    py: Python<'_>,
+    y: PyReadonlyArray1<'_, f64>,
+    d: PyReadonlyArray1<'_, f64>,
+    s: PyReadonlyArray1<'_, f64>,
+    strata: Option<PyReadonlyArray1<'_, i64>>,
+    n_boot: usize,
+    level: f64,
+    seed: u64,
+) -> PyResult<PyLeeBounds> {
+    let (y, d, s) = (
+        y.as_array().to_vec(),
+        d.as_array().to_vec(),
+        s.as_array().to_vec(),
+    );
+    let strata = strata.map(|v| v.as_array().to_vec());
+    let model = dml_core::LeeBounds::new()
+        .n_boot(n_boot)
+        .level(level)
+        .seed(seed);
+    py.detach(|| match &strata {
+        Some(cells) => model.fit_with_strata(&y, &d, &s, cells),
+        None => model.fit(&y, &d, &s),
+    })
+    .map(|inner| PyLeeBounds { inner })
+    .map_err(to_py_err)
+}
+
 /// `E[D | X]` learner of LPLR: a classifier (probabilities) or a regressor.
 fn to_treatment_learner(obj: &Bound<'_, PyAny>, classifier: bool) -> PyResult<TreatmentLearner> {
     Ok(if classifier {
@@ -2560,19 +2839,20 @@ mod dml_rs_native {
     #[pymodule_export]
     use super::{
         concat, draw_folds, fit_apo, fit_apos, fit_autodml, fit_cate, fit_causal_forest,
-        fit_continuous_did, fit_did, fit_dose_response, fit_iivm, fit_instrumental_forest, fit_irm,
-        fit_lplr, fit_mediation, fit_multi_arm_causal_forest, fit_pliv, fit_plpr, fit_plr, fit_qte,
+        fit_conformal, fit_continuous_did, fit_did, fit_dose_response, fit_iivm,
+        fit_instrumental_forest, fit_irm, fit_lee_bounds, fit_lplr, fit_mediation,
+        fit_multi_arm_causal_forest, fit_optimal_policy_tree, fit_pliv, fit_plpr, fit_plr, fit_qte,
         fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did, fit_surrogate_index, fit_synthdid,
-        result_from_scores, set_parallel_folds, simulate, PyAposResult, PyBlp, PyBootstrap,
-        PyCateResult, PyCausalForestResult, PyContinuousDidResult, PyDmlResult,
-        PyDoseResponseResult, PyGradientBoostingClassifier, PyGradientBoostingRegressor,
-        PyGridSearchClassifier, PyGridSearchRegressor, PyHistGradientBoostingClassifier,
-        PyHistGradientBoostingRegressor, PyInstrumentalForestResult, PyLasso, PyLassoCV,
-        PyLogisticRegression, PyLogisticRegressionCV, PyMediationResult,
-        PyMultiArmCausalForestResult, PyOls, PyPolicyTree, PyQteResult, PyQuantileForest,
-        PyRandomForestClassifier, PyRandomForestRegressor, PyRdFlexResult, PyRegressionForest,
-        PySensitivityBenchmark, PySensitivityResult, PyStaggeredResult, PySurrogateResult,
-        PySynthResult,
+        policy_value, result_from_scores, set_parallel_folds, simulate, PyAposResult, PyBlp,
+        PyBootstrap, PyCateResult, PyCausalForestResult, PyConformalResult, PyContinuousDidResult,
+        PyDmlResult, PyDoseResponseResult, PyGradientBoostingClassifier,
+        PyGradientBoostingRegressor, PyGridSearchClassifier, PyGridSearchRegressor,
+        PyHistGradientBoostingClassifier, PyHistGradientBoostingRegressor,
+        PyInstrumentalForestResult, PyLasso, PyLassoCV, PyLeeBounds, PyLogisticRegression,
+        PyLogisticRegressionCV, PyMediationResult, PyMultiArmCausalForestResult, PyOls,
+        PyOptimalPolicyTree, PyPolicyTree, PyQteResult, PyQuantileForest, PyRandomForestClassifier,
+        PyRandomForestRegressor, PyRdFlexResult, PyRegressionForest, PySensitivityBenchmark,
+        PySensitivityResult, PyStaggeredResult, PySurrogateResult, PySynthResult,
     };
 
     #[pymodule_export]

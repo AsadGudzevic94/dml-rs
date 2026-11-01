@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Prediction intervals for individual effects: `ConformalITE` (Lei and Candès 2021) gives
+  intervals for potential outcomes and the individual effect `Y(1) − Y(0)` of new units by
+  weighted split conformal prediction, with a residual or a conformalised-quantile score and a
+  learned or known propensity. Rust: `ConformalIte` / `ConformalFit`.
+- Policy learning: `OptimalPolicyTree`, a port of R's `policytree` exact tree search (identical
+  trees), `policy_value` for doubly robust values and contrasts of treatment rules, and
+  `double_robust_scores` for fitted APOS models. Rust: `OptimalPolicyTree`, `policy_value`.
+- Partial identification: `LeeBounds` (Lee 2009) with fractional trimming, covariate-tightened
+  bounds, bootstrap standard errors and the Imbens–Manski interval. Rust: `LeeBounds`.
+
 ## [0.29.0] - 2026-11-01
 
 ### Added

@@ -81,6 +81,8 @@ restorers! {
     "SurrogateResult" => crate::PySurrogateResult,
     "ContinuousDidResult" => crate::PyContinuousDidResult,
     "SynthResult" => crate::PySynthResult,
+    "OptimalPolicyTreeResult" => crate::PyOptimalPolicyTree,
+    "LeeBoundsResult" => crate::PyLeeBounds,
     "RdFlexResult" => crate::PyRdFlexResult,
     "QteResult" => crate::PyQteResult,
     "Blp" => crate::cate::PyBlp,

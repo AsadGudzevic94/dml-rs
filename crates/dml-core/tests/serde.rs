@@ -5,10 +5,10 @@ use dml_core::{
     AposFit, Blp, Bootstrap, CausalForestFit, ContinuousDidFit, DidAggregation, DmlData, DmlFit,
     DoseResponseFit, GradientBoostingClassifier, GradientBoostingRegressor,
     HistGradientBoostingClassifier, HistGradientBoostingRegressor, InstrumentalForestFit, Lasso,
-    LassoCV, LogisticRegression, LogisticRegressionCV, MediationFit, MultiArmCausalForestFit, Ols,
-    Plr, PolicyTree, QteFit, QuantileForest, RandomForestClassifier, RandomForestRegressor,
-    RdFlexFit, RegressionForest, SensitivityBenchmark, SensitivityResult, StaggeredDidFit,
-    SurrogateFit, SynthFit,
+    LassoCV, LeeBoundsFit, LogisticRegression, LogisticRegressionCV, MediationFit,
+    MultiArmCausalForestFit, Ols, OptimalPolicyTreeFit, Plr, PolicyTree, QteFit, QuantileForest,
+    RandomForestClassifier, RandomForestRegressor, RdFlexFit, RegressionForest,
+    SensitivityBenchmark, SensitivityResult, StaggeredDidFit, SurrogateFit, SynthFit,
 };
 use ndarray::{Array1, Array2};
 use rand::{Rng, SeedableRng};
@@ -54,6 +54,8 @@ fn every_learner_and_result_type_is_serializable() {
     check::<SurrogateFit>();
     check::<ContinuousDidFit>();
     check::<SynthFit>();
+    check::<OptimalPolicyTreeFit>();
+    check::<LeeBoundsFit>();
 }
 
 fn data(n: usize) -> (Array2<f64>, Array1<f64>, Array1<f64>) {

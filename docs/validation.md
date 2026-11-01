@@ -161,6 +161,23 @@ placebo and bootstrap standard errors all agree to `1e-9`. The placebo and boots
 because dml-rs ports R's random number generator (`set.seed` and `sample()`, checked against R's
 own draws).
 
+`OptimalPolicyTree` reproduces R's `policytree` (version 1.2.5) exact tree search
+([`parity/generate_policytree_fixtures.R`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/generate_policytree_fixtures.R)):
+in six configurations (depth 0 to 3, continuous and discrete features with ties, `split_step` and
+`min_node_size`) the predicted actions are identical, and the trees are identical node for node
+except in one depth-3 case with an exact tie between two thresholds (the unit between them gets
+the same action either way, so the choice rests on the last bit of the reward sums; policytree's
+own depth-2 search on that node picks dml-rs's threshold). `policy_value` equals the mean of the
+selected scores with the standard error of the mean.
+
+`ConformalITE` and `LeeBounds` have no installable reference implementation here (`cfcausal` and
+`leebounds` are not on CRAN). `ConformalITE` matches a NumPy implementation of weighted split
+conformal prediction on the same split (residual and quantile scores, all target populations) to
+`1e-10`, and its intervals reach the nominal coverage in simulations (finite-sample coverage with
+a known propensity score). `LeeBounds` matches a NumPy implementation of fractional trimming with
+and without covariate cells to `1e-12`; in simulations with monotone selection the bounds contain
+the effect, covariate cells narrow them, and the Imbens–Manski interval covers.
+
 Causal forests are compared with EconML's port of grf (`econml.grf.CausalForest`, 2000 trees),
 grown on exactly the same residuals, in the design of Wager and Athey (2018) with 4000
 observations and 20 replications

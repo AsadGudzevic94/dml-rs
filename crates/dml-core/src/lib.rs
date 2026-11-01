@@ -76,6 +76,7 @@
 
 pub mod blp;
 pub mod bootstrap;
+pub mod bounds;
 pub mod cate;
 pub mod causal_forest;
 pub mod cluster;
@@ -89,6 +90,7 @@ pub mod learner;
 pub(crate) mod linalg;
 pub mod model;
 pub mod policy;
+pub mod policy_search;
 pub mod propensity;
 pub mod rd;
 pub mod riesz;
@@ -100,6 +102,7 @@ pub mod synthdid;
 
 pub use blp::Blp;
 pub use bootstrap::{Bootstrap, BootstrapMethod};
+pub use bounds::{LeeBounds, LeeBoundsFit};
 pub use cate::{CateFit, DrLearner, RLearner, SLearner, TLearner, XLearner};
 pub use causal_forest::{
     CausalForest, CausalForestDml, CausalForestFit, ForestSettings, InstrumentalForest,
@@ -122,15 +125,17 @@ pub use learner::{
     RandomForestRegressor, Regressor,
 };
 pub use model::{
-    Apo, Apos, AposFit, AutoDml, Bandwidth, CateSignal, ContinuousDid, ContinuousDidFit, Cvar,
-    DensityModel, Did, DidCs, DidScore, DoseKernel, DoseResponse, DoseResponseFit,
-    ExternalPredictions, FirstStage, Iivm, Irm, IrmScore, LinearScoreModel, LossKind, Lplr,
-    LplrScore, Lpq, Mediation, MediationFit, Name, NuisanceLearners, NuisanceTarget, PanelApproach,
-    Pliv, PlivScore, PlivVariant, Plpr, Plr, PlrScore, Pq, Qte, QteFit, RdFlex, RdFlexFit,
-    RdKernel, ScoreEstimate, ScoreInput, Ssm, SsmScore, StaticPanel, SurrogateData, SurrogateFit,
-    SurrogateIndex, TreatmentLearner, TrimmingRule,
+    Apo, Apos, AposFit, AutoDml, Bandwidth, CateSignal, ConformalFit, ConformalIte, ConformalScore,
+    ConformalTarget, ContinuousDid, ContinuousDidFit, Cvar, DensityModel, Did, DidCs, DidScore,
+    DoseKernel, DoseResponse, DoseResponseFit, ExternalPredictions, FirstStage, Iivm, Irm,
+    IrmScore, LinearScoreModel, LossKind, Lplr, LplrScore, Lpq, Mediation, MediationFit, Name,
+    NuisanceLearners, NuisanceTarget, PanelApproach, Pliv, PlivScore, PlivVariant, Plpr, Plr,
+    PlrScore, Pq, Qte, QteFit, RdFlex, RdFlexFit, RdKernel, ScoreEstimate, ScoreInput, Ssm,
+    SsmScore, StaticPanel, SurrogateData, SurrogateFit, SurrogateIndex, TreatmentLearner,
+    TrimmingRule,
 };
 pub use policy::{PolicyNode, PolicyTree};
+pub use policy_search::{policy_value, OptimalPolicyNode, OptimalPolicyTree, OptimalPolicyTreeFit};
 pub use propensity::{Calibration, IsotonicRegression};
 pub use riesz::{
     Ate, AverageDerivative, CustomFunctional, Dictionary, LinearFunctional, PolicyEffect,

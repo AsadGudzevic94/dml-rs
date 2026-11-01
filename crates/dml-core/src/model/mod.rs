@@ -11,6 +11,7 @@ use crate::sensitivity::SensitivityParts;
 
 mod apo;
 mod autodml;
+mod conformal;
 mod contdid;
 pub(crate) mod did;
 mod dose;
@@ -29,6 +30,7 @@ mod surrogate;
 
 pub use apo::{Apo, Apos, AposFit};
 pub use autodml::AutoDml;
+pub use conformal::{ConformalFit, ConformalIte, ConformalScore, ConformalTarget};
 pub use contdid::{ContinuousDid, ContinuousDidFit};
 pub use did::{Did, DidCs, DidScore};
 pub use dose::{Bandwidth, DensityModel, DoseKernel, DoseResponse, DoseResponseFit};

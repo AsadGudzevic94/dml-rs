@@ -829,6 +829,89 @@ observational units.
     predicts $Y$ (for example a different labour market). Neither assumption is testable with
     these data, so report which surrogates are used and how the estimate changes with them.
 
+## Prediction intervals for individual effects
+
+Confidence intervals for an average or conditional average effect say how precisely a *mean*
+is known; they do not say what will happen to a particular unit. `ConformalITE` gives
+prediction intervals for the potential outcomes $Y(1)$, $Y(0)$ and the individual effect
+$Y(1) - Y(0)$ of a new unit that cover with probability $1 - \alpha$ (Lei and Candès, 2021).
+
+The sample is split once: learners are fitted on the training part, and conformity scores of the
+calibration units of each arm are computed, either $|Y - \hat\mu(X)|$ (`ml_y`) or the
+conformalised-quantile-regression score $\max(\hat q_{lo}(X) - Y, Y - \hat q_{hi}(X))$ (`ml_lower`,
+`ml_upper`, intervals that adapt to heteroscedasticity). The calibration units of arm $w$ come
+from $X \mid W = w$, not from the population of interest, so their scores are reweighted by the
+likelihood ratio, $1/e(x)$ for $Y(1)$ over all units, $(1 - e(x))/e(x)$ for $Y(1)$ of control
+units and so on (weighted conformal prediction under covariate shift). With the true propensity
+score (a randomised experiment, `propensity=0.5`) coverage holds exactly in finite samples; with
+an estimated one (`ml_m`), approximately. The effect interval combines the two counterfactual
+intervals at level $\alpha/2$ each, $[L_1 - U_0, U_1 - L_0]$, and is conservative.
+
+```python
+from sklearn.ensemble import GradientBoostingRegressor as GBR
+
+model = dml_rs.ConformalITE(
+    ml_m=dml_rs.LogisticRegressionCV(),
+    ml_lower=GBR(loss="quantile", alpha=0.05),
+    ml_upper=GBR(loss="quantile", alpha=0.95),
+).fit(X, y, d)
+# (m, 2) intervals for Y(1) − Y(0) of new units:
+model.predict_ite(X_new, alpha=0.1)
+# Y(0) of units like the treated ones:
+model.predict_counterfactual(X_new, treatment=0, target="treated")
+```
+
+## Policy learning and policy evaluation
+
+Given doubly robust scores $\Gamma_i(a)$ of every unit under every action $a$ (the potential
+outcome estimates whose average is the APO of $a$), the value of a treatment rule $\pi$ is
+$V(\pi) = E[\Gamma(\pi(X))]$, and the best rule in a class maximises its sample analogue (Athey
+and Wager, 2021). `OptimalPolicyTree` finds the best decision tree of a given depth by exhaustive
+search, a port of R's `policytree` that finds the same trees; `policy_value` estimates the value
+of any rules, with standard errors and contrasts. Learn the rule and evaluate it on different
+units.
+
+```python
+def scores(idx):                       # units × levels
+    apos = dml_rs.APOS(ml_g, ml_m, treatment_levels=[0, 1, 2])
+    apos.fit(X[idx], y[idx], d[idx])
+    return dml_rs.double_robust_scores(apos)
+
+tree = dml_rs.OptimalPolicyTree(depth=2)
+tree.fit(X[learn], scores(learn))
+tree.nodes_                            # splits and actions
+
+fw = dml_rs.policy_value(
+    scores(test),
+    tree=tree.predict(X[test]),
+    treat_all=np.full(len(test), 2),
+)
+fw.summary                             # value of each rule
+gain = fw.linear_combination(np.array([[1.0, -1.0]]))
+gain.summary                           # tree versus treat-all
+```
+
+The search is exact, so its cost grows like $(p\,n)^{\text{depth}}$: depth 2 suits thousands of
+units and tens of features, depth 3 small problems (`split_step` > 1 evaluates only every
+`split_step`-th split). The greedy `PolicyTree` of the IRM and APO models scales further.
+
+## Bounds under sample selection
+
+When the treatment changes *whether* the outcome is observed (training changes employment, so
+wages are observed for a different set of people in each arm), the comparison of observed
+outcomes is biased even in an experiment. `LeeBounds` gives Lee's (2009) sharp bounds on the
+effect for the units observed under either treatment: under monotonicity the arm with the
+higher selection rate contains a share $q = |p_1 - p_0| / \max(p_1, p_0)$ of units observed only
+because of their treatment, and trimming that share from the top or the bottom of its outcomes
+gives the two bounds. Discrete covariates (`strata`) tighten them, standard errors come from the
+bootstrap, and `confint_` is the Imbens–Manski interval for the effect.
+
+```python
+lee = dml_rs.LeeBounds().fit(wage, treated, employed, strata=region)
+lee.bounds_, lee.confint_
+lee.summary
+```
+
 ## Automatic debiased ML (AutoDML)
 
 Many effects are a mean of a *linear functional* of the regression

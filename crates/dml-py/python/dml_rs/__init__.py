@@ -78,9 +78,12 @@ from ._autodml import (
     RieszLasso,
     ShiftEffect,
 )
+from ._conformal import ConformalITE
+from ._bounds import LeeBounds
 from ._contdid import ContinuousDID
 from ._dose import DoseResponse
 from ._mediation import Mediation
+from ._policy_search import OptimalPolicyTree, double_robust_scores, policy_value
 from ._surrogate import SurrogateIndex
 from ._synthdid import SyntheticDID
 from ._models import (
@@ -120,9 +123,14 @@ __all__ = [
     "APO",
     "APOS",
     "CausalContrast",
+    "ConformalITE",
     "ContinuousDID",
+    "LeeBounds",
     "DoseResponse",
     "Mediation",
+    "OptimalPolicyTree",
+    "double_robust_scores",
+    "policy_value",
     "SurrogateIndex",
     "SyntheticDID",
     "Framework",
