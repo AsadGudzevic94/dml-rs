@@ -298,6 +298,13 @@ These are deliberate, documented, and covered by tests:
   time_type="float")` in DoubleML 0.11 also drops the never-treated units (its first filter tests
   `pd.isna`, which is false for the `inf` cohort; the datetime version keeps them). dml-rs keeps
   them in both versions ([DoubleML #432](https://github.com/DoubleML/doubleml-for-py/issues/432)).
+- **Not-yet-treated controls before treatment.** DoubleML's main branch (#393, not in 0.11.4) drops
+  cohorts treated between the evaluation period and `g` from the controls of pre-treatment
+  (placebo) periods. dml-rs keeps them, as 0.11.4 does, so post-treatment group-time effects agree
+  and pre-treatment ones can differ. Both are valid comparisons under parallel trends.
+- **Normalised SSM weights.** DoubleML 0.11.4 scales the weights to about `P(D = d)`, which biases
+  the estimate; its main branch normalises them to mean one (#427), and so does dml-rs. These two
+  fixtures come from DoubleML's main branch.
 - **Fold-specific tuning with repeated splits.** DoubleML 0.11's `tune(tune_on_folds=True)` stores
   its results in a list indexed `[repetition][treatment]` that has one entry per treatment, so it
   fails whenever the numbers of repetitions and treatments differ

@@ -1,0 +1,23 @@
+name: DoubleML main
+
+# Runs the parity tests against DoubleML's main branch, to catch upstream fixes that dml-rs copied
+# as bugs. Failures listed in crates/dml-py/tests/conftest.py are expected.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: pip install -r parity/requirements.txt pytest
+      - run: pip install "doubleml @ git+https://github.com/DoubleML/doubleml-for-py.git@main"
+      - run: pip install ./crates/dml-py
+      - run: pytest crates/dml-py/tests -q
