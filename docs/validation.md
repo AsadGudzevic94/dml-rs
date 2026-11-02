@@ -226,7 +226,12 @@ These are deliberate, documented, and covered by tests:
   the fitted basis everywhere, and the two agree when the grid spans the treated doses. contdid
   also divides the influence function of the overall ACRT, which is on the scale of the $n_1$
   treated units, by the full sample size $n$, so its standard error is too small by the factor
-  $n_1/n$; dml-rs's matches the sampling spread in simulations.
+  $n_1/n$; dml-rs's matches the sampling spread in simulations. Both are reported
+  ([contdid #16](https://github.com/bcallaway11/contdid/issues/16),
+  [contdid #13](https://github.com/bcallaway11/contdid/issues/13)), with fixes proposed in
+  contdid [#17](https://github.com/bcallaway11/contdid/pull/17) and
+  [#18](https://github.com/bcallaway11/contdid/pull/18) and
+  [ptetools #7](https://github.com/bcallaway11/ptetools/pull/7).
 
 - **IIVM with `normalize_ipw=True`.** dml-rs normalises the inverse-probability weights with the
   instrument; DoubleML 0.11 used the treatment. The DoubleML maintainers confirmed the instrument
@@ -271,17 +276,20 @@ These are deliberate, documented, and covered by tests:
 - **Negative multiples of a framework.** dml-rs reports `|c|·se` for `c · framework`. DoubleML 0.11
   multiplies the standard errors by `c` itself, so a negative multiple gets a negative standard
   error, a t-statistic with the wrong sign and a confidence interval with its bounds swapped. The
-  estimates and sensitivity bounds agree.
+  estimates and sensitivity bounds agree. This is fixed on DoubleML's main branch, not yet in a
+  release.
 - **Sensitivity benchmarks of a staggered DiD.** dml-rs refits every ATT(g, t) without the
   benchmarking covariates. DoubleML 0.11's `DoubleMLDIDMulti.sensitivity_benchmark` changes the
   covariate list of a copy whose group-time models have already read their covariates, so its
   short model equals the long one and every benchmark is 0. The fixtures compare with DoubleML's
   benchmark statistics computed from a short model fitted on data without the covariates, on the
-  same splits; they agree to `1e-7`.
+  same splits; they agree to `1e-7`. Reported as [DoubleML #430](https://github.com/DoubleML/doubleml-for-py/issues/430) (the same happens in
+  `DoubleMLDIDBinary` and `DoubleMLDIDCSBinary`).
 - **PQ with external propensities only.** A supplied `ml_m` also serves the preliminary estimate,
   on the rows of the first half of each training fold. DoubleML 0.11 indexes the external
   propensities by position within that half instead of by row, so it pairs them with the wrong
-  observations. With external `ml_g` (with or without `ml_m`) the two agree to `1e-9`.
+  observations ([DoubleML #431](https://github.com/DoubleML/doubleml-for-py/issues/431)). With external `ml_g` (with or without `ml_m`) the two
+  agree to `1e-9`.
 - **σ² and ν² of combinations.** For a multiple of a single estimate dml-rs keeps the
   sensitivity elements (with `ν²` scaled by the squared weight), so benchmarks remain possible;
   DoubleML drops them once frameworks are added, even when all but one weight is zero. The bounds
@@ -289,14 +297,15 @@ These are deliberate, documented, and covered by tests:
 - **Staggered DiD data with anticipation.** `make_did_CS2021(anticipation_periods > 0,
   time_type="float")` in DoubleML 0.11 also drops the never-treated units (its first filter tests
   `pd.isna`, which is false for the `inf` cohort; the datetime version keeps them). dml-rs keeps
-  them in both versions.
+  them in both versions ([DoubleML #432](https://github.com/DoubleML/doubleml-for-py/issues/432)).
 - **Fold-specific tuning with repeated splits.** DoubleML 0.11's `tune(tune_on_folds=True)` stores
   its results in a list indexed `[repetition][treatment]` that has one entry per treatment, so it
-  fails whenever there are more repetitions than treatments. dml-rs tunes every repetition; the
-  tests compare with DoubleML for one repetition.
+  fails whenever the numbers of repetitions and treatments differ
+  ([DoubleML #433](https://github.com/DoubleML/doubleml-for-py/issues/433)). dml-rs tunes every repetition; the tests compare with DoubleML for
+  one repetition.
 - **Optuna tuning of IV-type PLIV.** DoubleML 0.11's `tune_ml_models` for `DoubleMLPLIV` with
   `score="IV-type"` calls `cross_val_predict` for `ml_r` without the treatment as target and fails;
-  dml-rs uses the treatment, as its grid search does.
+  dml-rs uses the treatment, as its grid search does ([DoubleML #434](https://github.com/DoubleML/doubleml-for-py/issues/434)).
 - **Initial estimate for tuning `ml_g`** (PLR and PLIV, IV-type). With a classifier for `ml_m`,
   dml-rs uses predicted probabilities in the partialling-out estimate that defines `ml_g`'s target;
   DoubleML's grid search uses predicted classes. With regressors the two agree.
