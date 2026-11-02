@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-03
+
 ### Added
 - `tune` for `LPLR`, `PLPR` (all approaches and both scores), `SSM` with the nonignorable score
   and `PLIV` with several instruments, and `tune_ml_models` for `LPLR`, `PLPR` and `PLIV` with
@@ -644,7 +646,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.32.0...v1.0.0
 [0.32.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.30.0...v0.31.0
