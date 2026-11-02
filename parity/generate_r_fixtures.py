@@ -103,6 +103,40 @@ def main():
     sc = dml_rs.SyntheticDID(estimator="sc", se_method=None).fit(panel, n0, t0)
     expected["synthdid_sc"] = [sc.coef_[0], *sc.unit_weights_]
 
+    # Heterogeneous effects and dose response, on the columns above (no new draws).
+    basis = np.column_stack([np.ones(n), x[:, 1]])
+    groups = np.column_stack([x[:, 1] <= 0, x[:, 1] > 0]).astype(float)
+    irm_ols = dml_rs.IRM(ols, logit).fit(x, y, d)
+    plr_ols = dml_rs.PLR(ols, ols).fit(x, y, dcont)
+    for name, model in [("irm", irm_ols), ("plr", plr_ols)]:
+        blp, gate = model.cate(basis), model.gate(groups)
+        effect, se = blp.predict(basis[:3])
+        expected[f"{name}_cate"] = [*blp.coef, *blp.se, *effect, *se]
+        expected[f"{name}_gate"] = [*gate.coef, *gate.se]
+    for method, learner in [("S", dml_rs.SLearner(ols)), ("T", dml_rs.TLearner(ols)),
+                            ("X", dml_rs.XLearner(ols, ols, logit)),
+                            ("R", dml_rs.RLearner(ols, logit, ols)),
+                            ("DR", dml_rs.DRLearner(ols, logit, ols))]:
+        expected[f"cate_{method}"] = list(learner.fit(x, y, d).effect(x[:5]))
+    dr = dml_rs.DRLearner(ols, logit, ols).fit(x, y, d)
+    expected["cate_DR_blp"] = [*dr.blp(basis).coef, *dr.blp(basis).se]
+    # OLS nuisances: forest splits flip on last-bit differences, which the logistic regression
+    # has between compilers (the R package on Windows is built with GCC, the wheels with MSVC).
+    cf = dml_rs.CausalForest(ols, ols, n_estimators=200).fit(x, y, d)
+    ate = cf.ate()
+    expected["causal_forest"] = [*cf.effect_[:5], *cf.effect(x[:3]), *cf.effect_se(x[:3]),
+                                 ate.coef_[0], ate.se_[0], *cf.blp(basis).coef]
+    ivf = dml_rs.InstrumentalForest(ols, ols, ols, n_estimators=200).fit(x, y, d_iv, z)
+    expected["instrumental_forest"] = [*ivf.effect_[:5], *ivf.effect(x[:3]), ivf.ate().coef_[0],
+                                       ivf.ate().se_[0]]
+    conf = dml_rs.ConformalITE(ml_m=logit, ml_y=ols).fit(x, y, d)
+    expected["conformal"] = [*conf.predict_ite(x[:3], 0.1).ravel(),
+                             *conf.predict_counterfactual(x[:3], 0, alpha=0.2, target="treated").ravel()]
+    dose_fit = dml_rs.DoseResponse(ols, ols, grid=[-1.0, 0.0, 1.0], partial_effects=True).fit(x, y, dcont)
+    contrast_dose = dose_fit.contrast(0.0)
+    expected["dose_response"] = [*dose_fit.coef_, *dose_fit.se_, *dose_fit.partial_effect().coef_,
+                                 *contrast_dose.coef_, *contrast_dose.se_]
+
     with open(OUT / "parity_expected.csv", "w", encoding="utf-8", newline="\n") as f:
         f.write("name,index,value\n")
         for name, values in expected.items():

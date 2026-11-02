@@ -11,7 +11,7 @@ crossbeam-epoch 0.9.21 (MIT OR Apache-2.0)
   the crossbeam-epoch developers
 crossbeam-utils 0.8.23 (MIT OR Apache-2.0)
   the crossbeam-utils developers
-dml-core 0.31.0 (MIT OR Apache-2.0)
+dml-core 1.0.0 (MIT OR Apache-2.0)
   Asad Gudzevic <asadgudzevic94@gmail.com>
 either 1.19.0 (MIT OR Apache-2.0)
   the either developers

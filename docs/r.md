@@ -3,9 +3,13 @@
 The R package **dmlrs** runs the same Rust engine as the Python package. On the same data the two
 give the same estimates (the R tests check this against Python results). It covers the partially
 linear, interactive, IV, difference-in-differences and multi-valued treatment models with the
-built-in learners, multiplier bootstrap and sensitivity analysis, plus causal mediation, difference
-in differences with a continuous treatment, synthetic difference in differences, optimal policy
-trees and Lee bounds.
+built-in learners, multiplier bootstrap and sensitivity analysis, plus heterogeneous effects (best
+linear predictor, CATE meta-learners, causal forests, conformal intervals), dose-response curves,
+causal mediation, difference in differences with a continuous treatment, synthetic difference in
+differences, optimal policy trees and Lee bounds.
+
+The full reference of the R functions, and an article on heterogeneous effects, are on the
+[R package site](https://asadgudzevic94.github.io/dml-rs/r/).
 
 ## Installation
 
@@ -62,11 +66,16 @@ sensitivity_analysis(fit, cf_y = 0.03, cf_d = 0.03)
 | `synth_did()`, `synth_did_panel()` | Synthetic DiD, synthetic control and DiD | `SyntheticDID` |
 | `policy_tree()`, `policy_value()` | Exact optimal policy trees and policy values | `OptimalPolicyTree`, `policy_value` |
 | `lee_bounds()` | Lee bounds under sample selection | `LeeBounds` |
+| `dml_dose_response()` | Dose-response curve of a continuous treatment | `DoseResponse` |
+| `cate()`, `gate()` | Best linear predictor of the CATE, group average effects | `PLR.cate`, `IRM.gate`, ... |
+| `cate_learner()` | CATE meta-learners (S, T, X, R, DR) | `SLearner`, ..., `DRLearner` |
+| `causal_forest()`, `instrumental_forest()` | Causal and instrumental forests | `CausalForest`, `InstrumentalForest` |
+| `conformal_ite()` | Conformal intervals for individual effects | `ConformalITE` |
 
 Learners are specifications that the Rust code turns into learners, so cross-fitting never calls
 back into R: `lrn_ols()`, `lrn_lasso()`, `lrn_lasso_cv()`, `lrn_logistic()`, `lrn_logistic_cv()`,
-`lrn_random_forest()`, `lrn_gradient_boosting()`, `lrn_hist_gradient_boosting()` and
-`lrn_regression_forest()`, with the parameters of the Python learners.
+`lrn_random_forest()`, `lrn_gradient_boosting()`, `lrn_hist_gradient_boosting()`,
+`lrn_regression_forest()` and `lrn_quantile_forest()`, with the parameters of the Python learners.
 
 Fitted models have `print()`, `summary()`, `coef()`, `confint()` and `nobs()` methods, and
 `linear_combination()` estimates contrasts such as differences between treatment levels or between

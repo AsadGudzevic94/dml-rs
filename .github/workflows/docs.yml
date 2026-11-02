@@ -14,7 +14,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  r-site:
+    # The R package's pkgdown site, published under /r/ of the documentation site.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: r-lib/actions/setup-pandoc@v2
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          working-directory: r/dmlrs
+          extra-packages: any::pkgdown, any::rmarkdown, any::knitr, local::.
+          needs: website
+      - run: Rscript -e 'pkgdown::build_site("r/dmlrs", override = list(destination = "../../r-site"), install = FALSE, new_process = FALSE)'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r-site
+          path: r-site
+
   build:
+    needs: r-site
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +47,10 @@ jobs:
       - run: mkdocs build --strict
         env:
           NO_MKDOCS_2_WARNING: "1"
+      - uses: actions/download-artifact@v4
+        with:
+          name: r-site
+          path: site/r
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

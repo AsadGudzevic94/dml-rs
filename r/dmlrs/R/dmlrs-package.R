@@ -7,7 +7,13 @@
 #' with the [learners] constructors such as [lrn_lasso_cv()] or
 #' [lrn_random_forest()].
 #'
-#' Beyond DoubleML: causal mediation ([dml_mediation()]), difference in
+#' Heterogeneous effects: the best linear predictor of the CATE and group
+#' effects of a fit ([cate()], [gate()]), CATE meta-learners
+#' ([cate_learner()]), causal forests ([causal_forest()], a port of `grf`) and
+#' conformal intervals for individual effects ([conformal_ite()]).
+#'
+#' Beyond DoubleML: dose-response curves ([dml_dose_response()]), causal
+#' mediation ([dml_mediation()]), difference in
 #' differences with a continuous treatment ([dml_contdid()]), synthetic
 #' difference in differences ([synth_did()], a port of `synthdid`), optimal
 #' policy trees ([policy_tree()], a port of `policytree`) with
@@ -15,6 +21,7 @@
 #'
 #' The same Rust library powers the Python package dml-rs, whose results are
 #' validated against DoubleML; see <https://asadgudzevic94.github.io/dml-rs/>.
+#' The R reference and articles are at <https://asadgudzevic94.github.io/dml-rs/r/>.
 #'
 #' @section Threads:
 #' Cross-fitting and the forest and boosting learners run in parallel on all

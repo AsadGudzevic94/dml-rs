@@ -1,5 +1,20 @@
 # dmlrs (development version)
 
+* Heterogeneous effects:
+  * `cate()` and `gate()`: best linear predictor of the CATE and group average
+    effects of `dml_plr()` and `dml_irm()` fits, with `confint()` (also
+    simultaneous) and `predict()`.
+  * `cate_learner()`: S-, T-, X-, R- and DR-learners.
+  * `causal_forest()` and `instrumental_forest()`: ports of the grf forests on
+    cross-fitted nuisances, with `predict()`, `average_treatment_effect()`,
+    `test_calibration()`, `cate()` and `gate()`.
+  * `conformal_ite()`: conformal prediction intervals for individual effects,
+    with residual or quantile scores (`lrn_quantile_forest()`).
+* `dml_dose_response()`: dose-response curves of a continuous treatment, with
+  `dose_contrast()` and `plot()`.
+* All of these give the same estimates as the Python package (new parity tests).
+* Reference site and an article on heterogeneous effects:
+  <https://asadgudzevic94.github.io/dml-rs/r/>.
 * Built on dml-core 1.0.
 * The learners' `random_state` argument is now `seed`, as in the model
   functions; `random_state` still works with a deprecation warning.

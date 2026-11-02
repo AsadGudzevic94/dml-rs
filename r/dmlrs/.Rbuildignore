@@ -7,3 +7,7 @@
 ^src/\.cargo-build$
 ^src/vendor$
 ^cran-comments\.md$
+^_pkgdown\.yml$
+^vignettes/articles$
+^docs$
+^pkgdown$

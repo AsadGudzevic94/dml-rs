@@ -36,6 +36,9 @@ renamed_arg <- function(new, old, new_name, old_name) {
 #'   scikit-learn's `HistGradientBoosting*`; the learner for large data.
 #' * `lrn_regression_forest()`: honest regression forest (R's
 #'   `grf::regression_forest`), regression only.
+#' * `lrn_quantile_forest()`: quantile forest (R's `grf::quantile_forest`)
+#'   predicting the conditional `quantile` of the outcome; the lower and
+#'   upper learners of [conformal_ite()].
 #'
 #' @param ridge,alpha,C Penalties (see above).
 #' @param tol,max_iter Convergence tolerance and maximum iterations (sweeps of
@@ -52,6 +55,7 @@ renamed_arg <- function(new, old, new_name, old_name) {
 #' @param max_leaf_nodes Maximum leaves per tree (`NULL`: unlimited).
 #' @param l2_regularization L2 penalty on leaf values.
 #' @param min_node_size Minimum observations per leaf (grf's `min.node.size`).
+#' @param quantile Quantile predicted by `lrn_quantile_forest()`.
 #' @param seed Seed of the random number generator.
 #' @param random_state Deprecated name of `seed`.
 #' @return A learner specification (class `dmlrs_learner`).
@@ -120,6 +124,16 @@ lrn_regression_forest <- function(n_estimators = 2000, min_node_size = 5, seed =
               seed = renamed_arg(seed, random_state, "seed", "random_state"))
 }
 
+#' @rdname learners
+#' @export
+lrn_quantile_forest <- function(quantile, n_estimators = 2000, min_node_size = 5, seed = 0) {
+  if (!is.numeric(quantile) || length(quantile) != 1 || quantile <= 0 || quantile >= 1) {
+    stop("`quantile` must be a number in (0, 1)", call. = FALSE)
+  }
+  new_learner("quantile_forest", quantile = quantile, n_estimators = n_estimators,
+              min_node_size = min_node_size, seed = seed)
+}
+
 #' @export
 print.dmlrs_learner <- function(x, ...) {
   params <- x[names(x) != "type"]
@@ -137,7 +151,9 @@ check_learner <- function(learner, role, arg) {
                    "hist_gradient_boosting")
   regressors <- c("ols", "lasso", "lasso_cv", "random_forest", "gradient_boosting",
                   "hist_gradient_boosting", "regression_forest")
-  allowed <- if (role == "classifier") classifiers else regressors
+  allowed <- switch(role, classifier = classifiers, regressor = regressors,
+                    quantile = c(regressors, "quantile_forest"))
+  if (role == "quantile") role <- "regressor"
   if (!learner$type %in% allowed) {
     stop(sprintf("`%s` needs a %s; %s is not one", arg, role, learner$type), call. = FALSE)
   }

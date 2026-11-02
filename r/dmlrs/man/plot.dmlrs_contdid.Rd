@@ -2,7 +2,7 @@
 % Please edit documentation in R/more-models.R
 \name{plot.dmlrs_contdid}
 \alias{plot.dmlrs_contdid}
-\title{Plot a dose-response curve}
+\title{Plot the effects of a continuous-treatment DiD}
 \usage{
 \method{plot}{dmlrs_contdid}(x, type = c("att", "acrt"), level = 0.95, ...)
 }
@@ -19,5 +19,5 @@
 \code{x}, invisibly.
 }
 \description{
-Plot a dose-response curve
+Plot the effects of a continuous-treatment DiD
 }

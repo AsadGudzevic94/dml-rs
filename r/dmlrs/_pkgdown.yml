@@ -1,0 +1,79 @@
+url: https://asadgudzevic94.github.io/dml-rs/r/
+
+template:
+  bootstrap: 5
+
+navbar:
+  structure:
+    left: [intro, reference, articles, news]
+    right: [search, python, github]
+  components:
+    python:
+      text: Python and Rust
+      href: https://asadgudzevic94.github.io/dml-rs/
+    github:
+      icon: fa-github
+      href: https://github.com/AsadGudzevic94/dml-rs
+      aria-label: GitHub
+
+articles:
+  - title: Articles
+    navbar: ~
+    contents:
+      - articles/heterogeneous-effects
+
+reference:
+  - title: Average effects
+    desc: Double / debiased machine learning models with cross-fitted nuisance learners.
+    contents:
+      - dml_plr
+      - dml_irm
+      - dml_pliv
+      - dml_iivm
+      - dml_did
+      - dml_apos
+      - dml_mediation
+      - dml_contdid
+      - dml_dose_response
+  - title: Inference on fitted models
+    contents:
+      - confint.dmlrs_fit
+      - sensitivity_analysis
+      - linear_combination
+      - dose_contrast
+      - plot.dmlrs_contdid
+      - plot.dmlrs_dose
+  - title: Heterogeneous effects
+    desc: Conditional average treatment effects, their best linear predictor and group effects.
+    contents:
+      - cate
+      - blp-methods
+      - cate_learner
+      - causal_forest
+      - predict.dmlrs_causal_forest
+      - average_treatment_effect
+      - test_calibration
+  - title: Prediction intervals for individual effects
+    contents:
+      - conformal_ite
+      - predict.dmlrs_conformal
+  - title: Policy learning
+    contents:
+      - double_robust_scores
+      - policy_tree
+      - policy_value
+  - title: Synthetic difference in differences
+    contents:
+      - synth_did
+      - synth_did_panel
+      - synth_se
+      - plot.dmlrs_synthdid
+  - title: Bounds
+    contents:
+      - lee_bounds
+  - title: Learners
+    contents:
+      - learners
+  - title: Package
+    contents:
+      - dmlrs-package

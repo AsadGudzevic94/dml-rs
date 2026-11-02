@@ -96,3 +96,79 @@ rs_is_valid <- function(ptr) .Call(wrap__rs_is_valid, ptr)
 rs_is_valid_synth <- function(ptr) .Call(wrap__rs_is_valid_synth, ptr)
 
 rs_init <- function(threads) .Call(wrap__rs_init, threads)
+
+# Heterogeneous effects (src/rust/src/heterogeneity.rs)
+
+rs_cate <- function(fit, basis) .Call(wrap__rs_cate, fit, basis)
+
+rs_gate <- function(fit, groups) .Call(wrap__rs_gate, fit, groups)
+
+rs_blp_info <- function(blp) .Call(wrap__rs_blp_info, blp)
+
+rs_blp_confint <- function(blp, level) .Call(wrap__rs_blp_confint, blp, level)
+
+rs_blp_predict <- function(blp, basis, interval, level, n_boot, seed_) {
+  .Call(wrap__rs_blp_predict, blp, basis, interval, level, n_boot, seed_)
+}
+
+rs_fit_cate_learner <- function(y, d, x, method, ml_outcome, ml_propensity, ml_effect, n_folds,
+                                seed_, clipping_threshold) {
+  .Call(wrap__rs_fit_cate_learner, y, d, x, method, ml_outcome, ml_propensity, ml_effect, n_folds,
+        seed_, clipping_threshold)
+}
+
+rs_cate_effect <- function(fit, x) .Call(wrap__rs_cate_effect, fit, x)
+
+rs_cate_pseudo_outcomes <- function(fit) .Call(wrap__rs_cate_pseudo_outcomes, fit)
+
+rs_cate_learner_blp <- function(fit, basis) .Call(wrap__rs_cate_learner_blp, fit, basis)
+
+rs_cate_learner_gate <- function(fit, groups) .Call(wrap__rs_cate_learner_gate, fit, groups)
+
+rs_fit_causal_forest <- function(y, d, x, ml_y, ml_d, d_classifier, forest, clipping_threshold,
+                                 n_folds, seed_) {
+  .Call(wrap__rs_fit_causal_forest, y, d, x, ml_y, ml_d, d_classifier, forest, clipping_threshold,
+        n_folds, seed_)
+}
+
+rs_fit_instrumental_forest <- function(y, d, x, z, ml_y, ml_d, ml_z, d_classifier, z_classifier,
+                                       forest, reduced_form_weight, clipping_threshold, n_folds,
+                                       seed_) {
+  .Call(wrap__rs_fit_instrumental_forest, y, d, x, z, ml_y, ml_d, ml_z, d_classifier, z_classifier,
+        forest, reduced_form_weight, clipping_threshold, n_folds, seed_)
+}
+
+rs_forest_info <- function(fit) .Call(wrap__rs_forest_info, fit)
+
+rs_forest_effect <- function(fit, x) .Call(wrap__rs_forest_effect, fit, x)
+
+rs_forest_dr_scores <- function(fit) .Call(wrap__rs_forest_dr_scores, fit)
+
+rs_forest_ate <- function(fit) .Call(wrap__rs_forest_ate, fit)
+
+rs_forest_blp <- function(fit, basis) .Call(wrap__rs_forest_blp, fit, basis)
+
+rs_forest_gate <- function(fit, groups) .Call(wrap__rs_forest_gate, fit, groups)
+
+rs_fit_conformal <- function(y, d, x, ml_y, ml_lower, ml_upper, ml_m, propensity, train_fraction,
+                             clipping_threshold, seed_) {
+  .Call(wrap__rs_fit_conformal, y, d, x, ml_y, ml_lower, ml_upper, ml_m, propensity,
+        train_fraction, clipping_threshold, seed_)
+}
+
+rs_conformal_predict <- function(fit, x, what, target, alpha) {
+  .Call(wrap__rs_conformal_predict, fit, x, what, target, alpha)
+}
+
+rs_conformal_n_calibration <- function(fit) .Call(wrap__rs_conformal_n_calibration, fit)
+
+rs_fit_dose_response <- function(y, d, x, ml_g, ml_m, grid, kernel, bandwidth, bandwidth_scale,
+                                 density, density_bandwidth, density_floor, partial_effects, eta,
+                                 n_folds, n_rep, seed_) {
+  .Call(wrap__rs_fit_dose_response, y, d, x, ml_g, ml_m, grid, kernel, bandwidth, bandwidth_scale,
+        density, density_bandwidth, density_floor, partial_effects, eta, n_folds, n_rep, seed_)
+}
+
+rs_dose_contrast <- function(fit, reference) .Call(wrap__rs_dose_contrast, fit, reference)
+
+rs_is_valid_kind <- function(ptr, kind) .Call(wrap__rs_is_valid_kind, ptr, kind)

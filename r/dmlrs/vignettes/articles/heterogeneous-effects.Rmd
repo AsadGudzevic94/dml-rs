@@ -1,0 +1,156 @@
+---
+title: "Heterogeneous treatment effects"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 6, fig.height = 4)
+```
+
+An average effect can hide groups that gain a lot and groups that gain nothing. This article
+estimates how a treatment effect varies with the covariates, with the tools of dmlrs:
+
+* the best linear predictor of the effect and group average effects of a DML fit, `cate()` and
+  `gate()`;
+* CATE meta-learners, `cate_learner()`;
+* causal forests, `causal_forest()`;
+* prediction intervals for the effect on an individual unit, `conformal_ite()`;
+* and, for a continuous treatment, dose-response curves, `dml_dose_response()`.
+
+```{r}
+library(dmlrs)
+```
+
+## Simulated data
+
+A binary treatment `d`, assigned with a probability that depends on `x1`, and an effect
+`1 + x2` that grows with the second covariate. Half of the units have an effect above 1 and some
+have a negative one.
+
+```{r}
+set.seed(1)
+n <- 3000
+x <- matrix(rnorm(n * 5), n, dimnames = list(NULL, paste0("x", 1:5)))
+d <- rbinom(n, 1, plogis(0.5 * x[, 1]))
+tau <- 1 + x[, 2]
+y <- d * tau + x[, 1] + 0.5 * x[, 3] + rnorm(n)
+```
+
+## Best linear predictor and group effects
+
+Start with the average effect, from the interactive regression model.
+
+```{r}
+irm <- dml_irm(y, d, x, ml_g = lrn_random_forest(n_estimators = 200, min_samples_leaf = 5),
+               ml_m = lrn_logistic_cv())
+irm
+```
+
+`cate()` regresses the doubly robust signal of the effect on a basis of the covariates. The
+coefficients are the best linear approximation of the effect, with valid standard errors even
+though the signal comes from machine learning fits (Semenova and Chernozhukov, 2021). Here the
+truth is `1 + x2`:
+
+```{r}
+blp <- cate(irm, cbind(intercept = 1, x2 = x[, "x2"]))
+blp
+```
+
+`predict()` gives the effect at new points; `interval = "joint"` makes the intervals hold at all
+points at once.
+
+```{r}
+grid <- seq(-2, 2, by = 0.5)
+band <- predict(blp, cbind(1, grid), interval = "joint")
+plot(grid, band$estimate, type = "l", lwd = 2, ylim = range(band), xlab = "x2", ylab = "effect")
+lines(grid, band$lower, lty = 2)
+lines(grid, band$upper, lty = 2)
+abline(a = 1, b = 1, col = "grey50")
+```
+
+`gate()` estimates the average effect in groups, here the terciles of `x2`:
+
+```{r}
+terciles <- cut(x[, "x2"], quantile(x[, "x2"], 0:3 / 3), include.lowest = TRUE,
+                labels = c("low", "middle", "high"))
+gate(irm, terciles)
+```
+
+## Meta-learners
+
+The meta-learners estimate the effect function itself. The DR-learner regresses the doubly
+robust pseudo-outcome on the covariates with any learner, and supports the same inference.
+
+```{r}
+dr <- cate_learner(y, d, x, method = "DR",
+                   ml_outcome = lrn_random_forest(n_estimators = 200, min_samples_leaf = 5),
+                   ml_propensity = lrn_logistic_cv(),
+                   ml_effect = lrn_random_forest(n_estimators = 200, min_samples_leaf = 20))
+dr
+cor(dr$effect, tau)
+```
+
+## Causal forests
+
+A causal forest (Athey, Tibshirani and Wager, 2019) splits on the heterogeneity of the effect
+and gives a standard error for every prediction. `test_calibration()` checks whether its
+predictions carry real heterogeneity: a `differential.forest.prediction` coefficient
+significantly above 0 says they do.
+
+```{r}
+cf <- causal_forest(y, d, x, ml_y = lrn_random_forest(n_estimators = 200, min_samples_leaf = 5),
+                    ml_d = lrn_logistic_cv(), num_trees = 1000)
+cf
+average_treatment_effect(cf)
+test_calibration(cf)
+```
+
+The out-of-bag predictions follow the true effect:
+
+```{r}
+plot(x[, "x2"], cf$predictions, pch = 16, cex = 0.4, col = "#0173B280", xlab = "x2",
+     ylab = "estimated effect")
+abline(a = 1, b = 1, col = "grey30", lwd = 2)
+```
+
+## Intervals for individual effects
+
+The intervals above are for average effects among units with the same covariates. The effect
+on one unit, `Y(1) - Y(0)`, also includes that unit's noise. `conformal_ite()` gives intervals
+that cover it with probability at least 1 - alpha (Lei and Candes, 2021). With quantile forests
+as score learners, the intervals adapt to the noise level.
+
+```{r}
+conformal <- conformal_ite(y, d, x, ml_lower = lrn_quantile_forest(0.05, n_estimators = 500),
+                           ml_upper = lrn_quantile_forest(0.95, n_estimators = 500),
+                           ml_m = lrn_logistic_cv())
+predict(conformal, x[1:5, ], alpha = 0.1)
+```
+
+## A continuous treatment
+
+For a continuous treatment, `dml_dose_response()` estimates the average outcome `E[Y(t)]` at
+each dose `t` (Colangelo and Lee, 2023).
+
+```{r}
+dose <- 0.5 * x[, 1] + rnorm(n)
+y_dose <- sin(dose) + x[, 1] + rnorm(n)
+curve <- dml_dose_response(y_dose, dose, x,
+                           ml_g = lrn_random_forest(n_estimators = 200, min_samples_leaf = 5),
+                           ml_m = lrn_lasso_cv(), grid = seq(-1.5, 1.5, by = 0.5))
+plot(curve)
+lines(curve$grid, sin(curve$grid), col = "grey30", lty = 2)
+dose_contrast(curve, reference = 0)
+```
+
+## References
+
+* Athey, S., Tibshirani, J. and Wager, S. (2019). Generalized random forests. *Annals of
+  Statistics* 47(2).
+* Colangelo, K. and Lee, Y.-Y. (2023). Double debiased machine learning nonparametric inference
+  with continuous treatments. arXiv:2004.03036.
+* Kennedy, E. H. (2023). Towards optimal doubly robust estimation of heterogeneous causal effects.
+  *Electronic Journal of Statistics* 17(2).
+* Lei, L. and Candes, E. J. (2021). Conformal inference of counterfactuals and individual
+  treatment effects. *Journal of the Royal Statistical Society B* 83(5).
+* Semenova, V. and Chernozhukov, V. (2021). Debiased machine learning of conditional average
+  treatment effects and other causal functions. *The Econometrics Journal* 24(2).

@@ -14,7 +14,13 @@ with the \link{learners} constructors such as \code{\link[=lrn_lasso_cv]{lrn_las
 \code{\link[=lrn_random_forest]{lrn_random_forest()}}.
 }
 \details{
-Beyond DoubleML: causal mediation (\code{\link[=dml_mediation]{dml_mediation()}}), difference in
+Heterogeneous effects: the best linear predictor of the CATE and group
+effects of a fit (\code{\link[=cate]{cate()}}, \code{\link[=gate]{gate()}}), CATE meta-learners
+(\code{\link[=cate_learner]{cate_learner()}}), causal forests (\code{\link[=causal_forest]{causal_forest()}}, a port of \code{grf}) and
+conformal intervals for individual effects (\code{\link[=conformal_ite]{conformal_ite()}}).
+
+Beyond DoubleML: dose-response curves (\code{\link[=dml_dose_response]{dml_dose_response()}}), causal
+mediation (\code{\link[=dml_mediation]{dml_mediation()}}), difference in
 differences with a continuous treatment (\code{\link[=dml_contdid]{dml_contdid()}}), synthetic
 difference in differences (\code{\link[=synth_did]{synth_did()}}, a port of \code{synthdid}), optimal
 policy trees (\code{\link[=policy_tree]{policy_tree()}}, a port of \code{policytree}) with
@@ -22,6 +28,7 @@ policy trees (\code{\link[=policy_tree]{policy_tree()}}, a port of \code{policyt
 
 The same Rust library powers the Python package dml-rs, whose results are
 validated against DoubleML; see \url{https://asadgudzevic94.github.io/dml-rs/}.
+The R reference and articles are at \url{https://asadgudzevic94.github.io/dml-rs/r/}.
 }
 \section{Threads}{
 
@@ -35,6 +42,7 @@ uses two threads.
 \seealso{
 Useful links:
 \itemize{
+  \item \url{https://asadgudzevic94.github.io/dml-rs/r/}
   \item \url{https://asadgudzevic94.github.io/dml-rs/}
   \item \url{https://github.com/AsadGudzevic94/dml-rs}
   \item Report bugs at \url{https://github.com/AsadGudzevic94/dml-rs/issues}

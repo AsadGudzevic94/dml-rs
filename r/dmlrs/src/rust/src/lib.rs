@@ -19,6 +19,8 @@ use extendr_api::prelude::*;
 use extendr_api::Result;
 use ndarray::{Array1, Array2, Array3, ShapeBuilder};
 
+mod heterogeneity;
+
 fn err(e: impl std::fmt::Display) -> Error {
     Error::Other(e.to_string())
 }
@@ -96,6 +98,15 @@ impl Spec {
         match self.get(key) {
             None => Ok(None),
             Some(_) => self.count(key, 0).map(Some),
+        }
+    }
+
+    fn flag(&self, key: &str, default: bool) -> Result<bool> {
+        match self.get(key) {
+            None => Ok(default),
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| err(format!("learner parameter `{key}` must be TRUE or FALSE"))),
         }
     }
 
@@ -903,6 +914,7 @@ fn rs_is_valid_synth(ptr: Robj) -> bool {
 
 extendr_module! {
     mod dmlrs;
+    use heterogeneity;
     fn rs_fit_plr;
     fn rs_fit_irm;
     fn rs_fit_pliv;

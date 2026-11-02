@@ -178,7 +178,7 @@ print.dmlrs_contdid <- function(x, digits = max(3L, getOption("digits") - 3L), .
   invisible(x)
 }
 
-#' Plot a dose-response curve
+#' Plot the effects of a continuous-treatment DiD
 #'
 #' @param x A `dmlrs_contdid` fit.
 #' @param type `"att"` or `"acrt"`.

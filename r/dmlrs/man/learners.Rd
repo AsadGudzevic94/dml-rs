@@ -11,6 +11,7 @@
 \alias{lrn_gradient_boosting}
 \alias{lrn_hist_gradient_boosting}
 \alias{lrn_regression_forest}
+\alias{lrn_quantile_forest}
 \title{Built-in nuisance learners}
 \usage{
 lrn_ols(ridge = 0)
@@ -58,6 +59,8 @@ lrn_regression_forest(
   seed = 0,
   random_state = NULL
 )
+
+lrn_quantile_forest(quantile, n_estimators = 2000, min_node_size = 5, seed = 0)
 }
 \arguments{
 \item{ridge, alpha, C}{Penalties (see above).}
@@ -90,6 +93,8 @@ number of folds of the cross-validated learners.}
 \item{l2_regularization}{L2 penalty on leaf values.}
 
 \item{min_node_size}{Minimum observations per leaf (grf's \code{min.node.size}).}
+
+\item{quantile}{Quantile predicted by \code{lrn_quantile_forest()}.}
 }
 \value{
 A learner specification (class \code{dmlrs_learner}).
@@ -118,6 +123,9 @@ scikit-learn's \verb{GradientBoosting*}.
 scikit-learn's \verb{HistGradientBoosting*}; the learner for large data.
 \item \code{lrn_regression_forest()}: honest regression forest (R's
 \code{grf::regression_forest}), regression only.
+\item \code{lrn_quantile_forest()}: quantile forest (R's \code{grf::quantile_forest})
+predicting the conditional \code{quantile} of the outcome; the lower and
+upper learners of \code{\link[=conformal_ite]{conformal_ite()}}.
 }
 }
 \examples{
