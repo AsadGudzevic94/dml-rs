@@ -24,6 +24,7 @@ use super::{
     dml_model_api, nuisance_api, LinearScoreModel, NuisanceLearners, NuisanceTarget, ScoreEstimate,
     ScoreInput,
 };
+use crate::compat::np_sum;
 use crate::crossfit::{cross_fit_predict_proba, cross_fit_predict_subset, Fold, SampleSplitting};
 use crate::data::{gather, is_binary, DmlData};
 use crate::error::{DmlError, Result};
@@ -115,7 +116,7 @@ impl Ssm {
         self
     }
 
-    /// Normalise the inverse-probability weights within treated and controls.
+    /// Normalise the inverse-probability weights to mean one within treated and controls.
     pub fn normalize_ipw(mut self, normalize: bool) -> Self {
         self.normalize_ipw = normalize;
         self
@@ -292,25 +293,22 @@ impl LinearScoreModel for Ssm {
         let t = self.clipping_threshold;
         let m = adjust_propensity(m, d, folds, t, self.calibration)?;
 
-        // ψ_b = ψ_b1 − ψ_b0, each an IPW-corrected outcome prediction; written
-        // in DoubleML's operation order (and its sequential sums) so results
-        // agree to the last bit.
+        // ψ_b = ψ_b1 − ψ_b0, each an IPW-corrected outcome prediction.
         let treat: Array1<f64> = d.mapv(|v| f64::from(v == 1.0));
         let control: Array1<f64> = d.mapv(|v| f64::from(v == 0.0));
-        let (w1, w0) = if self.normalize_ipw {
-            let sum = |a: Array1<f64>| a.iter().fold(0.0, |acc, &v| acc + v);
-            let w1 = treat.sum() / sum(&treat * &s / &(&pi * &m));
-            let w0 = control.sum() / sum(&control * &s / &(&pi * &(1.0 - &m)));
-            (Some(w1), Some(w0))
-        } else {
-            (None, None)
-        };
+        let mut ipw_treat = &treat * &s / &(&m * &pi);
+        let mut ipw_control = &control * &s / &(&(1.0 - &m) * &pi);
+        if self.normalize_ipw {
+            // Mean one in each arm, as DoubleML since #427 (0.11.4 scaled the weights to about
+            // P(D = d) instead, which shrinks the correction and biases the estimate).
+            let mean = |w: &Array1<f64>| np_sum(w.as_slice().expect("owned")) / n as f64;
+            ipw_treat /= mean(&ipw_treat);
+            ipw_control /= mean(&ipw_control);
+        }
         let psi_b: Array1<f64> = (0..n)
             .map(|i| {
-                let c1 = treat[i] * s[i] * (y[i] - g1[i]) / (m[i] * pi[i]);
-                let c0 = control[i] * s[i] * (y[i] - g0[i]) / ((1.0 - m[i]) * pi[i]);
-                let b1 = w1.map_or(c1, |w| w * c1) + g1[i];
-                let b0 = w0.map_or(c0, |w| w * c0) + g0[i];
+                let b1 = ipw_treat[i] * (y[i] - g1[i]) + g1[i];
+                let b0 = ipw_control[i] * (y[i] - g0[i]) + g0[i];
                 b1 - b0
             })
             .collect();

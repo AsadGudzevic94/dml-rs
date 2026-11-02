@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- `Ssm` / `SSM` with `normalize_ipw=True` gave biased estimates: the weights were scaled to about
+  P(D = d) instead of mean one. The bug came from DoubleML 0.11.4, which fixed it in #427. **Results
+  with `normalize_ipw=True` change; rerun them.** The default (`False`) is not affected.
+
 ## [1.0.0] - 2026-11-02
 
 The API of 0.32.0, now stable: the Rust crate and the Python package follow semantic versioning,

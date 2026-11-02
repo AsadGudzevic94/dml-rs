@@ -7,10 +7,11 @@ DoubleML draws are recorded too, so Rust can replay them.
 
     python -m venv .venv
     .venv/Scripts/pip install -r parity/requirements.txt   # or .venv/bin/pip
-    .venv/Scripts/python parity/generate_fixtures.py
+    .venv/Scripts/python parity/generate_fixtures.py [fixture names]
 """
 
 import json
+import sys
 import warnings
 from pathlib import Path
 
@@ -975,9 +976,19 @@ CASES = [
 ]
 
 
-def main():
+# These need DoubleML's main branch (> 0.11.4, #427 fixed the SSM weights):
+#   <python with DoubleML main> parity/generate_fixtures.py ssm_mar_normalized ssm_nonignorable_normalized_rep2
+NEEDS_DOUBLEML_MAIN = {"ssm_mar_normalized", "ssm_nonignorable_normalized_rep2"}
+
+
+def main(names):
     OUT.mkdir(parents=True, exist_ok=True)
     for make in CASES:
+        constants = set(make.__code__.co_consts)
+        if names and not constants & set(names):
+            continue
+        if constants & NEEDS_DOUBLEML_MAIN and dml.__version__ == "0.11.4":
+            continue
         case = make()
         case.pop("_model")
         case["versions"] = {"doubleml": dml.__version__, "sklearn": sklearn.__version__, "numpy": np.__version__}
@@ -988,4 +999,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])
