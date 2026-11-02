@@ -20,6 +20,7 @@ use extendr_api::Result;
 use ndarray::{Array1, Array2, Array3, ShapeBuilder};
 
 mod heterogeneity;
+mod panel;
 
 fn err(e: impl std::fmt::Display) -> Error {
     Error::Other(e.to_string())
@@ -915,6 +916,7 @@ fn rs_is_valid_synth(ptr: Robj) -> bool {
 extendr_module! {
     mod dmlrs;
     use heterogeneity;
+    use panel;
     fn rs_fit_plr;
     fn rs_fit_irm;
     fn rs_fit_pliv;

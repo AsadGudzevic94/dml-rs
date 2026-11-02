@@ -137,6 +137,64 @@ def main():
     expected["dose_response"] = [*dose_fit.coef_, *dose_fit.se_, *dose_fit.partial_effect().coef_,
                                  *contrast_dose.coef_, *contrast_dose.se_]
 
+    # Staggered DiD and flexible RD: a generator of their own, so that the columns above keep
+    # their values.
+    rng = np.random.default_rng(2027)
+    units, periods = 150, 4
+    cohort = rng.choice([2.0, 3.0, np.inf], size=units, p=[0.3, 0.3, 0.4])
+    covariates = rng.normal(size=(units, 2))
+    effect = rng.normal(size=units)
+    unit, period = np.repeat(np.arange(units), periods), np.tile(np.arange(1.0, periods + 1), units)
+    gcol, xcol = cohort[unit], covariates[unit]
+    treated = period >= gcol
+    ypanel = (covariates[:, 0] + effect)[unit] + 0.5 * period + 0.2 * period * xcol[:, 1] \
+        + np.where(treated, 1 + 0.5 * (period - gcol), 0.0) + 0.5 * rng.normal(size=unit.size)
+    clusters = (unit % 20).astype(float)
+    tcs = rng.integers(1, periods + 1, size=unit.size).astype(float)
+    gcs = rng.choice([2.0, 3.0, np.inf], size=unit.size, p=[0.3, 0.3, 0.4])
+    ycs = xcol[:, 0] + 0.5 * tcs + np.where(tcs >= gcs, 1.0, 0.0) + rng.normal(size=unit.size)
+    np.column_stack([unit + 1.0, period, gcol, xcol, ypanel, clusters, ycs, tcs, gcs]).T.astype("<f8").tofile(
+        OUT / "parity_panel.bin")
+
+    def staggered(**kwargs):
+        return dml_rs.StaggeredDID(ols, logit, **kwargs)
+
+    for control in ("never_treated", "not_yet_treated"):
+        fit = staggered(control_group=control).fit(xcol, ypanel, unit + 1, period, gcol)
+        expected[f"staggered_{control}"] = [*fit.coef_, *fit.se_]
+        expected[f"staggered_gt_{control}"] = list(np.ravel(fit.group_times_))
+        for how in ("group", "time", "eventstudy"):
+            agg = fit.aggregate(how)
+            effects, overall = agg.aggregated_frameworks, agg.overall_aggregated_framework
+            expected[f"staggered_{control}_{how}"] = [*effects.coef_, *effects.se_, *overall.coef_, *overall.se_]
+    cs = staggered(panel=False, n_folds=3).fit(xcol, ycs, unit + 1, tcs, gcs)
+    expected["staggered_cs"] = [*cs.coef_, *cs.se_]
+    clustered = staggered().fit(xcol, ypanel, unit + 1, period, gcol, cluster=clusters)
+    expected["staggered_cluster"] = [*clustered.coef_, *clustered.se_]
+    experimental = dml_rs.StaggeredDID(ols, score="experimental").fit(xcol, ypanel, unit + 1, period, gcol)
+    expected["staggered_experimental"] = [*experimental.coef_, *experimental.se_]
+
+    nrd = 800
+    score = rng.uniform(-1, 1, size=nrd)
+    xrd = rng.normal(size=(nrd, 2))
+    sharp = (score >= 0).astype(float)
+    fuzzy = (rng.random(nrd) < np.where(score >= 0, 0.8, 0.2)).astype(float)
+    yrd = 0.5 * fuzzy + score + xrd[:, 0] + 0.5 * rng.normal(size=nrd)
+    ybin = (yrd > 0).astype(float)
+    clusterrd = rng.integers(0, 40, size=nrd).astype(float)
+    np.column_stack([score, xrd, yrd, sharp, fuzzy, ybin, clusterrd]).T.astype("<f8").tofile(OUT / "parity_rd.bin")
+
+    def rd_values(fit):
+        return [*fit.coef_, *fit.se_, *fit.confint(0.9).T.ravel(), *fit.h_, *fit.b_, fit.h_fs_]
+
+    expected["rdflex_sharp"] = rd_values(dml_rs.RDFlex(ols).fit(xrd, yrd, sharp, score))
+    expected["rdflex_fuzzy"] = rd_values(dml_rs.RDFlex(ols, logit, fuzzy=True).fit(xrd, yrd, fuzzy, score))
+    expected["rdflex_options"] = rd_values(dml_rs.RDFlex(
+        ols, cutoff=0.1, fs_specification="cutoff and score", fs_kernel="uniform", n_iterations=3, n_rep=2, p=2,
+        kernel="uniform", vce="hc1", bwselect="msetwo", level=90, covs=xrd[:, :1], cluster=clusterrd,
+    ).fit(xrd, yrd, sharp, score))
+    expected["rdflex_binary"] = rd_values(dml_rs.RDFlex(logit).fit(xrd, ybin, sharp, score))
+
     with open(OUT / "parity_expected.csv", "w", encoding="utf-8", newline="\n") as f:
         f.write("name,index,value\n")
         for name, values in expected.items():

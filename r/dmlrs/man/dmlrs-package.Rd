@@ -9,7 +9,8 @@
 Double / debiased machine learning (Chernozhukov et al., 2018) with the
 estimation, including the nuisance learners, implemented in Rust. The
 models follow the DoubleML package: \code{\link[=dml_plr]{dml_plr()}}, \code{\link[=dml_irm]{dml_irm()}}, \code{\link[=dml_pliv]{dml_pliv()}},
-\code{\link[=dml_iivm]{dml_iivm()}}, \code{\link[=dml_did]{dml_did()}} and \code{\link[=dml_apos]{dml_apos()}}. Nuisance learners are created
+\code{\link[=dml_iivm]{dml_iivm()}}, \code{\link[=dml_did]{dml_did()}}, \code{\link[=dml_staggered_did]{dml_staggered_did()}}, \code{\link[=dml_rdflex]{dml_rdflex()}} and
+\code{\link[=dml_apos]{dml_apos()}}. Nuisance learners are created
 with the \link{learners} constructors such as \code{\link[=lrn_lasso_cv]{lrn_lasso_cv()}} or
 \code{\link[=lrn_random_forest]{lrn_random_forest()}}.
 }

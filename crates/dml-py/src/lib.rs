@@ -2182,9 +2182,6 @@ fn fit_rdflex(
     result.map(|fit| PyRdFlexResult { fit }).map_err(to_py_err)
 }
 
-/// Partially linear regression on a static panel (long format: unit `id` and
-/// period `t` per row), clustered by unit. `splits` refer to the rows of the
-/// transformed panel.
 /// The panel a PLPR model is fitted on: outcome, treatments, covariates and the unit of every row.
 #[pyfunction]
 #[allow(clippy::type_complexity)]
@@ -2222,6 +2219,9 @@ fn plpr_transform<'py>(
     ))
 }
 
+/// Partially linear regression on a static panel (long format: unit `id` and
+/// period `t` per row), clustered by unit. `splits` refer to the rows of the
+/// transformed panel.
 #[pyfunction]
 #[pyo3(signature = (y, d, x, id, t, ml_l, ml_m, m_classifier = false, ml_g = None,
                     score = "partialling out", approach = "fd_exact", n_folds = 5, n_rep = 1, seed = 0,

@@ -587,6 +587,8 @@ fn rs_is_valid_kind(ptr: Robj, kind: &str) -> bool {
         "forest" => ExternalPtr::<ForestFit>::try_from(&ptr).is_ok(),
         "conformal" => ExternalPtr::<ConformalFit>::try_from(&ptr).is_ok(),
         "dose" => ExternalPtr::<DoseResponseFit>::try_from(&ptr).is_ok(),
+        "staggered" => ExternalPtr::<dml_core::StaggeredDidFit>::try_from(&ptr).is_ok(),
+        "rdflex" => ExternalPtr::<dml_core::RdFlexFit>::try_from(&ptr).is_ok(),
         _ => false,
     }
 }
