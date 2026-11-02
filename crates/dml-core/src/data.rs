@@ -16,7 +16,8 @@ use crate::error::{DmlError, Result};
 /// - `m`: optional mediator(s), shape `(n, q)` (for [`Mediation`](crate::Mediation))
 ///
 /// With several treatments each one is estimated in turn, and the other
-/// treatments are added to the covariates (as in DoubleML).
+/// treatments are added to the covariates (as in DoubleML; see
+/// [`with_other_treatments_as_covariates`](Self::with_other_treatments_as_covariates)).
 #[derive(Debug, Clone)]
 pub struct DmlData {
     y: Array1<f64>,
@@ -29,6 +30,7 @@ pub struct DmlData {
     external: Option<crate::model::ExternalPredictions>,
     clusters: Option<Vec<Array1<i64>>>,
     treatment_names: Vec<String>,
+    other_treatments_as_covariates: bool,
 }
 
 fn all_finite<'a>(mut values: impl Iterator<Item = &'a f64>) -> bool {
@@ -84,7 +86,15 @@ impl DmlData {
             external: None,
             clusters: None,
             treatment_names,
+            other_treatments_as_covariates: true,
         })
+    }
+
+    /// Whether the other treatments join the covariates of each treatment (default: yes),
+    /// as DoubleML's `use_other_treat_as_covariate`.
+    pub fn with_other_treatments_as_covariates(mut self, use_them: bool) -> Self {
+        self.other_treatments_as_covariates = use_them;
+        self
     }
 
     /// Attach an instrument `z` (required by [`Pliv`](crate::Pliv)).
@@ -324,11 +334,11 @@ impl DmlData {
     }
 
     /// Covariates used when estimating the effect of treatment `j`: `x` plus
-    /// the other treatment columns. Borrowed when there is only one treatment.
+    /// the other treatment columns, unless switched off. Borrowed when no columns are added.
     ///
     /// (`Cow` = "clone on write": either a borrowed view or an owned matrix.)
     pub fn covariates_for(&self, j: usize) -> Cow<'_, Array2<f64>> {
-        if self.n_treat() == 1 {
+        if self.n_treat() == 1 || !self.other_treatments_as_covariates {
             return Cow::Borrowed(&self.x);
         }
         let others: Vec<usize> = (0..self.n_treat()).filter(|&k| k != j).collect();
@@ -390,6 +400,17 @@ mod tests {
             array![[5.0, 1.0, 100.0], [6.0, 2.0, 200.0]]
         );
         assert!(matches!(data.covariates_for(0), Cow::Owned(_)));
+    }
+
+    #[test]
+    fn other_treatments_can_stay_out_of_the_covariates() {
+        let (y, x) = (array![1.0, 2.0, 3.0], array![[1.0], [2.0], [3.0]]);
+        let d = array![[0.0, 1.0], [1.0, 0.0], [1.0, 1.0]];
+        let data = DmlData::with_treatments(y, d, x.clone())
+            .unwrap()
+            .with_other_treatments_as_covariates(false);
+        assert_eq!(*data.covariates_for(1), x);
+        assert!(matches!(data.covariates_for(1), Cow::Borrowed(_)));
     }
 
     #[test]

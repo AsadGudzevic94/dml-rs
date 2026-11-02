@@ -36,6 +36,7 @@ __all__ = [
     "fit_multi_arm_causal_forest",
     "fit_pliv",
     "fit_plpr",
+    "plpr_transform",
     "fit_plr",
     "fit_qte",
     "fit_quantile",
@@ -921,6 +922,7 @@ def fit_plr(
     treatment_names: Optional[list[str]] = None,
     cluster: Optional[NDArray[np.int64]] = None,
     external_predictions: Optional[Sequence[tuple[int, str, NDArray[np.float64]]]] = None,
+    use_other_treat_as_covariate: bool = True,
 ) -> DmlResult: ...
 def fit_irm(
     y: NDArray[np.float64],
@@ -961,6 +963,8 @@ def fit_pliv(
     treatment_names: Optional[list[str]] = None,
     cluster: Optional[NDArray[np.int64]] = None,
     external_predictions: Optional[Sequence[tuple[int, str, NDArray[np.float64]]]] = None,
+    use_other_treat_as_covariate: bool = True,
+    nuisance: Optional[dict[str, Any]] = None,
 ) -> DmlResult: ...
 def fit_iivm(
     y: NDArray[np.float64],
@@ -1140,6 +1144,14 @@ def fit_lee_bounds(
     level: float = 0.95,
     seed: int = 0,
 ) -> LeeBoundsResult: ...
+def plpr_transform(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    id: NDArray[np.int64],
+    t: NDArray[np.float64],
+    approach: str,
+) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.int64]]: ...
 def fit_plpr(
     y: NDArray[np.float64],
     d: NDArray[np.float64],

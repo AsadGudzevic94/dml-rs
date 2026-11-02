@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `tune` for `LPLR`, `PLPR` (all approaches and both scores), `SSM` with the nonignorable score
+  and `PLIV` with several instruments, and `tune_ml_models` for `LPLR`, `PLPR` and `PLIV` with
+  several instruments; all as DoubleML. Not available: `tune_on_folds=True` for `LPLR`, and
+  `tune_ml_models` for nonignorable `SSM` (DoubleML has neither path working or implemented).
+  `PLPR` needs `folds` with `tune_on_folds=True`.
+- `PLIV` with several instruments has one nuisance per instrument (`ml_m_z1`, `ml_m_z2`, ...):
+  `Pliv::nuisance_regressor` in Rust; `set_ml_nuisance_params`, `store_models` and tuning in Python.
+- `use_other_treat_as_covariate` on `PLR` and `PLIV`
+  (`DmlData::with_other_treatments_as_covariates` in Rust), as DoubleML's data option.
+- `IRM.raw_propensity_` (the propensities before calibration and clipping, also as `ml_m_raw` in
+  the predictions) and `IRM.plot_overlap_common_support()` to check overlap.
+- `Plpr::transform_with_units`.
+
 ### Fixed
 - `Ssm` / `SSM` with `normalize_ipw=True` gave biased estimates: the weights were scaled to about
   P(D = d) instead of mean one. The bug came from DoubleML 0.11.4, which fixed it in #427. **Results

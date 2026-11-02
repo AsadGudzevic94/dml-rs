@@ -407,6 +407,8 @@ class PLR(_HeterogeneityMixin, _DMLEstimator):
         (``g_hat`` is None unless ``ml_g`` is given).
     n_folds, n_rep : cross-fitting folds and repetitions of the sample split.
     random_state : seed for the sample splits.
+    use_other_treat_as_covariate : with several treatments, whether the others join the covariates
+        of each one (default, as DoubleML).
     """
 
     _learner_fallback = {"ml_g": "ml_l"}
@@ -427,6 +429,7 @@ class PLR(_HeterogeneityMixin, _DMLEstimator):
         n_folds: int = 5,
         n_rep: int = 1,
         random_state: int = 0,
+        use_other_treat_as_covariate: bool = True,
     ) -> None:
         self.ml_l = ml_l
         self.ml_m = ml_m
@@ -435,6 +438,7 @@ class PLR(_HeterogeneityMixin, _DMLEstimator):
         self.n_folds = n_folds
         self.n_rep = n_rep
         self.random_state = random_state
+        self.use_other_treat_as_covariate = use_other_treat_as_covariate
 
     @accepts_data("x", "y", "d", cluster=True)
     @nuisance_fit
@@ -478,6 +482,7 @@ class PLR(_HeterogeneityMixin, _DMLEstimator):
             score=self.score, n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
             external_predictions=_external_args(external_predictions, d),
+            use_other_treat_as_covariate=self.use_other_treat_as_covariate,
         )
         return self._store(result)
 
@@ -528,6 +533,21 @@ class IRM(_HeterogeneityMixin, _DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
         self.weights = weights
+
+    @property
+    def raw_propensity_(self) -> Any:
+        """Cross-fitted ``P(D = 1 | X)`` before calibration and clipping, shape ``(n, n_rep, 1)``."""
+        self._check_fitted()
+        return self.predictions_["ml_m_raw"]
+
+    def plot_overlap_common_support(self, i_rep: int = 0, bins: Any = 10, density: bool = False) -> tuple[Any, Any]:
+        """Check overlap: histograms of the propensity scores of treated and controls (top), and
+        the observed share of each group by propensity bin against the dashed line of a calibrated
+        model (bottom). Mass near 0 or 1 means extreme weights. Returns ``(fig, axes)``."""
+        self._check_fitted()
+        if not 0 <= i_rep < self.n_rep:
+            raise ValueError(f"i_rep must be in [0, {self.n_rep - 1}], got {i_rep}")
+        return _overlap_plot(self.predictions_["ml_m"][:, i_rep, 0], self._fit_inputs[1][1], bins, density)
 
     @accepts_data("x", "y", "d", cluster=True)
     @nuisance_fit
@@ -902,6 +922,30 @@ def _summary_table(result):
 _COLORBLIND = ["#0173b2", "#de8f05", "#029e73"]
 
 
+def _overlap_plot(ps: Any, d: Any, bins: Any, density: bool) -> tuple[Any, Any]:
+    plt = _pyplot()
+    ps, treated = np.asarray(ps, dtype=np.float64), _as_1d(d, "d") == 1
+    edges = np.linspace(0.0, 1.0, bins + 1) if isinstance(bins, (int, np.integer)) else np.asarray(bins, dtype=np.float64)
+    if len(edges) < 3 or np.any(np.diff(edges) <= 0):
+        raise ValueError("bins must be at least 2, or at least three increasing edges")
+    centers, widths = (edges[:-1] + edges[1:]) / 2, np.diff(edges)
+    total = np.histogram(ps, edges)[0].astype(np.float64)
+    in_bin = np.divide(np.histogram(ps[treated], edges)[0], total, out=np.full_like(total, np.nan), where=total > 0)
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True, gridspec_kw={"height_ratios": [2, 1]})
+    panels = ((treated, in_bin, centers, "Treated"), (~treated, 1 - in_bin, 1 - centers, "Control"))
+    for k, (rows, share, line, name) in enumerate(panels):
+        axes[0, k].hist(ps[rows], bins=edges, density=density, color=_COLORBLIND[k], alpha=0.8)
+        axes[0, k].set_title(f"{name}: propensity scores")
+        axes[0, k].set_ylabel("Density" if density else "Count")
+        axes[1, k].bar(centers, share, width=widths, color=_COLORBLIND[k], alpha=0.7)
+        axes[1, k].plot(centers, line, "k--", linewidth=1)
+        axes[1, k].set_ylim(0, 1)
+        axes[1, k].set_xlabel("Propensity score")
+        axes[1, k].set_ylabel(f"Observed share {name.lower()}")
+    fig.tight_layout()
+    return fig, axes
+
+
 def _pyplot():
     try:
         import matplotlib.pyplot as plt
@@ -1125,6 +1169,8 @@ class PLIV(_DMLEstimator):
         ``score(y, z, d, l_hat, m_hat, r_hat, g_hat, smpls) -> (psi_a, psi_b)`` returning the
         elements of a linear score, as DoubleML (one instrument, ``partial="X"``).
     partial : ``"X"``, ``"Z"`` or ``"XZ"``.
+    use_other_treat_as_covariate : with several treatments, whether the others join the covariates
+        of each one (default, as DoubleML).
     """
 
     _learner_fallback = {"ml_g": "ml_l"}
@@ -1133,10 +1179,17 @@ class PLIV(_DMLEstimator):
     def _nuisance_spec(self) -> list[tuple[str, str]]:
         if self.partial == "Z":
             return [("ml_r", "ml_r")]
-        spec = [("ml_l", "ml_l"), ("ml_m", "ml_m"), ("ml_r", "ml_r")]
+        n_instruments = self.__dict__.get("_n_instruments", 1) if self.partial == "X" else 1
+        instruments = [(f"ml_m_z{i + 1}", "ml_m") for i in range(n_instruments)] if n_instruments > 1 else [("ml_m", "ml_m")]
+        spec = [("ml_l", "ml_l"), *instruments, ("ml_r", "ml_r")]
         if self.partial == "X" and (self.score == "IV-type" or (callable(self.score) and self.ml_g is not None)):
             spec.append(("ml_g", "ml_g"))
         return spec
+
+    def _prepare_nuisance(self, arguments: dict[str, Any]) -> None:
+        z = arguments.get("z")
+        if z is not None:
+            self.__dict__["_n_instruments"] = _as_2d(z, "z").shape[1]
 
     def __init__(
         self,
@@ -1149,6 +1202,7 @@ class PLIV(_DMLEstimator):
         n_folds: int = 5,
         n_rep: int = 1,
         random_state: int = 0,
+        use_other_treat_as_covariate: bool = True,
     ) -> None:
         self.ml_l = ml_l
         self.ml_m = ml_m
@@ -1159,6 +1213,7 @@ class PLIV(_DMLEstimator):
         self.n_folds = n_folds
         self.n_rep = n_rep
         self.random_state = random_state
+        self.use_other_treat_as_covariate = use_other_treat_as_covariate
 
     @accepts_data("x", "y", "d", "z", cluster=True)
     @nuisance_fit
@@ -1198,6 +1253,8 @@ class PLIV(_DMLEstimator):
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state,
             splits=_splits(folds), treatment_names=_treatment_names(d), cluster=_as_clusters(cluster),
             external_predictions=_external_args(external_predictions, d),
+            use_other_treat_as_covariate=self.use_other_treat_as_covariate,
+            nuisance=self._nuisance_overrides,
         )
         return self._store(result)
 
@@ -1453,10 +1510,21 @@ class PLPR(_DMLEstimator):
     """
 
     _learner_fallback = {"ml_g": "ml_l"}
+    _tuning_kind = "PLPR"
 
     def _nuisance_spec(self) -> list[tuple[str, str]]:
         spec = [("ml_l", "ml_l"), ("ml_m", "ml_m")]
         return spec + [("ml_g", "ml_g")] if self.score == "IV-type" else spec
+
+    def _tuning_arguments(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Learners see the transformed panel, whose rows ``folds`` index."""
+        y, d, x, units = _dml_rs.plpr_transform(
+            _as_1d(arguments["y"], "y"), _as_2d(arguments["d"], "d"), _as_2d(arguments["X"], "X"),
+            _codes(arguments["id"], "id"), _codes(arguments["t"], "t").astype(np.float64), self.approach)
+        inverse = np.unique(units, return_inverse=True)[1]
+        sizes = np.bincount(inverse)
+        d_mean = np.column_stack([(np.bincount(inverse, d[:, j]) / sizes)[inverse] for j in range(d.shape[1])])
+        return {"X": x, "y": y, "d": d, "d_mean": d_mean, "folds": arguments.get("folds")}
 
     def __init__(
         self,
@@ -1667,6 +1735,7 @@ class LPLR(_DMLEstimator):
     """
 
     _learner_fallback = {"ml_a": "ml_m"}
+    _tuning_kind = "LPLR"
 
     def _nuisance_spec(self) -> list[tuple[str, str]]:
         return [("ml_M", "ml_M"), ("ml_t", "ml_t"), ("ml_m", "ml_m"), ("ml_a", "ml_a")]

@@ -255,7 +255,13 @@ impl LinearScoreModel for Irm {
         let m_raw = input.predictions_or("ml_m", || {
             cross_fit_predict_proba(nu.classifier("ml_m", self.ml_m.as_ref()), x, d, folds)
         })?;
-        let m = adjust_propensity(m_raw, d, folds, self.clipping_threshold, self.calibration)?;
+        let m = adjust_propensity(
+            m_raw.clone(),
+            d,
+            folds,
+            self.clipping_threshold,
+            self.calibration,
+        )?;
         let d = d.to_owned();
         let m_adj = if self.normalize_ipw {
             normalize_propensity(&m, &d)
@@ -289,7 +295,12 @@ impl LinearScoreModel for Irm {
         let nu2 = 2.0 * &m_alpha - &riesz.mapv(|a| a * a);
         let estimate = ScoreEstimate::new(
             LinearScore::new(psi_a, psi_b.clone())?,
-            vec![("ml_g0", g0), ("ml_g1", g1), ("ml_m", m)],
+            vec![
+                ("ml_g0", g0),
+                ("ml_g1", g1),
+                ("ml_m", m),
+                ("ml_m_raw", m_raw),
+            ],
         )
         .with_sensitivity(SensitivityParts {
             outcome_residual,
