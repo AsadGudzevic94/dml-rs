@@ -31,6 +31,8 @@ reference:
       - dml_pliv
       - dml_iivm
       - dml_did
+      - dml_staggered_did
+      - dml_rdflex
       - dml_apos
       - dml_mediation
       - dml_contdid
@@ -41,6 +43,8 @@ reference:
       - sensitivity_analysis
       - linear_combination
       - dose_contrast
+      - aggregate.dmlrs_staggered
+      - plot.dmlrs_staggered
       - plot.dmlrs_contdid
       - plot.dmlrs_dose
   - title: Heterogeneous effects

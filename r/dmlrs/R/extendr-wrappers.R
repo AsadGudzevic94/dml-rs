@@ -172,3 +172,28 @@ rs_fit_dose_response <- function(y, d, x, ml_g, ml_m, grid, kernel, bandwidth, b
 rs_dose_contrast <- function(fit, reference) .Call(wrap__rs_dose_contrast, fit, reference)
 
 rs_is_valid_kind <- function(ptr, kind) .Call(wrap__rs_is_valid_kind, ptr, kind)
+
+rs_fit_staggered <- function(y, id, t, g, x, ml_g, ml_m, control_group, anticipation_periods,
+                             gt_combinations, score, in_sample_normalization, clipping_threshold,
+                             n_folds, n_rep, seed_, panel, cluster) {
+  .Call(wrap__rs_fit_staggered, y, id, t, g, x, ml_g, ml_m, control_group, anticipation_periods,
+        gt_combinations, score, in_sample_normalization, clipping_threshold, n_folds, n_rep, seed_,
+        panel, cluster)
+}
+
+rs_staggered_att <- function(fit) .Call(wrap__rs_staggered_att, fit)
+
+rs_staggered_group_times <- function(fit) .Call(wrap__rs_staggered_group_times, fit)
+
+rs_staggered_aggregate <- function(fit, how) .Call(wrap__rs_staggered_aggregate, fit, how)
+
+rs_fit_rdflex <- function(y, d, x, score, names, ml_g, ml_m, binary_outcome, cutoff, h_fs,
+                          fs_specification, fs_kernel, n_iterations, n_folds, n_rep, seed_, options,
+                          rd_covs, rd_cluster) {
+  .Call(wrap__rs_fit_rdflex, y, d, x, score, names, ml_g, ml_m, binary_outcome, cutoff, h_fs,
+        fs_specification, fs_kernel, n_iterations, n_folds, n_rep, seed_, options, rd_covs, rd_cluster)
+}
+
+rs_rdflex_summary <- function(fit) .Call(wrap__rs_rdflex_summary, fit)
+
+rs_rdflex_confint <- function(fit, level) .Call(wrap__rs_rdflex_confint, fit, level)

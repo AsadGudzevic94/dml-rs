@@ -12,6 +12,11 @@
     with residual or quantile scores (`lrn_quantile_forest()`).
 * `dml_dose_response()`: dose-response curves of a continuous treatment, with
   `dose_contrast()` and `plot()`.
+* `dml_staggered_did()`: group-time effects of staggered adoption (panels and
+  repeated cross-sections, optional clusters), with `aggregate()` by group,
+  calendar time or time since treatment, and `plot()`.
+* `dml_rdflex()`: sharp and fuzzy regression discontinuity with flexible
+  covariate adjustment and the `rdrobust` options.
 * All of these give the same estimates as the Python package (new parity tests).
 * Reference site and an article on heterogeneous effects:
   <https://asadgudzevic94.github.io/dml-rs/r/>.
