@@ -139,9 +139,10 @@ class _LearnerPlan:
         self.fold_specific: set[str] = set()
         self.saved: dict[str, Any] = {}
 
-    def _learners(self, name: str, base: Any) -> list[Any]:
+    def _learners(self, name: str, attr: str, base: Any) -> list[Any]:
         """One learner per fit slot (treatment, repetition, fold), sharing equal parameters."""
-        stored = self.model._ml_params.get(name, {})
+        stored = dict(self.model._ml_params.get(attr, {})) if attr != name else {}
+        stored.update(self.model._ml_params.get(name, {}))
         unknown = [t for t in stored if t is not None and t not in self.treatments]
         if unknown:
             raise ValueError(f"parameters set for unknown treatment(s) {unknown}; treatments are {self.treatments}")
@@ -178,7 +179,7 @@ class _LearnerPlan:
                 bases[name] = (attr, base)
         overrides: dict[str, Any] = {}
         for name, (attr, base) in bases.items():
-            learners = self._learners(name, base)
+            learners = self._learners(name, attr, base)
             constant = all(lrn is learners[0] for lrn in learners)
             if self.store or not constant:
                 calls = _Calls([learners[0]] if constant else learners)
@@ -190,7 +191,7 @@ class _LearnerPlan:
                 learner = learners[0]
                 if learner is base:
                     continue
-            if model._override_learners:
+            if model._override_learners or name != attr:
                 overrides[name] = learner
             else:
                 self.saved.setdefault(attr, getattr(model, attr))
@@ -243,6 +244,7 @@ def nuisance_fit(fit: Callable[..., Any]) -> Callable[..., Any]:
     @functools.wraps(fit)
     def inner(self: Any, *args: Any, **kwargs: Any) -> Any:
         bound = sig.bind(self, *args, **kwargs)
+        self._prepare_nuisance(bound.arguments)
         store = bool(bound.arguments.get("store_models", False))
         self.__dict__.pop("models_", None)
         # A callable score refits with a built-in score, which applies the learners.
@@ -478,12 +480,13 @@ def _plan(model: Any, a: dict[str, Any], j: int, rows: _Rows, tuner: Any) -> dic
         res[name] = tuner.search(name, attr, learner, np.asarray(target, dtype=np.float64), features, sets)
         return res[name]
 
-    if kind == "PLR":
+    if kind in ("PLR", "PLPR"):
+        x_m = np.column_stack((x, a["d_mean"][:, j])) if kind == "PLPR" and model.approach == "cre_normal" else x
         lr = run("ml_l", y, x, rows.train)
-        mr = run("ml_m", d, x, rows.train)
+        mr = run("ml_m", d, x_m, rows.train)
         if "ml_g" in names:
             l_hat = tuner.initial_predictions(lr, x, y, rows.train)
-            m_hat = tuner.initial_predictions(mr, x, d, rows.train)
+            m_hat = tuner.initial_predictions(mr, x_m, d, rows.train)
             theta = -np.nanmean((d - m_hat) * (y - l_hat)) / np.nanmean(-(d - m_hat) ** 2)
             run("ml_g", y - theta * d, x, rows.train)
     elif kind in ("IRM", "DID"):
@@ -514,9 +517,10 @@ def _plan(model: Any, a: dict[str, Any], j: int, rows: _Rows, tuner: Any) -> dic
         if subgroups["never_takers"]:
             run("ml_r1", d, x, rows.where(z == 1))
     elif kind == "SSM":
-        if model.score != "missing-at-random":
-            raise NotImplementedError("tuning SSM is implemented for score='missing-at-random' (as DoubleML's Optuna tuning)")
         s = a["s"]
+        if model.score != "missing-at-random":
+            _plan_ssm_nonignorable(run, res, a, x, y, d, s, rows, tuner, model)
+            return res
         run("ml_g_d0", y, x, rows.where((d == 0) & (s == 1)))
         run("ml_g_d1", y, x, rows.where((d == 1) & (s == 1)))
         run("ml_pi", s, np.column_stack((x, d)), rows.train)
@@ -536,11 +540,50 @@ def _plan(model: Any, a: dict[str, Any], j: int, rows: _Rows, tuner: Any) -> dic
                 r_hat = tuner.initial_predictions(rr, x, d, rows.train)
                 theta = -np.nanmean((z - m_hat) * (y - l_hat)) / np.nanmean(-(d - r_hat) * (z - m_hat))
                 run("ml_g", y - theta * d, x, rows.train)
+        elif model.partial == "X":
+            run("ml_l", y, x, rows.train)
+            for i in range(z.shape[1]):
+                run(f"ml_m_z{i + 1}", z[:, i], x, rows.train)
+            run("ml_r", d, x, rows.train)
         else:
-            raise NotImplementedError("tuning PLIV is implemented for partial='X' with one instrument and partial='Z'")
+            raise NotImplementedError("tuning PLIV is implemented for partial='X' and partial='Z'")
+    elif kind == "LPLR":
+        x_d = np.column_stack((d, x))
+        fitted = run("ml_M", y, x_d, rows.train)
+        run("ml_m", d, x, rows.where(y == 0) if model.score == "nuisance_space" else rows.train)
+        run("ml_a", d, x, rows.train)
+        # A single model for the target of ml_t, not the double cross-fitting of the fit (DoubleML).
+        m_hat = np.clip(tuner.initial_predictions(fitted, x_d, y, rows.train), 1e-8, 1 - 1e-8)
+        run("ml_t", np.log(m_hat) - np.log1p(-m_hat), x, rows.train)
     else:
         raise NotImplementedError(f"tuning is not implemented for {type(model).__name__}")
     return res
+
+
+def _plan_ssm_nonignorable(run: Any, res: dict[str, list[Any]], a: dict[str, Any], x: Any, y: Any, d: Any, s: Any,
+                           rows: _Rows, tuner: Any, model: Any) -> None:
+    """Each training set is halved: ``ml_pi`` is tuned on the first half, the others on the second
+    with the predicted selection probability as a covariate."""
+    from sklearn.base import clone  # type: ignore[import-untyped]
+    from sklearn.model_selection import train_test_split  # type: ignore[import-untyped]
+
+    if not isinstance(tuner, _GridSearch):
+        raise NotImplementedError("tune_ml_models is not implemented for score='nonignorable' (as DoubleML); use tune")
+    halves = [train_test_split(train, test_size=0.5, stratify=d[train] + 2 * s[train], random_state=42)
+              for train in rows.train]
+    x_d_z = np.column_stack((x, d, a["z"]))
+    pi_hat = np.full(len(s), np.nan)
+    searches = []
+    for first, second in halves:
+        searches += run("ml_pi", s, x_d_z, [first])
+        pi = clone(model.ml_pi).set_params(**tuner.best_params(searches[-1])).fit(x_d_z[first], s[first])
+        pi_hat[second] = _predict(pi, x_d_z)[second]
+    res["ml_pi"] = searches
+    second_halves = [second for _, second in halves]
+    run("ml_m", d, np.column_stack((x, pi_hat)), second_halves)
+    x_d_pi = np.column_stack((x, d, pi_hat))
+    run("ml_g_d0", y, x_d_pi, [h[(d[h] == 0) & (s[h] == 1)] for h in second_halves])
+    run("ml_g_d1", y, x_d_pi, [h[(d[h] == 1) & (s[h] == 1)] for h in second_halves])
 
 
 class TuningMixin:
@@ -556,6 +599,13 @@ class TuningMixin:
 
     def _nuisance_spec(self) -> list[tuple[str, str]]:
         raise NotImplementedError(f"{type(self).__name__} does not support per-learner parameters")
+
+    def _prepare_nuisance(self, arguments: dict[str, Any]) -> None:
+        """Learn from the fit arguments what `_nuisance_spec` depends on."""
+
+    def _tuning_arguments(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """The fit arguments as the learners see them."""
+        return arguments
 
     @property
     def _ml_params(self) -> dict[str, dict[Optional[str], list[list[dict[str, Any]]]]]:
@@ -620,20 +670,23 @@ class TuningMixin:
             if cluster and data.cluster is not None:
                 kwargs.setdefault("cluster", data.cluster)
         bound = inspect.signature(fit).bind(self, *args, **kwargs)
-        arg = bound.arguments
-        if arg.get("cluster") is not None:
+        self._prepare_nuisance(bound.arguments)
+        if bound.arguments.get("cluster") is not None:
             raise NotImplementedError("tuning with clustered data is not implemented")
+        d_names = bound.arguments["d"]
+        arg = self._tuning_arguments(bound.arguments)
         d = np.asarray(arg["d"], dtype=np.float64)
         d = d.reshape(-1, 1) if d.ndim == 1 else d
         X = np.asarray(arg["X"], dtype=np.float64)
         k = d.shape[1]
-        xs = [X if k == 1 else np.hstack((X, d[:, [o for o in range(k) if o != j]])) for j in range(k)]
+        with_others = k > 1 and getattr(self, "use_other_treat_as_covariate", True)
+        xs = [np.hstack((X, d[:, [o for o in range(k) if o != j]])) if with_others else X for j in range(k)]
         a: dict[str, Any] = {"x": xs, "y": np.asarray(arg["y"], dtype=np.float64), "d": d}
-        for key in ("z", "t", "s"):
+        for key in ("z", "t", "s", "d_mean"):
             if arg.get(key) is not None:
                 v = np.asarray(arg[key], dtype=np.float64)
                 a[key] = v.reshape(-1, 1) if key == "z" and v.ndim == 1 else v
-        return a, arg["d"], arg.get("folds")
+        return a, d_names, arg.get("folds")
 
     def _strata(self, a: dict[str, Any]) -> Optional[list[int]]:
         return None
@@ -679,6 +732,12 @@ class TuningMixin:
         The best parameters are set with `set_ml_nuisance_params` (``set_as_params``); returns
         ``self``, or the search results per treatment with ``return_tune_res=True``.
         """
+        a, d, folds = self._tuning_inputs(args, kwargs)
+        kind = type(self)._tuning_kind
+        if tune_on_folds and kind == "LPLR":
+            raise NotImplementedError("LPLR fits ml_M and ml_a on inner folds; use tune_on_folds=False")
+        if tune_on_folds and kind == "PLPR" and folds is None:
+            raise ValueError("tune_on_folds needs folds for PLPR: they hold whole units of the transformed panel")
         if not isinstance(param_grids, dict) or not all(k in param_grids for k in self.learner_names):
             raise ValueError(f"param_grids must be a dict with the keys {', '.join(self.learner_names)}")
         if scoring_methods is not None and (not isinstance(scoring_methods, dict)
@@ -690,7 +749,6 @@ class TuningMixin:
             raise ValueError('search_mode must be "grid_search" or "randomized_search"')
         if not isinstance(n_iter_randomized_search, int) or n_iter_randomized_search < 2:
             raise ValueError("n_iter_randomized_search must be an int of at least 2")
-        a, d, folds = self._tuning_inputs(args, kwargs)
         tuner = _GridSearch(param_grids, scoring_methods or {}, n_folds_tune, n_jobs_cv, search_mode,
                             n_iter_randomized_search)
         n = len(a["y"])
@@ -745,6 +803,7 @@ class TuningMixin:
             import optuna  # noqa: F401
         except ImportError as err:  # pragma: no cover - depends on the environment
             raise ImportError("tune_ml_models needs optuna: pip install optuna") from err
+        a, d, _ = self._tuning_inputs(args, kwargs)
         if not isinstance(ml_param_space, dict) or not ml_param_space:
             raise ValueError("ml_param_space must be a non-empty dict")
         allowed = set(self.params_names) | set(self.learner_names)
@@ -775,7 +834,6 @@ class TuningMixin:
             for key in allowed & set(optuna_settings):
                 if not isinstance(optuna_settings[key], dict):
                     raise TypeError(f"Optuna settings for {key!r} must be a dict")
-        a, d, _ = self._tuning_inputs(args, kwargs)
         tuner = _OptunaSearch(spaces, scoring_methods, _optuna_cv(cv), optuna_settings)
         out = []
         for j, treat in enumerate(_treatment_names(d)):

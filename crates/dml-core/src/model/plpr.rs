@@ -218,6 +218,11 @@ impl Plpr {
         Ok(transform(panel, self.approach)?.0)
     }
 
+    /// As [`transform`](Self::transform), with the unit of every transformed row.
+    pub fn transform_with_units(&self, panel: &StaticPanel) -> Result<(DmlData, Vec<i64>)> {
+        transform(panel, self.approach)
+    }
+
     /// Draw folds of whole units and fit.
     pub fn fit(&self, panel: &StaticPanel) -> Result<DmlFit> {
         let (data, ids) = transform(panel, self.approach)?;

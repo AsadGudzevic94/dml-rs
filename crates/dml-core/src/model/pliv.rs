@@ -11,7 +11,10 @@
 
 use ndarray::{concatenate, Array1, Array2, Axis};
 
-use super::{dml_model_api, LinearScoreModel, Name, NuisanceTarget, ScoreEstimate, ScoreInput};
+use super::{
+    dml_model_api, nuisance_api, LinearScoreModel, Name, NuisanceLearners, NuisanceTarget,
+    ScoreEstimate, ScoreInput,
+};
 use crate::compat::np_mean;
 use crate::crossfit::{cross_fit_predict, Fold, SampleSplitting};
 use crate::data::{gather, DmlData};
@@ -55,6 +58,7 @@ pub struct Pliv {
     ml_m: Option<Box<dyn Regressor>>,
     ml_r: Box<dyn Regressor>,
     ml_g: Option<Box<dyn Regressor>>,
+    nuisance: NuisanceLearners,
     score: PlivScore,
     variant: PlivVariant,
     splitting: SampleSplitting,
@@ -83,6 +87,7 @@ impl Pliv {
             ml_g: None,
             score: PlivScore::default(),
             variant: PlivVariant::PartialX,
+            nuisance: NuisanceLearners::default(),
             splitting: SampleSplitting::default(),
         }
     }
@@ -100,6 +105,7 @@ impl Pliv {
             ml_g: None,
             score: PlivScore::default(),
             variant: PlivVariant::PartialZ,
+            nuisance: NuisanceLearners::default(),
             splitting: SampleSplitting::default(),
         }
     }
@@ -139,6 +145,7 @@ impl Pliv {
     }
 
     dml_model_api!();
+    nuisance_api!();
 
     fn learner(&self, l: &Option<Box<dyn Regressor>>, name: &str) -> Result<Box<dyn Regressor>> {
         l.as_ref().map(|l| l.fresh()).ok_or_else(|| {
@@ -168,6 +175,9 @@ impl LinearScoreModel for Pliv {
                 "PLIV requires an instrument: use DmlData::with_instrument".into(),
             ));
         }
+        let names: Vec<String> = (1..=k).map(|j| format!("ml_m_z{j}")).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        self.nuisance.check("PLIV", &names, &[])?;
         if self.score == PlivScore::IvType && (k > 1 || self.variant != PlivVariant::PartialX) {
             return Err(DmlError::InvalidArgument(
                 "the IV-type score needs one instrument and the partial X variant".into(),
@@ -232,7 +242,8 @@ impl LinearScoreModel for Pliv {
                 for (j, col) in z.columns().into_iter().enumerate() {
                     let name = format!("ml_m_z{}", j + 1);
                     let m_hat = input.predictions_or(&name, || {
-                        cross_fit_predict(ml_m.fresh().as_ref(), x, col, folds)
+                        let learner = self.nuisance.regressor(&name, ml_m.as_ref());
+                        cross_fit_predict(learner, x, col, folds)
                     })?;
                     v.column_mut(j).assign(&(&col - &m_hat));
                     targets.push(NuisanceTarget::regression(name.clone(), col.to_owned()));

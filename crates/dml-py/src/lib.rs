@@ -53,6 +53,18 @@ pub(crate) fn to_splits(splits: PySplits) -> Vec<Vec<Fold>> {
         .collect()
 }
 
+fn parse_panel_approach(approach: &str) -> PyResult<PanelApproach> {
+    match approach {
+        "cre_general" => Ok(PanelApproach::CreGeneral),
+        "cre_normal" => Ok(PanelApproach::CreNormal),
+        "fd_exact" => Ok(PanelApproach::FdExact),
+        "wg_approx" => Ok(PanelApproach::WgApprox),
+        other => Err(PyValueError::new_err(format!(
+            "unknown PLPR approach {other:?} (use 'cre_general', 'cre_normal', 'fd_exact' or 'wg_approx')"
+        ))),
+    }
+}
+
 fn build_data(
     y: PyReadonlyArray1<'_, f64>,
     d: PyReadonlyArray2<'_, f64>,
@@ -672,7 +684,8 @@ macro_rules! with_nuisance {
 
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_l, ml_m, ml_g = None, score = "partialling out",
-                    n_folds = 5, n_rep = 1, seed = 0, splits = None, treatment_names = None, cluster = None, external_predictions = None))]
+                    n_folds = 5, n_rep = 1, seed = 0, splits = None, treatment_names = None, cluster = None, external_predictions = None,
+                    use_other_treat_as_covariate = true))]
 #[allow(clippy::too_many_arguments)]
 fn fit_plr(
     py: Python<'_>,
@@ -690,6 +703,7 @@ fn fit_plr(
     treatment_names: Option<Vec<String>>,
     cluster: Option<PyReadonlyArray2<'_, i64>>,
     external_predictions: Option<PyExternal<'_>>,
+    use_other_treat_as_covariate: bool,
 ) -> PyResult<PyDmlResult> {
     let score = match score {
         "partialling out" => PlrScore::PartiallingOut,
@@ -700,7 +714,8 @@ fn fit_plr(
             )))
         }
     };
-    let data = build_data(y, d, x, None, None, treatment_names, cluster)?;
+    let data = build_data(y, d, x, None, None, treatment_names, cluster)?
+        .with_other_treatments_as_covariates(use_other_treat_as_covariate);
     let data = attach_external(data, external_predictions);
     let mut model = Plr::from_boxed(to_regressor(ml_l)?, to_regressor(ml_m)?)
         .score(score)
@@ -781,7 +796,8 @@ fn required<'a, 'py>(
 #[pyfunction]
 #[pyo3(signature = (y, d, x, z, ml_l, ml_m, ml_r, ml_g = None, score = "partialling out",
                     partial = "X", n_folds = 5, n_rep = 1, seed = 0, splits = None,
-                    treatment_names = None, cluster = None, external_predictions = None))]
+                    treatment_names = None, cluster = None, external_predictions = None,
+                    use_other_treat_as_covariate = true, nuisance = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_pliv(
     py: Python<'_>,
@@ -802,6 +818,8 @@ fn fit_pliv(
     treatment_names: Option<Vec<String>>,
     cluster: Option<PyReadonlyArray2<'_, i64>>,
     external_predictions: Option<PyExternal<'_>>,
+    use_other_treat_as_covariate: bool,
+    nuisance: Option<Bound<'_, PyDict>>,
 ) -> PyResult<PyDmlResult> {
     let score = match score {
         "partialling out" => PlivScore::PartiallingOut,
@@ -813,6 +831,7 @@ fn fit_pliv(
         }
     };
     let data = build_data(y, d, x, None, None, treatment_names, cluster)?
+        .with_other_treatments_as_covariates(use_other_treat_as_covariate)
         .with_instruments(z.as_array().to_owned())
         .map_err(to_py_err)?;
     let data = attach_external(data, external_predictions);
@@ -841,6 +860,7 @@ fn fit_pliv(
     if let Some(g) = ml_g {
         model = model.ml_g_boxed(to_regressor(g)?);
     }
+    let model = with_nuisance!(model, nuisance, [""; 0]);
     run_model!(py, model, data, splits)
 }
 
@@ -2165,6 +2185,43 @@ fn fit_rdflex(
 /// Partially linear regression on a static panel (long format: unit `id` and
 /// period `t` per row), clustered by unit. `splits` refer to the rows of the
 /// transformed panel.
+/// The panel a PLPR model is fitted on: outcome, treatments, covariates and the unit of every row.
+#[pyfunction]
+#[allow(clippy::type_complexity)]
+fn plpr_transform<'py>(
+    py: Python<'py>,
+    y: PyReadonlyArray1<'_, f64>,
+    d: PyReadonlyArray2<'_, f64>,
+    x: PyReadonlyArray2<'_, f64>,
+    id: PyReadonlyArray1<'_, i64>,
+    t: PyReadonlyArray1<'_, f64>,
+    approach: &str,
+) -> PyResult<(
+    Bound<'py, PyArray1<f64>>,
+    Bound<'py, PyArray2<f64>>,
+    Bound<'py, PyArray2<f64>>,
+    Bound<'py, PyArray1<i64>>,
+)> {
+    let panel = StaticPanel::with_treatments(
+        y.as_array().to_owned(),
+        d.as_array().to_owned(),
+        x.as_array().to_owned(),
+        id.as_array().to_owned(),
+        t.as_array().to_owned(),
+    )
+    .map_err(to_py_err)?;
+    let (data, units) = Plpr::new(dml_core::Ols::new(), dml_core::Ols::new())
+        .approach(parse_panel_approach(approach)?)
+        .transform_with_units(&panel)
+        .map_err(to_py_err)?;
+    Ok((
+        data.y().to_owned().into_pyarray(py),
+        data.d().to_owned().into_pyarray(py),
+        data.x().to_owned().into_pyarray(py),
+        ndarray::Array1::from(units).into_pyarray(py),
+    ))
+}
+
 #[pyfunction]
 #[pyo3(signature = (y, d, x, id, t, ml_l, ml_m, m_classifier = false, ml_g = None,
                     score = "partialling out", approach = "fd_exact", n_folds = 5, n_rep = 1, seed = 0,
@@ -2199,17 +2256,7 @@ fn fit_plpr(
             )))
         }
     };
-    let approach = match approach {
-        "cre_general" => PanelApproach::CreGeneral,
-        "cre_normal" => PanelApproach::CreNormal,
-        "fd_exact" => PanelApproach::FdExact,
-        "wg_approx" => PanelApproach::WgApprox,
-        other => {
-            return Err(PyValueError::new_err(format!(
-                "unknown PLPR approach {other:?} (use 'cre_general', 'cre_normal', 'fd_exact' or 'wg_approx')"
-            )))
-        }
-    };
+    let approach = parse_panel_approach(approach)?;
     let mut panel = StaticPanel::with_treatments(
         y.as_array().to_owned(),
         d.as_array().to_owned(),
@@ -2839,9 +2886,9 @@ mod dml_rs_native {
         fit_instrumental_forest, fit_irm, fit_lee_bounds, fit_lplr, fit_mediation,
         fit_multi_arm_causal_forest, fit_optimal_policy_tree, fit_pliv, fit_plpr, fit_plr, fit_qte,
         fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did, fit_surrogate_index, fit_synthdid,
-        policy_value, result_from_scores, set_parallel_folds, simulate, PyAposResult, PyBlp,
-        PyBootstrap, PyCateResult, PyCausalForestResult, PyConformalResult, PyContinuousDidResult,
-        PyDmlResult, PyDoseResponseResult, PyGradientBoostingClassifier,
+        plpr_transform, policy_value, result_from_scores, set_parallel_folds, simulate,
+        PyAposResult, PyBlp, PyBootstrap, PyCateResult, PyCausalForestResult, PyConformalResult,
+        PyContinuousDidResult, PyDmlResult, PyDoseResponseResult, PyGradientBoostingClassifier,
         PyGradientBoostingRegressor, PyGridSearchClassifier, PyGridSearchRegressor,
         PyHistGradientBoostingClassifier, PyHistGradientBoostingRegressor,
         PyInstrumentalForestResult, PyLasso, PyLassoCV, PyLeeBounds, PyLogisticRegression,
