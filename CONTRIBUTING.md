@@ -97,6 +97,10 @@ When adding a model or an option, please add a fixture case to the generator and
 
 Regeneration is deterministic: existing fixtures should come out unchanged.
 
+The weekly workflow "DoubleML main" runs the Python tests against DoubleML's main branch. A new
+failure there means an upstream change to look at: a fix dml-rs needs too, or a known difference to
+add to `crates/dml-py/tests/conftest.py` and `docs/validation.md`.
+
 ## Code style
 
 - `cargo fmt` and `cargo clippy -- -D warnings` must pass.

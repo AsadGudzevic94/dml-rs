@@ -47,6 +47,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo check -p dml-core --all-features
 
+  semver:
+    name: no breaking API changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          package: dml-core
+
   python:
     name: python (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
