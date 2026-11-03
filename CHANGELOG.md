@@ -17,6 +17,14 @@ All notable changes to this project are documented here. The format follows
   old line search could stop on a tiny halved step before reaching the optimum).
 - `Lasso` and `LassoCV` centre the data and switch it to column order in one pass (about 25%
   faster on large data; identical results).
+- `RandomForestRegressor` / `RandomForestClassifier` and `GradientBoostingRegressor` /
+  `GradientBoostingClassifier` predict rows in parallel (5× faster on 16 threads; identical
+  predictions). `CausalSurvival`, which predicts every unit's hazards in every slot, now takes
+  about as long as `grf::causal_survival_forest`.
+- `sensitivity_analysis` computes the variance of the bound scores as a quadratic in the
+  confounding strength, so the search for the robustness values no longer passes over the scores
+  at every step (unclustered fits; 80× faster at 100 000 observations, where it was slower than
+  DoubleML).
 - `OptimalPolicyTree` searches the candidate splits in parallel and the depth-one subtrees
   without building new sorted sets: 3-5× faster, now about twice as fast as R's `policytree`
   (identical trees; ties still go to the first split in search order).

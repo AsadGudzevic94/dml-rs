@@ -225,14 +225,20 @@ impl Booster {
                 self.n_features
             )));
         }
-        Ok(x.rows()
-            .into_iter()
-            .map(|row| {
-                self.init
-                    + self.learning_rate
-                        * self.trees.iter().map(|t| t.predict_row(row)).sum::<f64>()
-            })
-            .collect())
+        let one = |i: usize| {
+            let row = x.row(i);
+            self.init
+                + self.learning_rate * self.trees.iter().map(|t| t.predict_row(row)).sum::<f64>()
+        };
+        // Rows in parallel, each summing its trees in order (thread-count independent).
+        #[cfg(feature = "parallel")]
+        let out: Vec<f64> = {
+            use rayon::prelude::*;
+            (0..x.nrows()).into_par_iter().map(one).collect()
+        };
+        #[cfg(not(feature = "parallel"))]
+        let out: Vec<f64> = (0..x.nrows()).map(one).collect();
+        Ok(Array1::from(out))
     }
 }
 
