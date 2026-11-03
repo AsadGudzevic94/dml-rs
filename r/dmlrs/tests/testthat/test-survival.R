@@ -38,6 +38,12 @@ test_that("fits work with the other dmlrs methods", {
   expect_silent(plot(fit))
 })
 
+test_that("the band of a step function holds each value until the next time", {
+  band <- dmlrs:::step_band(c(0, 1, 3), c(1, 0.5, 0.2), c(1, 0.7, 0.4))
+  expect_equal(band$x, c(0, 1, 1, 3, 3, 1, 1, 0))
+  expect_equal(band$y, c(1, 1, 0.5, 0.5, 0.7, 0.7, 1, 1))
+})
+
 test_that("every form of the grid works", {
   fixed <- dml_survival(time, event, d, x, ml_event = lrn_logistic(), ml_m = lrn_logistic(),
                         grid = c(0.25, 0.5, 1), horizons = 1, n_folds = 2)

@@ -97,6 +97,14 @@ dml_survival <- function(time, event, d, x, ml_event = lrn_random_forest(min_sam
   out
 }
 
+# A band around a step function: the value at `times[i]` holds until `times[i + 1]`.
+step_band <- function(times, lower, upper) {
+  n <- length(times)
+  at <- rep(times, each = 2)[-c(1, 2 * n)]
+  steps <- rep(seq_len(n - 1), each = 2)
+  list(x = c(at, rev(at)), y = c(lower[steps], rev(upper[steps])))
+}
+
 #' Plot estimated survival curves
 #'
 #' Both survival curves with pointwise confidence bands.
@@ -124,11 +132,8 @@ plot.dmlrs_survival <- function(x, level = 0.95, ...) {
     ci <- pmin(pmax(confint(fit, level = level), 0), 1)
     lower <- c(1, ci[, 1])
     upper <- c(1, ci[, 2])
-    steps <- rep(seq_along(times), each = 2)[-1]
-    steps <- steps[-length(steps)]
-    at <- rep(times, each = 2)[-c(1, 2 * length(times))]
-    graphics::polygon(c(at, rev(at)), c(lower[steps], rev(upper[steps])),
-                      col = grDevices::adjustcolor(colour, 0.2), border = NA)
+    band <- step_band(times, lower, upper)
+    graphics::polygon(band$x, band$y, col = grDevices::adjustcolor(colour, 0.2), border = NA)
     graphics::lines(times, c(1, unname(stats::coef(fit))), type = "s", col = colour, lwd = 2)
   }
   draw(x$curve_treated, "#0173B2")
