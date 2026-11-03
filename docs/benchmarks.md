@@ -53,6 +53,38 @@ scikit-learn bit for bit, within sampling noise for the random forests).
   order as scikit-learn, which is what makes the predictions identical, so the remaining
   difference is in low-level tuning.
 
+## Every model
+
+The table above uses flexible learners, which dominate the time. With linear learners
+(scikit-learn's `LinearRegression` and `LogisticRegression` for DoubleML, the built-in `Ols` and
+`LogisticRegression` for dml-rs) the framework itself is what is timed. Speed-up of dml-rs over
+DoubleML 0.11.4 for every model both libraries have:
+
+| Model | n = 5 000 | n = 100 000 |
+|---|--:|--:|
+| IRM | 9.1× | 6.3× |
+| IRM sensitivity analysis (bounds and robustness values) | 6.3× | 91× |
+| IIVM | 11.0× | 7.9× |
+| APOS (4 treatment levels) | 12.4× | 11.1× |
+| PQ (potential quantile) | 38× | DoubleML runs out of memory |
+| LPQ (local potential quantile) | 23× | DoubleML runs out of memory |
+| CVaR | 5.7× | 3.6× |
+| QTE (3 quantiles) | 29× | DoubleML runs out of memory |
+| SSM, missing at random | 10.7× | 7.2× |
+| SSM, nonignorable | 26× | 21× |
+| DID (panel) | 10.1× | 6.7× |
+| DID (repeated cross-sections) | 9.8× | 7.0× |
+| Staggered DID (n / 4 units) | 23× | 7.3× |
+| LPLR | 7.6× | 3.1× |
+| PLPR (`cre_general`, 10 periods) | 5.8× | 5.3× |
+| RDFlex (sharp) | 36× | 25× |
+
+At 100 000 observations DoubleML's PQ, LPQ and QTE ask for a 75 GB array: the density in the
+score derivative comes from statsmodels' kernel density estimate, which builds an n × n matrix,
+while only its value at the estimate is needed; dml-rs fits PQ in 0.3 s and the three-quantile QTE
+in 2.2 s. The script is
+[`parity/bench_models.py`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/bench_models.py).
+
 ## Against the R packages
 
 The causal forest and the exact policy tree are ports of R packages written in C++, so the
@@ -65,11 +97,22 @@ comparison there is with compiled code. Same data, same settings, the faster of 
 | Causal forest, 2000 trees | 50 000 | 70 s | 123 s | **1.8×** |
 | Policy tree, depth 2, 10 features (`policytree::policy_tree`) | 1 000 | 0.36 s | 0.99 s | **2.8×** |
 | Policy tree, depth 2, 10 features | 5 000 | 13.0 s | 24.1 s | **1.9×** |
+| Synthetic DiD on Prop 99 (`synthdid::synthdid_estimate`) | 39 × 31 | 0.013 s | 0.19 s | **15×** |
+| Synthetic DiD, placebo standard error (200 replications) | 39 × 31 | 0.41 s | 30.7 s | **74×** |
+| Causal mediation (`causalweight::medDML`, parametric) | 5 000 | 0.011 s | 1.21 s | **110×** |
+| Causal mediation | 20 000 | 0.036 s | 3.67 s | **100×** |
+| Continuous DiD (`contdid::cont_did`, cubic B-spline) | 5 000 | 0.024 s | 3.20 s | **130×** |
+| Continuous DiD | 20 000 | 0.118 s | 12.3 s | **100×** |
 
 Both forests get the same linear nuisance estimates, so only the forest is timed. The policy
-trees are identical. Effects on a censored outcome (`CausalSurvival`) are **not** faster than
-`grf::causal_survival_forest` (about 2.0 s against 1.4 s per fit in the
-[validation study](validation.md)); the two are different estimators.
+trees are identical. `contdid` computes its standard errors with 100 bootstrap draws, dml-rs from
+the influence function; synthdid, causalweight and contdid are written in R itself, which
+explains most of their gap. The script is
+[`parity/bench_r.py`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/bench_r.py).
+
+Effects on a censored outcome (`CausalSurvival`) are **not** faster than
+`grf::causal_survival_forest`: about 1.7 s against 1.6 s per fit in the
+[validation study](validation.md), where the two are different estimators of the same effect.
 
 ## Reproduce
 

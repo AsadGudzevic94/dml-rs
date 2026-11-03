@@ -389,6 +389,18 @@ struct Bounds {
     ci: (Array1<f64>, Array1<f64>),
 }
 
+/// `Σ ψ̃²`, `Σ ψ̃ ψ_b` and `Σ ψ_b²` per treatment and repetition, with
+/// `ψ̃ = ψ / J` and `ψ_b` the score of the maximal bias. Without clusters the
+/// variance of the bound scores `ψ̃ ∓ s ψ_b` is the quadratic
+/// `(Σ ψ̃² ∓ 2s Σ ψ̃ ψ_b + s² Σ ψ_b²) / n²` in the confounding strength `s`, so
+/// the search for the robustness values costs `O(1)` per step instead of a
+/// pass over the scores.
+struct ScoreMoments {
+    psi2: Array2<f64>,
+    cross: Array2<f64>,
+    bias2: Array2<f64>,
+}
+
 /// Result of [`DmlFit::sensitivity_analysis`].
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -420,7 +432,16 @@ impl DmlFit {
         let store = self.sensitivity_store()?;
         let k = self.n_treat();
         params.validate(k)?;
-        let b = self.bounds(store, params.cf_y, params.cf_d, params.rho, params.level);
+        let moments = self.score_moments(store);
+        let moments = moments.as_ref();
+        let b = self.bounds(
+            store,
+            moments,
+            params.cf_y,
+            params.cf_d,
+            params.rho,
+            params.level,
+        );
         let null = |j: usize| {
             params.null_hypothesis[if params.null_hypothesis.len() == 1 {
                 0
@@ -434,7 +455,7 @@ impl DmlFit {
             let h0 = null(j);
             let upper = h0 > self.coef[j];
             let theta_at = |v: f64| {
-                let b = self.bounds(store, v, v, params.rho, params.level);
+                let b = self.bounds(store, moments, v, v, params.rho, params.level);
                 if upper {
                     b.theta.1[j]
                 } else {
@@ -442,7 +463,7 @@ impl DmlFit {
                 }
             };
             let ci_at = |v: f64| {
-                let b = self.bounds(store, v, v, params.rho, params.level);
+                let b = self.bounds(store, moments, v, v, params.rho, params.level);
                 if upper {
                     b.ci.1[j]
                 } else {
@@ -487,10 +508,39 @@ impl DmlFit {
         })
     }
 
+    /// The sums of [`ScoreMoments`], or `None` for clustered fits (whose
+    /// variance is not a plain sum of squares).
+    fn score_moments(&self, store: &SensitivityStore) -> Option<ScoreMoments> {
+        if self.cluster.is_some() {
+            return None;
+        }
+        let (_, k, n_rep) = self.psi.dim();
+        let mut m = ScoreMoments {
+            psi2: Array2::zeros((k, n_rep)),
+            cross: Array2::zeros((k, n_rep)),
+            bias2: Array2::zeros((k, n_rep)),
+        };
+        for j in 0..k {
+            for r in 0..n_rep {
+                let jac = self.psi_deriv[[j, r]];
+                let psi = self.psi.slice(ndarray::s![.., j, r]);
+                let bias = store.psi_max_bias.slice(ndarray::s![.., j, r]);
+                for (&p, &b) in psi.iter().zip(bias.iter()) {
+                    let p = p / jac;
+                    m.psi2[[j, r]] += p * p;
+                    m.cross[[j, r]] += p * b;
+                    m.bias2[[j, r]] += b * b;
+                }
+            }
+        }
+        Some(m)
+    }
+
     /// DoubleML's `_calc_sensitivity_analysis`.
     fn bounds(
         &self,
         store: &SensitivityStore,
+        moments: Option<&ScoreMoments>,
         cf_y: f64,
         cf_d: f64,
         rho: f64,
@@ -507,6 +557,14 @@ impl DmlFit {
                 let shift = strength * store.max_bias[[j, r]];
                 theta_lo[[j, r]] = self.all_coef[[j, r]] - shift;
                 theta_hi[[j, r]] = self.all_coef[[j, r]] + shift;
+                if let Some(m) = moments {
+                    let nn = (n * n) as f64;
+                    let (a, b, c) = (m.psi2[[j, r]], m.cross[[j, r]], m.bias2[[j, r]]);
+                    let sc = strength * strength * c;
+                    se_lo[[j, r]] = ((a - 2.0 * strength * b + sc).max(0.0) / nn).sqrt();
+                    se_hi[[j, r]] = ((a + 2.0 * strength * b + sc).max(0.0) / nn).sqrt();
+                    continue;
+                }
                 let jac = self.psi_deriv[[j, r]];
                 let scaled = self.psi.slice(ndarray::s![.., j, r]).mapv(|v| v / jac);
                 let pmb = store

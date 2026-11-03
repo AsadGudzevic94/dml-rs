@@ -409,11 +409,21 @@ impl Forest {
                 self.n_features
             )));
         }
-        let per_row = |row: ArrayView1<'_, f64>| -> f64 {
+        let per_row = |i: usize| -> f64 {
+            let row = x.row(i);
             self.trees.iter().map(|t| t.predict_row(row)).sum::<f64>() / self.trees.len() as f64
                 + self.y_offset
         };
-        Ok(x.rows().into_iter().map(per_row).collect())
+        // Rows in parallel; each row sums its trees in order, so the result is
+        // the same on any number of threads.
+        #[cfg(feature = "parallel")]
+        let out: Vec<f64> = {
+            use rayon::prelude::*;
+            (0..x.nrows()).into_par_iter().map(per_row).collect()
+        };
+        #[cfg(not(feature = "parallel"))]
+        let out: Vec<f64> = (0..x.nrows()).map(per_row).collect();
+        Ok(Array1::from(out))
     }
 }
 
