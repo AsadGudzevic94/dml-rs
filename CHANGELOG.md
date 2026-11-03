@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-03
+
+### Added
+- `CausalSurvival`: effects of a binary treatment on a right-censored time to event, as survival
+  probabilities or restricted mean survival time at chosen horizons, with potential outcomes and
+  survival curves. Hazards of the event and of censoring are learned by any classifier on
+  person-period data, and the score is doubly robust. Without covariates and with empirical
+  hazards it equals Kaplan-Meier (R `survival`) and the RMST of `survRM2`.
+- A guide for migrating from DoubleML, with code that the test suite runs.
+
+### Changed
+- The PLR-IV difference from DoubleML's main branch in `tune_ml_models` is explained: its loop now
+  reports each fold, so Optuna's default pruner can stop trials.
+
 ## [1.1.0] - 2026-11-03
 
 ### Added
@@ -646,7 +660,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.32.0...v1.0.0
 [0.32.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.31.0...v0.32.0
