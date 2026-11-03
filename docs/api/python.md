@@ -31,6 +31,7 @@ and may change in minor releases.
 ::: dml_rs.DIDAggregation
 ::: dml_rs.RDFlex
 ::: dml_rs.DoseResponse
+::: dml_rs.CausalSurvival
 ::: dml_rs.Mediation
 ::: dml_rs.SurrogateIndex
 ::: dml_rs.AutoDML

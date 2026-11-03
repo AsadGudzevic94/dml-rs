@@ -77,6 +77,7 @@ restorers! {
     "PolicyTree" => crate::PyPolicyTree,
     "AposResult" => crate::PyAposResult,
     "DoseResponseResult" => crate::PyDoseResponseResult,
+    "CausalSurvivalResult" => crate::PyCausalSurvivalResult,
     "MediationResult" => crate::PyMediationResult,
     "SurrogateResult" => crate::PySurrogateResult,
     "ContinuousDidResult" => crate::PyContinuousDidResult,

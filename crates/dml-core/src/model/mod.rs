@@ -27,6 +27,7 @@ mod quantile;
 mod rdflex;
 mod ssm;
 mod surrogate;
+mod survival;
 
 pub use apo::{Apo, Apos, AposFit};
 pub use autodml::AutoDml;
@@ -47,6 +48,9 @@ pub use rdflex::RdKernel;
 pub use rdflex::{FirstStage, RdFlex, RdFlexFit};
 pub use ssm::{Ssm, SsmScore};
 pub use surrogate::{SurrogateData, SurrogateFit, SurrogateIndex};
+pub use survival::{
+    CausalSurvival, CausalSurvivalFit, SurvivalEstimand, SurvivalGrid, TimeEncoding,
+};
 
 /// The data a model sees when estimating the effect of one treatment.
 ///

@@ -58,6 +58,7 @@ from ._conformal import ConformalITE
 from ._bounds import LeeBounds
 from ._contdid import ContinuousDID
 from ._dose import DoseResponse
+from ._survival import CausalSurvival
 from ._mediation import Mediation
 from ._policy_search import OptimalPolicyTree, double_robust_scores, policy_value
 from ._surrogate import SurrogateIndex
@@ -102,6 +103,7 @@ __all__ = [
     "ConformalITE",
     "ContinuousDID",
     "LeeBounds",
+    "CausalSurvival",
     "DoseResponse",
     "Mediation",
     "OptimalPolicyTree",

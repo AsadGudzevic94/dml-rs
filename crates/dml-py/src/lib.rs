@@ -1158,6 +1158,145 @@ impl PyDoseResponseResult {
     }
 }
 
+/// Effect of a binary treatment on a right-censored time to event.
+#[pyclass(name = "CausalSurvivalResult", module = "dml_rs", frozen)]
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct PyCausalSurvivalResult {
+    inner: dml_core::CausalSurvivalFit,
+}
+
+#[pymethods]
+impl PyCausalSurvivalResult {
+    /// Pickle support (`pickle`, `copy.deepcopy`, `joblib`).
+    fn __reduce__<'py>(&self, py: Python<'py>) -> PyResult<crate::pickle::Reduced<'py>> {
+        crate::pickle::reduce(py, "CausalSurvivalResult", self)
+    }
+
+    #[getter]
+    fn horizons(&self) -> Vec<f64> {
+        self.inner.horizons().to_vec()
+    }
+
+    #[getter]
+    fn grid(&self) -> Vec<f64> {
+        self.inner.grid().to_vec()
+    }
+
+    /// Treated minus control at the horizons.
+    #[getter]
+    fn effect(&self) -> PyDmlResult {
+        PyDmlResult::from_fit(self.inner.effect().clone())
+    }
+
+    /// The estimand at the horizons if everyone were treated, or if nobody were.
+    fn potential(&self, treated: bool) -> PyDmlResult {
+        PyDmlResult::from_fit(self.inner.potential(treated).clone())
+    }
+
+    /// The survival curve on the grid if everyone were treated, or if nobody were.
+    fn curve(&self, treated: bool) -> PyDmlResult {
+        PyDmlResult::from_fit(self.inner.curve(treated).clone())
+    }
+
+    /// Cross-fitted, clipped propensity scores, shape `(n, n_rep)`.
+    #[getter]
+    fn propensity<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        self.inner.propensity().clone().into_pyarray(py)
+    }
+}
+
+/// The observed time is `y`; `event` is 1 for an event and 0 for censoring.
+/// `grid` is a number of quantiles, `"event_times"` or a list of times.
+#[pyfunction]
+#[pyo3(signature = (y, d, x, event, ml_event, ml_censor, ml_m, horizons = None, estimand = "survival",
+                    grid = None, time_encoding = "numeric", clipping_threshold = 1e-2,
+                    censoring_floor = 1e-2, n_folds = 5, n_rep = 1, seed = 0, splits = None))]
+#[allow(clippy::too_many_arguments)]
+fn fit_causal_survival(
+    py: Python<'_>,
+    y: PyReadonlyArray1<'_, f64>,
+    d: PyReadonlyArray2<'_, f64>,
+    x: PyReadonlyArray2<'_, f64>,
+    event: PyReadonlyArray1<'_, f64>,
+    ml_event: &Bound<'_, PyAny>,
+    ml_censor: &Bound<'_, PyAny>,
+    ml_m: &Bound<'_, PyAny>,
+    horizons: Option<Vec<f64>>,
+    estimand: &str,
+    grid: Option<&Bound<'_, PyAny>>,
+    time_encoding: &str,
+    clipping_threshold: f64,
+    censoring_floor: f64,
+    n_folds: usize,
+    n_rep: usize,
+    seed: u64,
+    splits: Option<PySplits>,
+) -> PyResult<PyCausalSurvivalResult> {
+    let estimand = match estimand {
+        "survival" => dml_core::SurvivalEstimand::Survival,
+        "rmst" => dml_core::SurvivalEstimand::Rmst,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "estimand must be 'survival' or 'rmst', got {other:?}"
+            )))
+        }
+    };
+    let encoding = match time_encoding {
+        "numeric" => dml_core::TimeEncoding::Numeric,
+        "dummies" => dml_core::TimeEncoding::Dummies,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "time_encoding must be 'numeric' or 'dummies', got {other:?}"
+            )))
+        }
+    };
+    let grid = match grid {
+        None => dml_core::SurvivalGrid::Quantiles(30),
+        Some(g) => {
+            if let Ok(text) = g.extract::<String>() {
+                if text != "event_times" {
+                    return Err(PyValueError::new_err(format!(
+                        "grid must be a number, 'event_times' or a list of times, got {text:?}"
+                    )));
+                }
+                dml_core::SurvivalGrid::EventTimes
+            } else if let Ok(k) = g.extract::<usize>() {
+                dml_core::SurvivalGrid::Quantiles(k)
+            } else {
+                dml_core::SurvivalGrid::Fixed(g.extract()?)
+            }
+        }
+    };
+    let data = build_data(y, d, x, None, None, None, None)?;
+    let event = event.as_array().to_owned();
+    let mut model = dml_core::CausalSurvival::from_boxed(
+        to_classifier(ml_event)?,
+        to_classifier(ml_censor)?,
+        to_classifier(ml_m)?,
+    )
+    .estimand(estimand)
+    .grid(grid)
+    .time_encoding(encoding)
+    .clipping_threshold(clipping_threshold)
+    .censoring_floor(censoring_floor)
+    .n_folds(n_folds)
+    .n_rep(n_rep)
+    .seed(seed);
+    if let Some(horizons) = horizons {
+        model = model.horizons(horizons);
+    }
+    let result = match splits {
+        Some(s) => {
+            let s = to_splits(s);
+            py.detach(|| model.fit_with_folds(&data, event.view(), &s))
+        }
+        None => py.detach(|| model.fit(&data, event.view())),
+    };
+    result
+        .map(|inner| PyCausalSurvivalResult { inner })
+        .map_err(to_py_err)
+}
+
 #[pyfunction]
 #[pyo3(signature = (y, d, x, ml_g, ml_m, grid = None, kernel = "epanechnikov", bandwidth = None,
                     bandwidth_scale = 1.0, density = "kernel", density_bandwidth = None,
@@ -2882,20 +3021,21 @@ mod dml_rs_native {
     #[pymodule_export]
     use super::{
         concat, draw_folds, fit_apo, fit_apos, fit_autodml, fit_cate, fit_causal_forest,
-        fit_conformal, fit_continuous_did, fit_did, fit_dose_response, fit_iivm,
-        fit_instrumental_forest, fit_irm, fit_lee_bounds, fit_lplr, fit_mediation,
+        fit_causal_survival, fit_conformal, fit_continuous_did, fit_did, fit_dose_response,
+        fit_iivm, fit_instrumental_forest, fit_irm, fit_lee_bounds, fit_lplr, fit_mediation,
         fit_multi_arm_causal_forest, fit_optimal_policy_tree, fit_pliv, fit_plpr, fit_plr, fit_qte,
         fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did, fit_surrogate_index, fit_synthdid,
         plpr_transform, policy_value, result_from_scores, set_parallel_folds, simulate,
-        PyAposResult, PyBlp, PyBootstrap, PyCateResult, PyCausalForestResult, PyConformalResult,
-        PyContinuousDidResult, PyDmlResult, PyDoseResponseResult, PyGradientBoostingClassifier,
-        PyGradientBoostingRegressor, PyGridSearchClassifier, PyGridSearchRegressor,
-        PyHistGradientBoostingClassifier, PyHistGradientBoostingRegressor,
-        PyInstrumentalForestResult, PyLasso, PyLassoCV, PyLeeBounds, PyLogisticRegression,
-        PyLogisticRegressionCV, PyMediationResult, PyMultiArmCausalForestResult, PyOls,
-        PyOptimalPolicyTree, PyPolicyTree, PyQteResult, PyQuantileForest, PyRandomForestClassifier,
-        PyRandomForestRegressor, PyRdFlexResult, PyRegressionForest, PySensitivityBenchmark,
-        PySensitivityResult, PyStaggeredResult, PySurrogateResult, PySynthResult,
+        PyAposResult, PyBlp, PyBootstrap, PyCateResult, PyCausalForestResult,
+        PyCausalSurvivalResult, PyConformalResult, PyContinuousDidResult, PyDmlResult,
+        PyDoseResponseResult, PyGradientBoostingClassifier, PyGradientBoostingRegressor,
+        PyGridSearchClassifier, PyGridSearchRegressor, PyHistGradientBoostingClassifier,
+        PyHistGradientBoostingRegressor, PyInstrumentalForestResult, PyLasso, PyLassoCV,
+        PyLeeBounds, PyLogisticRegression, PyLogisticRegressionCV, PyMediationResult,
+        PyMultiArmCausalForestResult, PyOls, PyOptimalPolicyTree, PyPolicyTree, PyQteResult,
+        PyQuantileForest, PyRandomForestClassifier, PyRandomForestRegressor, PyRdFlexResult,
+        PyRegressionForest, PySensitivityBenchmark, PySensitivityResult, PyStaggeredResult,
+        PySurrogateResult, PySynthResult,
     };
 
     #[pymodule_export]

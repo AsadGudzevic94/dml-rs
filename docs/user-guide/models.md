@@ -758,6 +758,79 @@ observations with propensity products below 0.05 (`trimming_rule="drop"`,
 
 See the [mediation example](../examples/08_mediation.ipynb).
 
+## Time-to-event outcomes
+
+When the outcome is a time until something happens (death, relapse, leaving a job), some units are
+still event-free when observation ends. Their time is right-censored: we only know it exceeds the
+time we observed. Dropping them, or treating their censoring time as the event time, biases the
+estimate. `CausalSurvival` compares treated and untreated at a horizon $\tau$, either by the
+survival probability or by the restricted mean survival time (RMST), the expected event-free time
+up to $\tau$:
+
+$$
+\theta_S(\tau) = P(T(1) > \tau) - P(T(0) > \tau), \qquad
+\theta_R(\tau) = E[\min(T(1), \tau)] - E[\min(T(0), \tau)].
+$$
+
+Time is split into the slots of a grid and each unit becomes one row per slot in which it is at
+risk, so any classifier can learn the discrete hazard of the event $h_j$ and of censoring $c_j$,
+fitted separately for treated and controls. With $S_m = \prod_{j \le m}(1 - h_j)$ and
+$G_j = \prod_{l < j}(1 - c_l)$, the score of arm $a$ is the efficient influence function of the
+survival curve (Bai, Tsiatis and O'Brien, 2013; Westling et al., 2024):
+
+$$
+\varphi_a(t_m) = S_m - \frac{1(D = a)}{\pi_a(X)} \sum_{j \le m} R_j\, \frac{S_m}{S_j}\,
+\frac{dN_j - h_j}{G_j},
+$$
+
+where $R_j$ says whether the unit is at risk in slot $j$ and $dN_j$ whether its event happens
+there. The score is doubly robust: the estimate is consistent if the event hazards, or the
+censoring hazards and the propensity score, are. RMST is the integral of the curve, and its score
+is the same integral of $\varphi_a$. Without covariates and with empirical hazards, the estimator
+equals Kaplan-Meier on a grid of all event times.
+
+=== "Python"
+
+    ```python
+    forest = dml_rs.RandomForestClassifier(n_estimators=200, min_samples_leaf=20)
+    model = dml_rs.CausalSurvival(forest, forest, dml_rs.LogisticRegressionCV(),
+                                  horizons=[180, 365], estimand="survival")
+    model.fit(X, time, event, d)        # event: 1 for an event, 0 for censoring
+    model.summary                       # treated minus control at each horizon
+    model.potential(treated=False).summary  # the estimand if nobody were treated
+    model.curve(treated=True).coef_     # the survival curve on model.grid_
+    model.plot()                        # both curves with 95% bands
+    ```
+
+=== "Rust"
+
+    ```rust
+    use dml_core::{CausalSurvival, DmlData, RandomForestClassifier, SurvivalEstimand};
+
+    let data = DmlData::new(time, d, x)?;          // the observed time takes the place of y
+    let fit = CausalSurvival::new(
+        RandomForestClassifier::new().min_samples_leaf(20),
+        RandomForestClassifier::new().min_samples_leaf(20),
+        LogisticRegressionCV::new(),
+    )
+    .horizons(vec![180.0, 365.0])
+    .estimand(SurvivalEstimand::Rmst)
+    .fit(&data, event.view())?;
+    let effect = fit.effect();                     // a DmlFit: coef, se, confint, bootstrap
+    let curve = fit.curve(true);
+    ```
+
+!!! note "Assumptions and practical choices"
+    Besides the usual unconfoundedness, censoring must be independent of the event time given the
+    treatment and the covariates. It may depend on both, but censoring because the unit is doing
+    badly in ways `X` does not capture biases the estimate.
+
+    Choose horizons where units are still observed in both arms: the weights grow as $G_j$ falls,
+    and standard errors with them. Competing events are not modelled, so treat them as censoring
+    only if that matches the question. Trees and boosting work with the default numeric time
+    feature. For a logistic learner use `time_encoding="dummies"`, which gives it a free baseline
+    hazard. Clusters are not supported yet.
+
 ## Long-term effects from surrogates
 
 Experiments usually end long before the outcome of interest is observed (earnings years after a

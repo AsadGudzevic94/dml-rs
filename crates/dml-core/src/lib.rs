@@ -158,13 +158,14 @@ pub use learner::{
 #[allow(deprecated)]
 pub use model::RdKernel;
 pub use model::{
-    Apo, Apos, AposFit, AutoDml, Bandwidth, CateSignal, ConformalFit, ConformalIte, ConformalScore,
-    ConformalTarget, ContinuousDid, ContinuousDidFit, Cvar, DensityModel, Did, DidCs, DidScore,
-    DoseKernel, DoseResponse, DoseResponseFit, ExternalPredictions, FirstStage, Iivm, Irm,
-    IrmScore, LinearScoreModel, LossKind, Lplr, LplrScore, Lpq, Mediation, MediationFit, Name,
-    NuisanceLearners, NuisanceTarget, PanelApproach, Pliv, PlivScore, PlivVariant, Plpr, Plr,
-    PlrScore, Pq, Qte, QteFit, RdFlex, RdFlexFit, ScoreEstimate, ScoreInput, Ssm, SsmScore,
-    StaticPanel, SurrogateData, SurrogateFit, SurrogateIndex, TreatmentLearner, TrimmingRule,
+    Apo, Apos, AposFit, AutoDml, Bandwidth, CateSignal, CausalSurvival, CausalSurvivalFit,
+    ConformalFit, ConformalIte, ConformalScore, ConformalTarget, ContinuousDid, ContinuousDidFit,
+    Cvar, DensityModel, Did, DidCs, DidScore, DoseKernel, DoseResponse, DoseResponseFit,
+    ExternalPredictions, FirstStage, Iivm, Irm, IrmScore, LinearScoreModel, LossKind, Lplr,
+    LplrScore, Lpq, Mediation, MediationFit, Name, NuisanceLearners, NuisanceTarget, PanelApproach,
+    Pliv, PlivScore, PlivVariant, Plpr, Plr, PlrScore, Pq, Qte, QteFit, RdFlex, RdFlexFit,
+    ScoreEstimate, ScoreInput, Ssm, SsmScore, StaticPanel, SurrogateData, SurrogateFit,
+    SurrogateIndex, SurvivalEstimand, SurvivalGrid, TimeEncoding, TreatmentLearner, TrimmingRule,
 };
 pub use policy::{PolicyNode, PolicyTree};
 pub use policy_search::{policy_value, OptimalPolicyNode, OptimalPolicyTree, OptimalPolicyTreeFit};
