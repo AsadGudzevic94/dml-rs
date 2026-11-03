@@ -52,9 +52,9 @@ pub enum SurvivalEstimand {
     Survival,
     /// The restricted mean survival time `E[min(T, τ)]`.
     Rmst,
-    /// The cumulative incidence `P(T ≤ τ, cause = c)` of a cause `c ≥ 1` of
-    /// `event`, with the other causes competing.
-    CumulativeIncidence(u32),
+    /// The cumulative incidence `P(T ≤ τ, cause = c)` of the cause `c` set by
+    /// [`CausalSurvival::cause`] (default 1), with the other causes competing.
+    CumulativeIncidence,
 }
 
 /// The slots time is split into.
@@ -128,6 +128,7 @@ pub struct CausalSurvival {
     clipping_threshold: f64,
     censoring_floor: f64,
     splitting: SampleSplitting,
+    cause: u32,
 }
 
 impl CausalSurvival {
@@ -158,12 +159,20 @@ impl CausalSurvival {
             clipping_threshold: 1e-2,
             censoring_floor: 1e-2,
             splitting: SampleSplitting::default(),
+            cause: 1,
         }
     }
 
     /// Survival probability (default) or restricted mean survival time.
     pub fn estimand(mut self, estimand: SurvivalEstimand) -> Self {
         self.estimand = estimand;
+        self
+    }
+
+    /// The cause (an event code `≥ 1`) of [`SurvivalEstimand::CumulativeIncidence`]
+    /// (default 1).
+    pub fn cause(mut self, cause: u32) -> Self {
+        self.cause = cause;
         self
     }
 
@@ -270,12 +279,10 @@ impl CausalSurvival {
                 "event must be 0 for censoring and 1, 2, ... for the cause of an event",
             );
         }
-        if let SurvivalEstimand::CumulativeIncidence(cause) = self.estimand {
-            if cause == 0 || !event.iter().any(|&e| e == cause as f64) {
-                return invalid(
-                    "the cause of the cumulative incidence must be an observed event code",
-                );
-            }
+        if self.estimand == SurvivalEstimand::CumulativeIncidence
+            && (self.cause == 0 || !event.iter().any(|&e| e == self.cause as f64))
+        {
+            return invalid("the cause of the cumulative incidence must be an observed event code");
         }
         if data.y().iter().any(|&t| t < 0.0) {
             return invalid("observed times must not be negative");
@@ -312,7 +319,7 @@ impl CausalSurvival {
         let horizons = self.resolve_horizons(time, any_event.view())?;
         let grid = self.resolve_grid(time, any_event.view(), &horizons)?;
         let cause = match self.estimand {
-            SurvivalEstimand::CumulativeIncidence(c) => Some(c as f64),
+            SurvivalEstimand::CumulativeIncidence => Some(self.cause as f64),
             _ => None,
         };
         let schedule = Schedule::new(time, any_event.view(), &grid, cause.map(|c| (event, c)));
@@ -366,7 +373,7 @@ impl CausalSurvival {
                 restricted_means(&treated, &grid, &points),
                 restricted_means(&control, &grid, &points),
             ),
-            SurvivalEstimand::CumulativeIncidence(_) => (
+            SurvivalEstimand::CumulativeIncidence => (
                 incidence_treated.select(Axis(1), &points),
                 incidence_control.select(Axis(1), &points),
             ),
@@ -374,7 +381,7 @@ impl CausalSurvival {
         let label = match self.estimand {
             SurvivalEstimand::Survival => "survival".to_string(),
             SurvivalEstimand::Rmst => "RMST".to_string(),
-            SurvivalEstimand::CumulativeIncidence(c) => format!("incidence[{c}]"),
+            SurvivalEstimand::CumulativeIncidence => format!("incidence[{}]", self.cause),
         };
         let names: Vec<String> = horizons.iter().map(|t| format!("{label}({t})")).collect();
         let clusters = data.clusters().map(|c| &c[0]);

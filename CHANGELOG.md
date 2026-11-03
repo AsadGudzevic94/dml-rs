@@ -16,7 +16,8 @@ All notable changes to this project are documented here. The format follows
   Default `None` (unchanged).
 - `CausalSurvival`: competing events. `event` may hold the cause (1, 2, ...; 0 for censoring);
   survival and RMST are then freedom from every cause, and
-  `SurvivalEstimand::CumulativeIncidence(c)` (Python `estimand="cumulative_incidence", cause=c`)
+  `SurvivalEstimand::CumulativeIncidence` with `CausalSurvival::cause(c)` (Python
+  `estimand="cumulative_incidence", cause=c`)
   estimates the cumulative incidence of cause `c`, with its doubly robust influence function and
   `incidence_curve`. Without covariates it reproduces the Aalen-Johansen estimator of
   `survival::survfit` to 1e-12 (`mgus2` fixture).

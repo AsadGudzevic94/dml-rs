@@ -1245,7 +1245,7 @@ fn fit_causal_survival(
     let estimand = match estimand {
         "survival" => dml_core::SurvivalEstimand::Survival,
         "rmst" => dml_core::SurvivalEstimand::Rmst,
-        "cumulative_incidence" => dml_core::SurvivalEstimand::CumulativeIncidence(cause),
+        "cumulative_incidence" => dml_core::SurvivalEstimand::CumulativeIncidence,
         other => {
             return Err(PyValueError::new_err(format!(
                 "estimand must be 'survival', 'rmst' or 'cumulative_incidence', got {other:?}"
@@ -1286,6 +1286,7 @@ fn fit_causal_survival(
         to_classifier(ml_m)?,
     )
     .estimand(estimand)
+    .cause(cause)
     .grid(grid)
     .time_encoding(encoding)
     .clipping_threshold(clipping_threshold)

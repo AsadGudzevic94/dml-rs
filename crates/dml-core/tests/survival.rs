@@ -303,16 +303,17 @@ fn reduces_to_aalen_johansen_with_competing_events() {
         train: all.clone(),
         test: all,
     }]];
-    let fit = |estimand| {
+    let fit = |estimand, cause| {
         saturated()
             .estimand(estimand)
+            .cause(cause)
             .horizons(numbers(&fx, "horizons"))
             .fit_with_folds(&data, event.view(), &splits)
             .unwrap()
     };
-    let survival = fit(SurvivalEstimand::Survival);
-    let first = fit(SurvivalEstimand::CumulativeIncidence(1));
-    let second = fit(SurvivalEstimand::CumulativeIncidence(2));
+    let survival = fit(SurvivalEstimand::Survival, 1);
+    let first = fit(SurvivalEstimand::CumulativeIncidence, 1);
+    let second = fit(SurvivalEstimand::CumulativeIncidence, 2);
     for (treated, arm) in [(true, "treated"), (false, "control")] {
         // Freedom from either cause, and each cause's cumulative incidence.
         assert_close(
@@ -398,7 +399,7 @@ fn estimates_the_cumulative_incidence_of_a_competing_cause() {
     for seed in 0..reps {
         let (data, event) = simulate_competing(1500, 100 + seed);
         let fit = logistic_model()
-            .estimand(SurvivalEstimand::CumulativeIncidence(1))
+            .estimand(SurvivalEstimand::CumulativeIncidence)
             .horizons(vec![horizon])
             .fit(&data, event.view())
             .unwrap();
