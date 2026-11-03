@@ -67,6 +67,7 @@ DoubleML? See the [migration guide](https://asadgudzevic94.github.io/dml-rs/user
 | Partial identification | Lee bounds on effects under sample selection, tightened with covariates | `LeeBounds` | `LeeBounds` |
 | Causal forests | Individual treatment effects τ(x) with confidence intervals (generalized random forests, as R's `grf`), average and group effects, calibration test, policy trees; instrumental (conditional LATE) and multi-arm forests; regression and quantile forests | `CausalForestDml`, `InstrumentalForestDml`, `MultiArmCausalForestDml` | `CausalForest`, `InstrumentalForest`, `MultiArmCausalForest` |
 | Continuous treatments | Dose-response curve E[Y(t)] and its derivative, with uniform confidence bands (kernel DML of Colangelo and Lee) | `DoseResponse` | `DoseResponse` |
+| Time-to-event outcomes | Effects on survival probabilities and restricted mean survival time under censoring, with any classifier for the hazards (doubly robust; equals Kaplan-Meier without covariates) |
 | Causal mediation | Natural direct and indirect effects through one or several mediators (Farbmacher et al.; matches R's `causalweight::medDML`) | `Mediation` | `Mediation` |
 | Long-term effects | Effect on an outcome the experiment never observes, from short-term surrogates and an observational sample (surrogate index with the efficient score of Chen and Ritzwoller) | `SurrogateIndex` | `SurrogateIndex` |
 | Automatic debiased ML | Any mean of a linear functional of the regression (ATE, average derivatives, shift and policy effects, your own), with the Riesz representer learned automatically | `AutoDml` | `AutoDML` |
@@ -347,7 +348,7 @@ If you use dml-rs in your work, please cite the package and the underlying metho
   author  = {Gudzevic, Asad},
   title   = {dml-rs: Double / debiased machine learning in Rust and Python},
   url     = {https://github.com/AsadGudzevic94/dml-rs},
-  version = {1.1.0},
+  version = {1.2.0},
   year    = {2026}
 }
 
