@@ -1,0 +1,142 @@
+---
+title: "Staggered adoption and regression discontinuity"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Staggered adoption and regression discontinuity}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 7, fig.height = 4)
+```
+
+Two designs identify effects from timing and thresholds rather than from
+measuring every confounder: units that adopt a treatment at different times, and
+units just either side of a cutoff. `dmlrs` fits both with cross-fitted machine
+learning for the nuisance functions.
+
+```{r}
+library(dmlrs)
+```
+
+## Staggered adoption
+
+Units start treatment in different periods and some never do. Comparing early
+and late adopters with one two-way fixed effects regression can give misleading
+answers when effects change over time, so `dml_staggered_did()` follows Callaway
+and Sant'Anna (2021). It estimates one effect \(ATT(g, t)\) for each cohort
+\(g\) (units first treated in period \(g\)) and period \(t\), each from a clean
+comparison group.
+
+The simulated panel below has two cohorts and a never-treated group. Treatment
+effects grow with time since adoption, and adoption depends on a covariate that
+also shifts the outcome trend, so a plain difference in differences is biased.
+
+```{r}
+set.seed(1)
+n <- 1000
+covariate <- rnorm(n)
+cohort <- ifelse(runif(n) < plogis(covariate), sample(c(3, 4), n, replace = TRUE), NA)
+
+panel <- expand.grid(id = seq_len(n), t = 1:6)
+panel$g <- cohort[panel$id]
+panel$x <- covariate[panel$id]
+since <- ifelse(is.na(panel$g), -1, panel$t - panel$g)
+effect <- ifelse(since >= 0, 1 + 0.5 * since, 0)
+panel$y <- panel$x + (0.5 + 0.3 * panel$x) * panel$t + effect + rnorm(nrow(panel))
+```
+
+The data is long: one row per unit and period. `g` is the first treated period,
+and `NA` or `Inf` marks never-treated units.
+
+```{r}
+fit <- dml_staggered_did(panel$y, panel["x"], panel$id, panel$t, panel$g,
+                         ml_g = lrn_ols(), ml_m = lrn_logistic(),
+                         control_group = "never_treated")
+fit
+```
+
+Each row is named `ATT(g, pre, t)`. Pre-treatment rows are placebo checks and
+should be close to zero. `plot()` shows one panel per cohort, with placebo
+estimates in orange.
+
+```{r, fig.height = 5}
+plot(fit)
+```
+
+There are many group-time effects, so summarise them with `aggregate()`. An
+event study lines the cohorts up by time since treatment, and the true effect is
+\(1 + 0.5 \times\) that time.
+
+```{r}
+event_study <- aggregate(fit, "eventstudy")
+event_study
+plot(event_study)
+```
+
+`aggregate()` also works by `"group"` and `"time"`. Each result holds two fits,
+`effects` and `overall`, so the usual methods apply:
+
+```{r}
+confint(aggregate(fit, "group")$overall)
+```
+
+When units share shocks, pass `cluster`. Standard errors and aggregations become
+cluster-robust and whole clusters go to folds. Repeated cross-sections use
+`panel = FALSE`.
+
+## Regression discontinuity
+
+In a regression discontinuity design, treatment switches on when a running
+variable crosses a cutoff. Units just below and just above the cutoff are
+comparable, so the jump in the outcome is the effect at the cutoff.
+
+Covariates are not needed for identification, but they can make the estimate
+more precise. `dml_rdflex()` adjusts the outcome with a cross-fitted prediction
+from the covariates (Noack, Olma and Rothe, 2024), then runs a port of
+`rdrobust` on the adjusted outcome.
+
+```{r}
+set.seed(7)
+n <- 2000
+score <- runif(n, -1, 1)
+x <- matrix(rnorm(n * 4), n)
+treated <- as.numeric(score >= 0)
+y <- 0.5 * treated + score + 2 * x[, 1] + rnorm(n)
+
+fit <- dml_rdflex(y, treated, x, score, ml_g = lrn_lasso_cv())
+fit
+confint(fit, "Robust")
+```
+
+The three rows are the conventional, bias-corrected and robust estimates. Report
+the robust row: its interval accounts for the bias of the local polynomial, and
+the conventional one does not.
+
+To see what the covariates add, compare with an estimate that ignores them:
+
+```{r}
+without <- dml_rdflex(y, treated, matrix(rnorm(n * 2), n), score, ml_g = lrn_ols())
+c(without = unname(without$se["Robust"]), with = unname(fit$se["Robust"]))
+```
+
+In a fuzzy design the cutoff only changes the chance of treatment. Pass the
+treatment received, a classifier and `fuzzy = TRUE`. The options of
+`rdrobust::rdrobust()` go through `...`, for example `vce = "hc1"` or
+`bwselect = "msetwo"`, and `cluster` gives cluster-robust standard errors.
+
+```{r}
+received <- rbinom(n, 1, ifelse(score >= 0, 0.8, 0.2))
+y_fuzzy <- 0.5 * received + score + 2 * x[, 1] + rnorm(n)
+dml_rdflex(y_fuzzy, received, x, score, ml_g = lrn_lasso_cv(),
+           ml_m = lrn_logistic_cv(), fuzzy = TRUE)
+```
+
+## References
+
+Callaway, B. and Sant'Anna, P. H. C. (2021). Difference-in-differences with
+multiple time periods. *Journal of Econometrics*, 225(2), 200-230.
+
+Noack, C., Olma, T. and Rothe, C. (2024). Flexible covariate adjustments in
+regression discontinuity designs. arXiv:2107.07942.

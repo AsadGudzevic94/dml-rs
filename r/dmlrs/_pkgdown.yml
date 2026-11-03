@@ -2,6 +2,7 @@ url: https://asadgudzevic94.github.io/dml-rs/r/
 
 template:
   bootstrap: 5
+  math-rendering: katex
 
 navbar:
   structure:
@@ -21,6 +22,7 @@ articles:
     navbar: ~
     contents:
       - articles/heterogeneous-effects
+      - articles/staggered-did-and-rd
 
 reference:
   - title: Average effects

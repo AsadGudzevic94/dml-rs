@@ -31,7 +31,8 @@ machine-learning models for the nuisance functions and cross-fitting, and delive
 standard errors, confidence intervals and hypothesis tests.
 
 The core is written in Rust and exposed to Python with a scikit-learn style API. Every model is
-tested for numerical agreement with the reference [DoubleML](https://docs.doubleml.org) package.
+tested for numerical agreement with the reference [DoubleML](https://docs.doubleml.org) package. Coming from
+DoubleML? See the [migration guide](https://asadgudzevic94.github.io/dml-rs/user-guide/migrating-from-doubleml/).
 
 ## Why dml-rs
 
