@@ -144,10 +144,15 @@ struct Search<'x, 'g> {
 impl Search<'_, '_> {
     /// Best single action (rewards summed in the order of the first feature).
     fn level_zero(&self, sets: &[Vec<usize>]) -> SearchNode {
+        self.level_zero_where(sets, |_| true)
+    }
+
+    /// [`Self::level_zero`] on the points of `sets` for which `keep` holds.
+    fn level_zero_where(&self, sets: &[Vec<usize>], keep: impl Fn(usize) -> bool) -> SearchNode {
         let mut best = (f64::NEG_INFINITY, 0);
         for d in 0..self.gamma.ncols() {
             let mut sum = 0.0;
-            for &i in &sets[0] {
+            for &i in sets[0].iter().filter(|&&i| keep(i)) {
                 sum += self.gamma[[i, d]];
             }
             if sum > best.0 {
@@ -159,17 +164,36 @@ impl Search<'_, '_> {
 
     /// Best split with the best action in each leaf.
     fn level_one(&self, sets: &[Vec<usize>]) -> SearchNode {
-        let num_points = sets[0].len();
+        self.level_one_where(sets, sets[0].len(), |_| true)
+    }
+
+    /// [`Self::level_one`] on the `num_points` points of `sets` for which `keep`
+    /// holds. Each feature's points are gathered into one reused buffer, so a
+    /// parent's split need not build new sorted sets for its children.
+    fn level_one_where(
+        &self,
+        sets: &[Vec<usize>],
+        num_points: usize,
+        keep: impl Fn(usize) -> bool,
+    ) -> SearchNode {
         let num_rewards = self.gamma.ncols();
         let mut best_reward = f64::NEG_INFINITY;
         let (mut best_left, mut best_right) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
         let (mut action_left, mut action_right) = (0, 0);
         let (mut split_var, mut split_val) = (0, 0.0);
-        let mut sums = vec![vec![0.0; num_points + 1]; num_rewards];
-        for (p, set) in sets.iter().enumerate() {
-            for (d, sum) in sums.iter_mut().enumerate() {
-                for (k, &i) in set.iter().enumerate() {
-                    sum[k + 1] = sum[k] + self.gamma[[i, d]];
+        // Cumulative rewards along the sorted points, `sums[k * num_rewards + d]`
+        // for the first k points and action d: one visit to each point's row
+        // of Γ fills all actions.
+        let mut sums = vec![0.0; (num_points + 1) * num_rewards];
+        let mut set = Vec::with_capacity(num_points);
+        for (p, all) in sets.iter().enumerate() {
+            set.clear();
+            set.extend(all.iter().copied().filter(|&i| keep(i)));
+            for (k, &i) in set.iter().enumerate() {
+                let (done, next) = sums.split_at_mut((k + 1) * num_rewards);
+                let previous = &done[k * num_rewards..];
+                for (d, slot) in next[..num_rewards].iter_mut().enumerate() {
+                    *slot = previous[d] + self.gamma[[i, d]];
                 }
             }
             let (mut split_counter, mut samples_counter) = (0usize, 0usize);
@@ -194,9 +218,9 @@ impl Search<'_, '_> {
                 }
                 let (mut left_best, mut right_best) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
                 let (mut left_action, mut right_action) = (0, 0);
-                for (d, sum) in sums.iter().enumerate() {
-                    let left = sum[n];
-                    let right = sum[num_points] - left;
+                for d in 0..num_rewards {
+                    let left = sums[n * num_rewards + d];
+                    let right = sums[num_points * num_rewards + d] - left;
                     if left_best < left {
                         left_best = left;
                         left_action = d;
@@ -233,7 +257,7 @@ impl Search<'_, '_> {
                 }
             }
         } else {
-            self.level_zero(sets)
+            self.level_zero_where(sets, keep)
         }
     }
 
@@ -245,19 +269,15 @@ impl Search<'_, '_> {
         }
         let num_points = sets[0].len();
         let n_total = self.x.nrows();
-        let mut best: Option<(SearchNode, SearchNode, usize, f64)> = None;
-        let mut in_left = vec![false; n_total];
-        for p in 0..sets.len() {
-            in_left.iter_mut().for_each(|v| *v = false);
+        // The candidate splits, in search order: after the k-th point along
+        // feature p.
+        let mut candidates = Vec::new();
+        for (p, set) in sets.iter().enumerate() {
             let (mut split_counter, mut samples_counter) = (0usize, 0usize);
             for k in 0..num_points.saturating_sub(1) {
-                // Move the k-th point along feature p from the right to the left.
-                let point = sets[p][k];
-                in_left[point] = true;
-                let next = sets[p][k + 1];
                 split_counter += 1;
                 samples_counter += 1;
-                if self.x[[point, p]] >= self.x[[next, p]] {
+                if self.x[[set[k], p]] >= self.x[[set[k + 1], p]] {
                     continue;
                 }
                 if samples_counter < self.min_node_size
@@ -267,26 +287,61 @@ impl Search<'_, '_> {
                 }
                 if split_counter >= self.split_step {
                     split_counter = 0;
-                } else {
-                    continue;
+                    candidates.push((p, k));
                 }
-                let left_sets: Vec<Vec<usize>> = sets
-                    .iter()
-                    .map(|s| s.iter().copied().filter(|&i| in_left[i]).collect())
-                    .collect();
-                let right_sets: Vec<Vec<usize>> = sets
-                    .iter()
-                    .map(|s| s.iter().copied().filter(|&i| !in_left[i]).collect())
-                    .collect();
-                let left = self.find_best_split(&left_sets, level - 1);
-                let right = self.find_best_split(&right_sets, level - 1);
-                let better = match &best {
-                    None => true,
-                    Some((bl, br, _, _)) => left.reward + right.reward > bl.reward + br.reward,
-                };
-                if better {
-                    best = Some((left, right, p, self.x[[point, p]]));
+            }
+        }
+        // Position of every point along each feature: a split's left side is
+        // the points at positions up to k.
+        let position: Vec<Vec<usize>> = sets
+            .iter()
+            .map(|set| {
+                let mut at = vec![usize::MAX; n_total];
+                for (k, &i) in set.iter().enumerate() {
+                    at[i] = k;
                 }
+                at
+            })
+            .collect();
+        // The subtrees of each candidate are independent, so they are searched
+        // in parallel; the best is then chosen in search order, so ties go to
+        // the same split as a sequential search.
+        let subtrees = |&(p, k): &(usize, usize)| {
+            let at = &position[p];
+            if level == 2 {
+                return (
+                    self.level_one_where(sets, k + 1, |i| at[i] <= k),
+                    self.level_one_where(sets, num_points - k - 1, |i| at[i] > k),
+                );
+            }
+            let left_sets: Vec<Vec<usize>> = sets
+                .iter()
+                .map(|s| s.iter().copied().filter(|&i| at[i] <= k).collect())
+                .collect();
+            let right_sets: Vec<Vec<usize>> = sets
+                .iter()
+                .map(|s| s.iter().copied().filter(|&i| at[i] > k).collect())
+                .collect();
+            (
+                self.find_best_split(&left_sets, level - 1),
+                self.find_best_split(&right_sets, level - 1),
+            )
+        };
+        #[cfg(feature = "parallel")]
+        let searched: Vec<(SearchNode, SearchNode)> = {
+            use rayon::prelude::*;
+            candidates.par_iter().map(subtrees).collect()
+        };
+        #[cfg(not(feature = "parallel"))]
+        let searched: Vec<(SearchNode, SearchNode)> = candidates.iter().map(subtrees).collect();
+        let mut best: Option<(SearchNode, SearchNode, usize, f64)> = None;
+        for (&(p, k), (left, right)) in candidates.iter().zip(searched) {
+            let better = match &best {
+                None => true,
+                Some((bl, br, _, _)) => left.reward + right.reward > bl.reward + br.reward,
+            };
+            if better {
+                best = Some((left, right, p, self.x[[sets[p][k], p]]));
             }
         }
         match best {

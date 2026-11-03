@@ -1,4 +1,4 @@
-use ndarray::{Array1, Array2, ArrayView1, ArrayView2, ShapeBuilder};
+use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 
 use super::{center, Centered, Regressor};
 use crate::error::{DmlError, Result};
@@ -103,11 +103,9 @@ impl CdDesign {
         let Centered {
             x_mean,
             y_mean,
-            xc: centered,
+            xc,
             yc,
-        } = center(x, y, w, true)?;
-        let mut xc = Array2::<f64>::zeros(centered.dim().f());
-        xc.assign(&centered);
+        } = center(x, y, w, true, true)?;
         let col_sq = xc.columns().into_iter().map(|c| c.dot(&c)).collect();
         let (n, p) = xc.dim();
         let gram = (n > p).then(|| xc.t().dot(&xc));

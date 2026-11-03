@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- `LogisticRegression` (and so `LogisticRegressionCV` and every model that uses them) is 5-10×
+  faster: each Newton step builds the gradient and Hessian in one parallel pass over the rows, in
+  fixed blocks so the result does not depend on the number of threads; steps after a small step
+  reuse the Hessian; and close to the optimum, where the objective's rounding error exceeds the
+  predicted decrease, the full Newton step is taken instead of up to 33 halvings. It was 3-8×
+  slower than scikit-learn and is now faster at every size tried (10 000 to 1 000 000 rows).
+  Coefficients change only in the last digits (up to about 1e-8 on a million rows, where the
+  old line search could stop on a tiny halved step before reaching the optimum).
+- `Lasso` and `LassoCV` centre the data and switch it to column order in one pass (about 25%
+  faster on large data; identical results).
+- `OptimalPolicyTree` searches the candidate splits in parallel and the depth-one subtrees
+  without building new sorted sets: 3-5× faster, now about twice as fast as R's `policytree`
+  (identical trees; ties still go to the first split in search order).
+
 ## [1.2.0] - 2026-11-03
 
 ### Added

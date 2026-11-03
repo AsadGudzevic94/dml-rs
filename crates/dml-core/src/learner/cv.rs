@@ -332,7 +332,7 @@ impl LassoCV {
             a.sort_by(|p, q| q.total_cmp(p));
             return Ok(a);
         }
-        let c = super::center(x, y, w, true)?;
+        let c = super::center(x, y, w, true, false)?;
         let alpha_max =
             c.xc.t()
                 .dot(&c.yc)

@@ -1,7 +1,7 @@
 //! Nuisance learners: the [`Regressor`] / [`Classifier`] traits and the
 //! built-in implementations.
 
-use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis};
+use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis, ShapeBuilder, Zip};
 
 use crate::error::{DmlError, Result};
 
@@ -85,12 +85,14 @@ pub(crate) struct Centered {
 
 /// With `w`, rows are scaled by `√w` after weighted centring. If
 /// `normalize_weights`, weights are first rescaled to sum to `n` (as
-/// scikit-learn's `Lasso` does; `Ridge` uses them as given).
+/// scikit-learn's `Lasso` does; `Ridge` uses them as given). The centred `x` is
+/// column-major if `column_major`, else row-major.
 pub(crate) fn center(
     x: ArrayView2<'_, f64>,
     y: ArrayView1<'_, f64>,
     w: Option<ArrayView1<'_, f64>>,
     normalize_weights: bool,
+    column_major: bool,
 ) -> Result<Centered> {
     let n = x.nrows();
     if y.len() != n {
@@ -103,7 +105,7 @@ pub(crate) fn center(
         let x_mean = x.mean_axis(Axis(0)).expect("n > 0");
         let y_mean = y.mean().expect("n > 0");
         return Ok(Centered {
-            xc: &x - &x_mean,
+            xc: centered_x(x, &x_mean, None, column_major),
             yc: &y - y_mean,
             x_mean,
             y_mean,
@@ -127,7 +129,7 @@ pub(crate) fn center(
     let x_mean = x.t().dot(&w) / total;
     let y_mean = y.dot(&w) / total;
     let sqrt_w = w.mapv(f64::sqrt);
-    let xc = (&x - &x_mean) * sqrt_w.view().insert_axis(Axis(1));
+    let xc = centered_x(x, &x_mean, Some(&sqrt_w), column_major);
     let yc = (&y - y_mean) * &sqrt_w;
     Ok(Centered {
         x_mean,
@@ -135,4 +137,23 @@ pub(crate) fn center(
         xc,
         yc,
     })
+}
+
+/// `x − x̄`, rows scaled by `√w` if given, written in one pass in the requested
+/// memory order.
+fn centered_x(
+    x: ArrayView2<'_, f64>,
+    x_mean: &Array1<f64>,
+    sqrt_w: Option<&Array1<f64>>,
+    column_major: bool,
+) -> Array2<f64> {
+    let mut xc = Array2::zeros(x.dim().set_f(column_major));
+    let cells = Zip::from(&mut xc).and(&x).and_broadcast(x_mean);
+    match sqrt_w {
+        None => cells.for_each(|out, &v, &m| *out = v - m),
+        Some(s) => cells
+            .and_broadcast(s.view().insert_axis(Axis(1)))
+            .for_each(|out, &v, &m, &s| *out = (v - m) * s),
+    }
+    xc
 }

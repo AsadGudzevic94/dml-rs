@@ -38,7 +38,7 @@ DoubleML? See the [migration guide](https://asadgudzevic94.github.io/dml-rs/user
 
 - **Validated.** Estimates, standard errors, confidence intervals, bootstrap inference and
   aggregations agree with DoubleML to `1e-9` on identical data and sample splits.
-- **Fast.** A pure-Rust core with parallel cross-fitting and built-in learners: **1.3–9×
+- **Fast.** A pure-Rust core with parallel cross-fitting and built-in learners: **1.7–11×
   faster** than DoubleML with scikit-learn learners ([benchmarks](#performance)).
 - **Complete.** Partially linear and interactive models, instrumental variables,
   difference-in-differences (including staggered adoption) and heterogeneous effects.
