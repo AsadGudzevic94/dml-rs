@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-03
+
 ### Changed
 - `LogisticRegression` (and so `LogisticRegressionCV` and every model that uses them) is 5-10×
   faster: each Newton step builds the gradient and Hessian in one parallel pass over the rows, in
@@ -683,7 +685,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v0.32.0...v1.0.0
