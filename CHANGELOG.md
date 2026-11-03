@@ -28,7 +28,7 @@ All notable changes to this project are documented here. The format follows
   at every step (unclustered fits; 80× faster at 100 000 observations, where it was slower than
   DoubleML).
 - `OptimalPolicyTree` searches the candidate splits in parallel and the depth-one subtrees
-  without building new sorted sets: 3-5× faster, now about twice as fast as R's `policytree`
+  without building new sorted sets: about 4× faster, now 1.6-2.1× faster than R's `policytree`
   (identical trees; ties still go to the first split in search order).
 
 ## [1.2.0] - 2026-11-03
