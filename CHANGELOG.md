@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-04
+
+### Added
+- `max_bins` on `RandomForestRegressor` / `RandomForestClassifier` (Rust, Python): features are cut
+  once into at most that many quantile bins and each node finds its split from per-bin sums in one
+  pass over its rows instead of sorting them. 3.4× faster at 100 000 observations with practically
+  the same accuracy; features with at most `max_bins` distinct values keep their candidate splits.
+  Default `None` (unchanged).
+- `CausalSurvival`: competing events. `event` may hold the cause (1, 2, ...; 0 for censoring);
+  survival and RMST are then freedom from every cause, and
+  `SurvivalEstimand::CumulativeIncidence(c)` (Python `estimand="cumulative_incidence", cause=c`)
+  estimates the cumulative incidence of cause `c`, with its doubly robust influence function and
+  `incidence_curve`. Without covariates it reproduces the Aalen-Johansen estimator of
+  `survival::survfit` to 1e-12 (`mgus2` fixture).
+- `CausalSurvival`: clustered data (one cluster variable; Python `fit(..., cluster=)`): whole
+  clusters go to folds and the standard errors are cluster-robust.
+
+### Changed
+- The built-in learners' `fit` and the causal forests' `effect` read the arrays passed from Python
+  without copying them first (about 40 ms per million rows and 20 features). As with
+  scikit-learn's compiled code, the arrays must not be modified from another thread during a fit.
+- `CausalSurvival` accepts grid searches as hazard learners (`GridSearchCV`,
+  `dml_rs.GridSearchClassifier`); documented and tested.
+
 ## [1.2.1] - 2026-11-03
 
 ### Changed
@@ -685,7 +709,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.0.0...v1.1.0
