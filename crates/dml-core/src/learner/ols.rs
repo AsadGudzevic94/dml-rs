@@ -51,7 +51,7 @@ impl Ols {
             y_mean,
             xc,
             yc,
-        } = center(x, y, w, false)?;
+        } = center(x, y, w, false, false)?;
         let mut xtx = xc.t().dot(&xc);
         for j in 0..p {
             xtx[[j, j]] += self.ridge;

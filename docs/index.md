@@ -21,7 +21,7 @@ DoubleML? See the [migration guide](user-guide/migrating-from-doubleml.md).
 
 - **Fast**
 
-    A pure-Rust core with parallel cross-fitting and built-in learners: 1.3–9× faster than DoubleML
+    A pure-Rust core with parallel cross-fitting and built-in learners: 1.7–11× faster than DoubleML
     with scikit-learn learners in the [benchmarks](benchmarks.md).
 
 - **Complete**

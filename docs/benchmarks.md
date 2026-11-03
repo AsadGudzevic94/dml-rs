@@ -30,8 +30,8 @@ scikit-learn bit for bit, within sampling noise for the random forests).
 | PLR | Histogram gradient boosting (100 trees) | 10 000 | 0.44 s | 2.92 s | **6.6×** |
 | PLR | Histogram gradient boosting (100 trees) | 100 000 | 2.00 s | 5.17 s | **2.6×** |
 | PLR | Histogram gradient boosting (100 trees) | 1 000 000 | 18.37 s | 30.69 s | **1.7×** |
-| IRM | Lasso + logistic regression, CV penalty | 10 000 | 0.32 s | 1.23 s | **3.9×** |
-| IRM | Lasso + logistic regression, CV penalty | 100 000 | 3.76 s | 5.03 s | **1.3×** |
+| IRM | Lasso + logistic regression, CV penalty | 10 000 | 0.13 s | 1.40 s | **10.9×** |
+| IRM | Lasso + logistic regression, CV penalty | 100 000 | 1.85 s | 6.34 s | **3.4×** |
 | IRM | Random forest (100 trees) | 10 000 | 2.19 s | 7.14 s | **3.3×** |
 | IRM | Random forest (100 trees) | 50 000 | 17.44 s | 43.16 s | **2.5×** |
 | IRM | Histogram gradient boosting (100 trees) | 10 000 | 0.77 s | 4.78 s | **6.2×** |
@@ -52,6 +52,24 @@ scikit-learn bit for bit, within sampling noise for the random forests).
   machine, where both are limited by memory bandwidth. It does the same arithmetic in the same
   order as scikit-learn, which is what makes the predictions identical, so the remaining
   difference is in low-level tuning.
+
+## Against the R packages
+
+The causal forest and the exact policy tree are ports of R packages written in C++, so the
+comparison there is with compiled code. Same data, same settings, the faster of two runs:
+
+| Task | n | dml-rs | R | Speed-up |
+|---|--:|--:|--:|--:|
+| Causal forest, 2000 trees (`grf::causal_forest`) | 2 000 | 0.63 s | 1.76 s | **2.8×** |
+| Causal forest, 2000 trees | 10 000 | 5.3 s | 12.5 s | **2.4×** |
+| Causal forest, 2000 trees | 50 000 | 70 s | 123 s | **1.8×** |
+| Policy tree, depth 2, 10 features (`policytree::policy_tree`) | 1 000 | 0.36 s | 0.99 s | **2.8×** |
+| Policy tree, depth 2, 10 features | 5 000 | 13.0 s | 24.1 s | **1.9×** |
+
+Both forests get the same linear nuisance estimates, so only the forest is timed. The policy
+trees are identical. Effects on a censored outcome (`CausalSurvival`) are **not** faster than
+`grf::causal_survival_forest` (about 2.0 s against 1.4 s per fit in the
+[validation study](validation.md)); the two are different estimators.
 
 ## Reproduce
 
