@@ -1,13 +1,14 @@
-//! Staggered difference in differences and regression discontinuity with
-//! flexible covariate adjustment.
+//! Staggered difference in differences, regression discontinuity with
+//! flexible covariate adjustment, and effects on a censored time to event.
 //!
-//! Each fit lives in R as an external pointer; `R/staggered.R` and `R/rdflex.R`
-//! wrap the functions below.
+//! Each fit lives in R as an external pointer; `R/staggered.R`, `R/rdflex.R` and
+//! `R/survival.R` wrap the functions below.
 
 use dml_core::rd::{BwSelect, Kernel, MassPoints, RdOptions, Vce};
 use dml_core::{
-    Aggregation, ControlGroup, DidScore, DmlFit, FirstStage, GtCombinations, PanelData, RdFlex,
-    RdFlexFit, RepeatedCrossSections, StaggeredDid, StaggeredDidFit,
+    Aggregation, CausalSurvival, ControlGroup, DidScore, DmlFit, FirstStage, GtCombinations,
+    PanelData, RdFlex, RdFlexFit, RepeatedCrossSections, StaggeredDid, StaggeredDidFit,
+    SurvivalEstimand, SurvivalGrid, TimeEncoding,
 };
 use extendr_api::prelude::*;
 use extendr_api::Result;
@@ -350,8 +351,91 @@ fn rs_rdflex_confint(fit: ExternalPtr<RdFlexFit>, level: f64) -> Result<RMatrix<
     Ok(intervals(fit.confint(level).map_err(err)?))
 }
 
+// ---------------------------------------------------------------------------
+// Censored time to event
+// ---------------------------------------------------------------------------
+
+/// `time` is the observed time; `grid` a number of quantiles, `"event_times"` or
+/// a vector of times.
+#[extendr]
+#[allow(clippy::too_many_arguments)]
+fn rs_fit_survival(
+    time: &[f64],
+    d: RMatrix<f64>,
+    x: RMatrix<f64>,
+    event: &[f64],
+    ml_event: List,
+    ml_censor: List,
+    ml_m: List,
+    horizons: Robj,
+    estimand: &str,
+    grid: Robj,
+    time_encoding: &str,
+    clipping_threshold: f64,
+    censoring_floor: f64,
+    n_folds: i32,
+    n_rep: i32,
+    seed_: f64,
+) -> Result<List> {
+    let estimand = match estimand {
+        "survival" => SurvivalEstimand::Survival,
+        "rmst" => SurvivalEstimand::Rmst,
+        other => return Err(err(format!("unknown estimand {other:?}"))),
+    };
+    let encoding = match time_encoding {
+        "numeric" => TimeEncoding::Numeric,
+        "dummies" => TimeEncoding::Dummies,
+        other => return Err(err(format!("unknown time_encoding {other:?}"))),
+    };
+    let grid = match (grid.as_str(), grid.as_real_vector()) {
+        (Some("event_times"), _) => SurvivalGrid::EventTimes,
+        (None, Some(times)) if times.len() == 1 => SurvivalGrid::Quantiles(times[0] as usize),
+        (None, Some(times)) => SurvivalGrid::Fixed(times),
+        _ => {
+            return Err(err(
+                "grid must be a number, \"event_times\" or a vector of times",
+            ))
+        }
+    };
+    let mut model = CausalSurvival::from_boxed(
+        classifier(&ml_event)?,
+        classifier(&ml_censor)?,
+        classifier(&ml_m)?,
+    )
+    .estimand(estimand)
+    .grid(grid)
+    .time_encoding(encoding)
+    .clipping_threshold(clipping_threshold)
+    .censoring_floor(censoring_floor)
+    .n_folds(n_folds as usize)
+    .n_rep(n_rep as usize)
+    .seed(seed(seed_));
+    if !horizons.is_null() {
+        let horizons = horizons
+            .as_real_vector()
+            .ok_or_else(|| err("horizons must be numbers"))?;
+        model = model.horizons(horizons);
+    }
+    let data = data(time, &d, &x, vec!["d".to_string()])?;
+    let fit = model
+        .fit(&data, Array1::from(event.to_vec()).view())
+        .map_err(err)?;
+    let pointer = |f: &DmlFit| ExternalPtr::new(f.clone());
+    Ok(list!(
+        effect = pointer(fit.effect()),
+        treated = pointer(fit.potential(true)),
+        control = pointer(fit.potential(false)),
+        curve_treated = pointer(fit.curve(true)),
+        curve_control = pointer(fit.curve(false)),
+        horizons = fit.horizons().to_vec(),
+        grid = fit.grid().to_vec(),
+        propensity = to_rmatrix(fit.propensity())
+    ))
+}
+
 extendr_module! {
     mod panel;
+    fn rs_fit_survival;
     fn rs_fit_staggered;
     fn rs_staggered_att;
     fn rs_staggered_group_times;

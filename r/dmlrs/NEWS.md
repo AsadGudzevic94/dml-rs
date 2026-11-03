@@ -17,11 +17,14 @@
   calendar time or time since treatment, and `plot()`.
 * `dml_rdflex()`: sharp and fuzzy regression discontinuity with flexible
   covariate adjustment and the `rdrobust` options.
+* `dml_survival()`: effects on a censored time to event, as survival
+  probabilities or restricted mean survival time, with survival curves and
+  `plot()`.
 * All of these give the same estimates as the Python package (new parity tests).
 * Reference site with articles on heterogeneous effects and on staggered adoption
   and regression discontinuity:
   <https://asadgudzevic94.github.io/dml-rs/r/>.
-* Built on dml-core 1.0.
+* Built on dml-core 1.2.
 * The learners' `random_state` argument is now `seed`, as in the model
   functions; `random_state` still works with a deprecation warning.
 * `dml_contdid()`: `trimming_threshold` is now `clipping_threshold`, as in the

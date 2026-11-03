@@ -195,6 +195,20 @@ def main():
     ).fit(xrd, yrd, sharp, score))
     expected["rdflex_binary"] = rd_values(dml_rs.RDFlex(logit).fit(xrd, ybin, sharp, score))
 
+    # Censored time to event, drawn last so that the columns above keep their values.
+    nsurv = 500
+    xsurv = rng.normal(size=(nsurv, 2))
+    dsurv = (rng.random(nsurv) < 1 / (1 + np.exp(-xsurv[:, 0]))).astype(float)
+    tsurv = rng.exponential(1 / (np.exp(0.5 * xsurv[:, 0]) * np.where(dsurv == 1, 0.5, 1.0)))
+    csurv = rng.exponential(1 / (0.3 * np.exp(-0.3 * xsurv[:, 1])))
+    timesurv, eventsurv = np.minimum(tsurv, csurv), (tsurv <= csurv).astype(float)
+    np.column_stack([timesurv, eventsurv, dsurv, xsurv]).T.astype("<f8").tofile(OUT / "parity_survival.bin")
+    for estimand in ("survival", "rmst"):
+        surv = dml_rs.CausalSurvival(logit, logit, logit, horizons=[0.5, 1.0], estimand=estimand, grid=10,
+                                     time_encoding="dummies").fit(xsurv, timesurv, eventsurv, dsurv)
+        expected[f"survival_{estimand}"] = [*surv.coef_, *surv.se_, *surv.potential(False).coef_,
+                                            *surv.potential(True).se_, *surv.curve(True).coef_, *surv.grid_]
+
     with open(OUT / "parity_expected.csv", "w", encoding="utf-8", newline="\n") as f:
         f.write("name,index,value\n")
         for name, values in expected.items():

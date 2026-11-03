@@ -194,6 +194,13 @@ rs_fit_rdflex <- function(y, d, x, score, names, ml_g, ml_m, binary_outcome, cut
         fs_specification, fs_kernel, n_iterations, n_folds, n_rep, seed_, options, rd_covs, rd_cluster)
 }
 
+rs_fit_survival <- function(time, d, x, event, ml_event, ml_censor, ml_m, horizons, estimand, grid,
+                            time_encoding, clipping_threshold, censoring_floor, n_folds, n_rep,
+                            seed_) {
+  .Call(wrap__rs_fit_survival, time, d, x, event, ml_event, ml_censor, ml_m, horizons, estimand,
+        grid, time_encoding, clipping_threshold, censoring_floor, n_folds, n_rep, seed_)
+}
+
 rs_rdflex_summary <- function(fit) .Call(wrap__rs_rdflex_summary, fit)
 
 rs_rdflex_confint <- function(fit, level) .Call(wrap__rs_rdflex_confint, fit, level)

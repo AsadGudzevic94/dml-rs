@@ -60,6 +60,7 @@ dml_irm(y + db, db, x, ml_g = lrn_random_forest(), ml_m = lrn_logistic_cv())
 | `dml_iivm()` | Interactive IV model: LATE with a binary instrument |
 | `dml_did()` | Difference in differences (panels and repeated cross-sections) |
 | `dml_staggered_did()` | Staggered adoption: group-time effects, `aggregate()` by group, time or event time, `plot()` |
+| `dml_survival()` | Effects on a censored time to event: survival probabilities and restricted mean survival time |
 | `dml_rdflex()` | Sharp and fuzzy regression discontinuity with flexible covariate adjustment and the `rdrobust` options |
 | `dml_apos()` | Average potential outcomes of a discrete treatment (contrasts via `linear_combination()`) |
 | `dml_mediation()` | Natural direct and indirect effects (the estimator of `causalweight::medDML()`) |

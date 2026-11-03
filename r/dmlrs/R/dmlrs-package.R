@@ -15,7 +15,8 @@
 #'
 #' Beyond DoubleML: dose-response curves ([dml_dose_response()]), causal
 #' mediation ([dml_mediation()]), difference in
-#' differences with a continuous treatment ([dml_contdid()]), synthetic
+#' differences with a continuous treatment ([dml_contdid()]), effects on a
+#' censored time to event ([dml_survival()]), synthetic
 #' difference in differences ([synth_did()], a port of `synthdid`), optimal
 #' policy trees ([policy_tree()], a port of `policytree`) with
 #' [policy_value()], and Lee bounds under sample selection ([lee_bounds()]).
