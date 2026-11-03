@@ -35,6 +35,7 @@ reference:
       - dml_did
       - dml_staggered_did
       - dml_rdflex
+      - dml_survival
       - dml_apos
       - dml_mediation
       - dml_contdid
@@ -47,6 +48,7 @@ reference:
       - dose_contrast
       - aggregate.dmlrs_staggered
       - plot.dmlrs_staggered
+      - plot.dmlrs_survival
       - plot.dmlrs_contdid
       - plot.dmlrs_dose
   - title: Heterogeneous effects

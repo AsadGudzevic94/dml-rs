@@ -22,7 +22,8 @@ conformal intervals for individual effects (\code{\link[=conformal_ite]{conforma
 
 Beyond DoubleML: dose-response curves (\code{\link[=dml_dose_response]{dml_dose_response()}}), causal
 mediation (\code{\link[=dml_mediation]{dml_mediation()}}), difference in
-differences with a continuous treatment (\code{\link[=dml_contdid]{dml_contdid()}}), synthetic
+differences with a continuous treatment (\code{\link[=dml_contdid]{dml_contdid()}}), effects on a
+censored time to event (\code{\link[=dml_survival]{dml_survival()}}), synthetic
 difference in differences (\code{\link[=synth_did]{synth_did()}}, a port of \code{synthdid}), optimal
 policy trees (\code{\link[=policy_tree]{policy_tree()}}, a port of \code{policytree}) with
 \code{\link[=policy_value]{policy_value()}}, and Lee bounds under sample selection (\code{\link[=lee_bounds]{lee_bounds()}}).

@@ -61,6 +61,7 @@ sensitivity_analysis(fit, cf_y = 0.03, cf_d = 0.03)
 | `dml_iivm()` | Interactive IV model: LATE | `IIVM` |
 | `dml_did()` | Difference in differences, panels (`t = NULL`) or repeated cross-sections | `DID`, `DIDCS` |
 | `dml_staggered_did()` | Staggered adoption: group-time effects, `aggregate()`, `plot()` | `StaggeredDID` |
+| `dml_survival()` | Effects on a censored time to event | `CausalSurvival` |
 | `dml_rdflex()` | Regression discontinuity with flexible covariate adjustment | `RDFlex` |
 | `dml_apos()` | Average potential outcomes of a discrete treatment | `APOS` |
 | `dml_mediation()` | Natural direct and indirect effects | `Mediation` |
