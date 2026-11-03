@@ -1,5 +1,6 @@
-# Kaplan-Meier and restricted mean survival time from R, for crates/dml-core/tests/survival.rs:
-# without covariates and with empirical hazards, CausalSurvival must reproduce them.
+# Kaplan-Meier, restricted mean survival time and Aalen-Johansen cumulative incidences from R,
+# for crates/dml-core/tests/survival.rs: without covariates and with empirical hazards,
+# CausalSurvival must reproduce them.
 #
 #   Rscript parity/generate_survival_fixtures.R   (needs survival and survRM2)
 
@@ -40,3 +41,31 @@ lines <- c(
 )
 writeLines(paste0("{", paste(lines, collapse = ","), "}"),
            "crates/dml-core/tests/fixtures/survival_kaplan_meier.json")
+
+# mgus2: progression to a plasma cell malignancy (cause 1) competing with death (cause 2), by sex.
+mg <- survival::mgus2
+mg_time <- as.numeric(with(mg, ifelse(pstat == 0, futime, ptime)))
+mg_event <- as.numeric(with(mg, ifelse(pstat == 0, 2 * death, 1)))
+mg_d <- as.numeric(mg$sex == "M")
+mg_horizons <- c(60, 120, 240)
+aj <- function(arm) {
+  fit <- survfit(Surv(mg_time, factor(mg_event)) ~ 1, subset = mg_d == arm)
+  summary(fit, times = mg_horizons, extend = TRUE)$pstate
+}
+aj_treated <- aj(1)
+aj_control <- aj(0)
+lines <- c(
+  sprintf("\"versions\":{\"survival\":\"%s\"}", packageVersion("survival")),
+  sprintf("\"time\":%s", fmt(mg_time)),
+  sprintf("\"event\":%s", fmt(mg_event)),
+  sprintf("\"d\":%s", fmt(mg_d)),
+  sprintf("\"horizons\":%s", fmt(mg_horizons)),
+  sprintf("\"survival_treated\":%s", fmt(aj_treated[, 1])),
+  sprintf("\"cif1_treated\":%s", fmt(aj_treated[, 2])),
+  sprintf("\"cif2_treated\":%s", fmt(aj_treated[, 3])),
+  sprintf("\"survival_control\":%s", fmt(aj_control[, 1])),
+  sprintf("\"cif1_control\":%s", fmt(aj_control[, 2])),
+  sprintf("\"cif2_control\":%s", fmt(aj_control[, 3]))
+)
+writeLines(paste0("{", paste(lines, collapse = ","), "}"),
+           "crates/dml-core/tests/fixtures/survival_aalen_johansen.json")

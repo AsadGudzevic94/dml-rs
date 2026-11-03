@@ -110,6 +110,7 @@ impl PolicyTree {
             n_try: p,
             rng: ChaCha8Rng::seed_from_u64(0),
             importance: vec![0.0; p],
+            bins: None,
         }
         .grow(rows.clone());
 

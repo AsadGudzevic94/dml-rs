@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Sequence, Union
 import numpy as np
 
 from . import _dml_rs
-from ._models import Framework, _COLORBLIND, _DMLEstimator, _pyplot, _splits
+from ._models import Framework, _COLORBLIND, _DMLEstimator, _codes, _pyplot, _splits
 from ._validation import _as_1d, _as_2d
 
 if TYPE_CHECKING:
@@ -20,10 +20,17 @@ if TYPE_CHECKING:
 class CausalSurvival(_DMLEstimator):
     """Effect of a binary treatment on a right-censored time to event.
 
-    Compares the survival probability ``P(T(d) > τ)``, or the restricted mean survival time
-    ``E[min(T(d), τ)]``, if everyone were treated with the same quantity if nobody were. Both
-    event and censoring may depend on the treatment and the covariates. They must be independent
-    of each other given these, and the covariates must contain all confounders of the treatment.
+    Compares the survival probability ``P(T(d) > τ)``, the restricted mean survival time
+    ``E[min(T(d), τ)]`` or, with competing events, the cumulative incidence
+    ``P(T(d) ≤ τ, cause = c)`` if everyone were treated with the same quantity if nobody were.
+    Both event and censoring may depend on the treatment and the covariates. They must be
+    independent of each other given these, and the covariates must contain all confounders of
+    the treatment.
+
+    With competing events (``event`` = 1, 2, ... for the cause), survival and RMST are freedom
+    from every cause, and ``estimand="cumulative_incidence"`` targets cause ``cause``: the
+    hazards of any event and of that cause are learned, and without covariates the estimate is
+    the Aalen-Johansen estimator.
 
     Time is split into the slots of a grid, and each unit becomes one row per slot in which it is
     at risk, so any classifier can learn the discrete hazards of the event and of censoring. The
@@ -34,7 +41,8 @@ class CausalSurvival(_DMLEstimator):
 
     After ``fit``: the fitted-model API of the effects at ``horizons_`` (treated minus control;
     ``coef_``, ``se_``, ``summary``, ``confint``, ``bootstrap``), plus ``grid_`` and
-    ``propensity_``. `potential` gives the two arms and `curve` the survival curves.
+    ``propensity_``. `potential` gives the two arms, `curve` the survival curves and
+    `incidence_curve` the cumulative incidence curves of the cause.
 
     Parameters
     ----------
@@ -43,7 +51,8 @@ class CausalSurvival(_DMLEstimator):
     ml_censor : classifier for the hazard of censoring (default: a copy of ``ml_event``).
     ml_m : classifier for the propensity ``P(D = 1 | X)``.
     horizons : times ``τ`` of the effects (default: the quartiles of the event times).
-    estimand : ``"survival"`` or ``"rmst"``.
+    estimand : ``"survival"``, ``"rmst"`` or ``"cumulative_incidence"``.
+    cause : the cause of the cumulative incidence (a code of ``event``, default 1).
     grid : the slots: an int for that many quantiles of the event times, ``"event_times"`` for
         every distinct event time (slow on large data), or the times themselves. The horizons are
         always added. A coarse grid drops some information on the order of events and censoring
@@ -55,7 +64,8 @@ class CausalSurvival(_DMLEstimator):
     censoring_floor : probabilities of remaining uncensored are raised to this value. Horizons
         where few units remain uncensored give large standard errors.
     n_folds, n_rep : cross-fitting folds and repetitions of the sample split.
-    random_state : seed for the sample splits, which are stratified by treatment and event.
+    random_state : seed for the sample splits, which are stratified by treatment and event
+        (without clusters).
     """
 
     def __init__(
@@ -64,7 +74,8 @@ class CausalSurvival(_DMLEstimator):
         ml_censor: Any = None,
         ml_m: Any = None,
         horizons: Optional[Sequence[float]] = None,
-        estimand: Literal["survival", "rmst"] = "survival",
+        estimand: Literal["survival", "rmst", "cumulative_incidence"] = "survival",
+        cause: int = 1,
         grid: Union[int, str, Sequence[float]] = 30,
         time_encoding: Literal["numeric", "dummies"] = "numeric",
         clipping_threshold: float = 1e-2,
@@ -78,6 +89,7 @@ class CausalSurvival(_DMLEstimator):
         self.ml_m = ml_m
         self.horizons = horizons
         self.estimand = estimand
+        self.cause = cause
         self.grid = grid
         self.time_encoding = time_encoding
         self.clipping_threshold = clipping_threshold
@@ -86,9 +98,19 @@ class CausalSurvival(_DMLEstimator):
         self.n_rep = n_rep
         self.random_state = random_state
 
-    def fit(self, X: ArrayLike, time: ArrayLike, event: ArrayLike, d: ArrayLike, folds: Optional[Folds] = None) -> Self:
-        """Fit on covariates ``X``, observed time ``time``, ``event`` (1 for an event, 0 for
-        censoring) and binary treatment ``d``."""
+    def fit(
+        self,
+        X: ArrayLike,
+        time: ArrayLike,
+        event: ArrayLike,
+        d: ArrayLike,
+        folds: Optional[Folds] = None,
+        cluster: Optional[ArrayLike] = None,
+    ) -> Self:
+        """Fit on covariates ``X``, observed time ``time``, ``event`` (0 for censoring, 1 for an
+        event, or 1, 2, ... for the cause of competing events) and binary treatment ``d``. With
+        ``cluster`` (one label per row), whole clusters go to folds and the standard errors are
+        cluster-robust."""
         if self.ml_m is None:
             raise ValueError("ml_m (a classifier for the propensity score) is required")
         horizons = None if self.horizons is None else [float(t) for t in np.atleast_1d(self.horizons)]
@@ -101,7 +123,10 @@ class CausalSurvival(_DMLEstimator):
             horizons=horizons, estimand=self.estimand, grid=grid, time_encoding=self.time_encoding,
             clipping_threshold=self.clipping_threshold, censoring_floor=self.censoring_floor,
             n_folds=self.n_folds, n_rep=self.n_rep, seed=self.random_state, splits=_splits(folds),
+            cause=int(self.cause),
+            cluster=None if cluster is None else _codes(cluster, "cluster").reshape(-1, 1),
         )
+        self.n_clusters_ = None if cluster is None else int(len(np.unique(np.asarray(cluster))))
         self.horizons_ = np.asarray(self._survival.horizons)
         self.grid_ = np.asarray(self._survival.grid)
         self.propensity_ = self._survival.propensity
@@ -117,21 +142,32 @@ class CausalSurvival(_DMLEstimator):
         self._check_fitted()
         return Framework(self._survival.curve(bool(treated)))
 
+    def incidence_curve(self, treated: bool = True) -> Framework:
+        """The cumulative incidence of ``cause`` on ``grid_`` if everyone were treated, or if
+        nobody were (``estimand="cumulative_incidence"`` only)."""
+        self._check_fitted()
+        result = self._survival.incidence_curve(bool(treated))
+        if result is None:
+            raise ValueError('incidence curves need estimand="cumulative_incidence"')
+        return Framework(result)
+
     def plot(self, level: float = 0.95, ax: Any = None) -> Any:
-        """Plot both survival curves with pointwise confidence bands. Needs matplotlib; returns
-        the axes."""
+        """Plot both survival curves, or with ``estimand="cumulative_incidence"`` both cumulative
+        incidence curves, with pointwise confidence bands. Needs matplotlib; returns the axes."""
         self._check_fitted()
         if ax is None:
             ax = _pyplot().subplots()[1]
+        incidence = self.estimand == "cumulative_incidence"
+        start = 0.0 if incidence else 1.0
         times = np.concatenate(([0.0], self.grid_))
         for treated, name, color in ((True, "Treated", _COLORBLIND[0]), (False, "Control", _COLORBLIND[1])):
-            curve = self.curve(treated)
+            curve = self.incidence_curve(treated) if incidence else self.curve(treated)
             ci: NDArray[np.float64] = np.clip(curve.confint(level), 0.0, 1.0)
-            ax.step(times, np.concatenate(([1.0], curve.coef_)), where="post", color=color, label=name)
-            ax.fill_between(times, np.concatenate(([1.0], ci[:, 0])), np.concatenate(([1.0], ci[:, 1])),
+            ax.step(times, np.concatenate(([start], curve.coef_)), where="post", color=color, label=name)
+            ax.fill_between(times, np.concatenate(([start], ci[:, 0])), np.concatenate(([start], ci[:, 1])),
                             step="post", color=color, alpha=0.2)
         ax.set_xlabel("Time")
-        ax.set_ylabel("Survival probability")
+        ax.set_ylabel(f"Cumulative incidence of cause {self.cause}" if incidence else "Survival probability")
         ax.set_ylim(0, 1.02)
         ax.legend()
         return ax

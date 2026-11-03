@@ -1,4 +1,5 @@
 import os
+import pickle
 
 import numpy as np
 import pytest
@@ -86,3 +87,27 @@ def test_native_forest_is_faster_than_sklearn_inside_plr():
     dml_rs.PLR(sk, sk).fit(x, y, d)
     t_sklearn = time.perf_counter() - start
     assert t_native < t_sklearn, f"native {t_native:.2f}s vs sklearn {t_sklearn:.2f}s"
+
+
+def test_max_bins_is_faster_and_about_as_accurate():
+    rng = np.random.default_rng(3)
+    x = rng.normal(size=(6000, 8))
+    y = x[:, 0] + np.sin(2 * x[:, 1]) + 0.3 * rng.normal(size=6000)
+    x_test = rng.normal(size=(2000, 8))
+    y_test = x_test[:, 0] + np.sin(2 * x_test[:, 1])
+
+    def r2(model):
+        model.fit(x, y)
+        return 1 - np.mean((y_test - model.predict(x_test)) ** 2) / np.var(y_test)
+
+    exact = r2(dml_rs.RandomForestRegressor(n_estimators=50, min_samples_leaf=5))
+    binned_model = dml_rs.RandomForestRegressor(n_estimators=50, min_samples_leaf=5, max_bins=255)
+    assert binned_model.get_params()["max_bins"] == 255
+    assert abs(r2(binned_model) - exact) < 0.01
+    labels = (y > 0).astype(float)
+    clf = dml_rs.RandomForestClassifier(n_estimators=50, max_bins=32).fit(x, labels)
+    assert np.mean((clf.predict_proba(x_test)[:, 1] > 0.5) == (y_test > 0)) > 0.85
+    with pytest.raises(ValueError, match="max_bins"):
+        dml_rs.RandomForestRegressor(max_bins=1).fit(x, y)
+    copied = pickle.loads(pickle.dumps(binned_model))
+    np.testing.assert_array_equal(copied.predict(x_test), binned_model.predict(x_test))

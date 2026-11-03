@@ -97,7 +97,11 @@ fn weighted_percentile(sorted: &[f64], weights: &[f64], p: f64) -> f64 {
 }
 
 /// Bin thresholds of one feature (scikit-learn's `_find_binning_thresholds`).
-fn binning_thresholds(col: &[f64], weights: Option<&[f64]>, max_bins: usize) -> Vec<f64> {
+pub(super) fn binning_thresholds(
+    col: &[f64],
+    weights: Option<&[f64]>,
+    max_bins: usize,
+) -> Vec<f64> {
     let mut pairs: Vec<(f64, f64)> = match weights {
         Some(w) => col
             .iter()

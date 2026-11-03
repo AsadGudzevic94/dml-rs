@@ -48,7 +48,16 @@ import.
   nuisance learner it runs without Python and fits the folds in parallel; see
   [Benchmarks](../benchmarks.md).
 - **Random forests** follow scikit-learn's parameters and bootstrap scheme with their own random
-  number generator, so they are statistically equivalent rather than identical.
+  number generator, so they are statistically equivalent rather than identical. On large data set
+  `max_bins` (2 to 255): every feature is then cut once into that many quantile bins, as
+  histogram boosting does, and a node finds its split from per-bin sums in one pass over its rows
+  instead of sorting them. At 100 000 observations and 20 features this is 3.4 times faster
+  (5.4 s against 18.5 s for 100 trees, scikit-learn 39 s) with practically the same accuracy
+  (held-out R² 0.640 against 0.642). Features with at most `max_bins` distinct values keep their
+  candidate splits.
+
+The built-in learners read the arrays passed from Python without copying them, as scikit-learn's
+compiled code does, so do not modify them from another thread while a fit runs.
 
 ### scikit-learn compatibility
 

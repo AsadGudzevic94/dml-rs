@@ -189,6 +189,7 @@ impl Booster {
                 n_try,
                 rng,
                 importance: vec![0.0; p],
+                bins: None,
             }
             .grow(rows.clone());
 

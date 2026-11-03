@@ -47,6 +47,9 @@ scikit-learn bit for bit, within sampling noise for the random forests).
   scikit-learn, so the gain comes from running without Python between the folds and from
   scheduling folds and trees on one thread pool. It shrinks as the data grow and the learners
   dominate the time.
+- **Binned random forests:** `max_bins=255` makes a random forest at 100 000 observations and 20
+  features 3.4 times faster than the exact one (5.4 s against 18.5 s for 100 trees; scikit-learn
+  takes 39 s) at practically the same held-out R² (0.640 against 0.642).
 - **The learner alone:** on its own, dml-rs's histogram boosting is faster than scikit-learn's up
   to about 100 000 observations (1.6× at 10 000) and about 10% slower at 1 000 000 on this
   machine, where both are limited by memory bandwidth. It does the same arithmetic in the same
@@ -111,9 +114,10 @@ the influence function; synthdid, causalweight and contdid are written in R itse
 explains most of their gap. The script is
 [`parity/bench_r.py`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/bench_r.py).
 
-Effects on a censored outcome (`CausalSurvival`) are **not** faster than
-`grf::causal_survival_forest`: about 1.7 s against 1.6 s per fit in the
-[validation study](validation.md), where the two are different estimators of the same effect.
+Effects on a censored outcome (`CausalSurvival`) take about as long as
+`grf::causal_survival_forest` with exact random forests (1.7 s against 1.6 s per fit in the
+[validation study](validation.md), where the two are different estimators of the same effect) and
+about 0.9 s with binned forests (`max_bins=255`), at the same accuracy.
 
 ## Reproduce
 

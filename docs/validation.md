@@ -182,10 +182,19 @@ the covariates. dml-rs uses random forest hazards on 20 slots and a logistic pro
 The two are comparable. grf is somewhat more precise for the survival probability, and the small
 RMST bias of dml-rs is about 2.4 Monte Carlo standard errors. It may come from the step function on
 a coarse grid, which a finer grid reduces at the cost of more rows. With 60 datasets, the coverage
-figures are accurate to about 0.03. The two take about the same time: in a rerun with 10 datasets
-after dml-rs 1.2.1 made forest predictions parallel, 1.7 seconds per fit for dml-rs and 1.6 for grf
-(1.2.0 took 2.0). Most of it is spent growing the 20 hazard forests, so this model has no speed
-advantage.
+figures are accurate to about 0.03. In a rerun with 10 datasets after dml-rs 1.2.1 made forest
+predictions parallel, a fit took 1.7 seconds with dml-rs and 1.6 with grf (1.2.0 took 2.0). With
+binned forests (`max_bins=255`, dml-rs 1.3.0) it takes 0.9 seconds, with the same bias and spread
+over those 10 datasets (-0.0033 and 0.025 against -0.0041 and 0.026).
+
+Competing events and clusters (dml-rs 1.3.0) have three more checks. On R's `mgus2` data
+(progression to a plasma cell malignancy competing with death, by sex), the cumulative incidences
+of both causes reproduce the Aalen-Johansen estimates of `survival::survfit` to `1e-12`, and the
+scores of survival and of both causes add up to one, unit by unit. A NumPy implementation of the
+cumulative-incidence score in its direct form (with $S_j$ in the denominator, where dml-rs uses a
+recursion) matches to `1e-6`. With 50 clusters of 20 units that share a gamma frailty (variance 2)
+and a cluster-level treatment, the 95% intervals covered the truth in 56% of 150 datasets without
+clustering and in 93% with `cluster=` (standard errors about four times larger).
 
 `OptimalPolicyTree` reproduces R's `policytree` (version 1.2.5) exact tree search
 ([`parity/generate_policytree_fixtures.R`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/generate_policytree_fixtures.R)):

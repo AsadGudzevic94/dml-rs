@@ -15,16 +15,31 @@
 //! probability of being uncensored at slot `j`, `R_j` the at-risk indicator and
 //! `dN_j` the event indicator. The score is doubly robust: it is consistent if
 //! the event hazards, or the censoring hazards and the propensity score, are.
+//!
+//! With competing events (`event` = 1, 2, ... for the cause), survival is freedom
+//! from every cause, and the cumulative incidence of cause `c`,
+//! `F_c(t_m) = Σ_{l≤m} S_{l−1} λ_c(l)` with `λ_c` the hazard of that cause, has
+//! the influence function
+//!
+//! ```text
+//! φ_c(t_m) = F_c(t_m) + 1(D = a)/π_a · [Σ_{j≤m} R_j (dN_{c,j} − λ_c(j))/G_j
+//!                                       − Σ_{l≤m} λ_c(l) · C_{l−1}]
+//! ```
+//!
+//! where `C_m = Σ_{j≤m} R_j (S_m/S_j)(dN_j − h_j)/G_j` is the correction of the
+//! survival score above, so that the scores of all causes and of survival sum
+//! to one. Only the all-cause hazard and that of cause `c` are learned.
 
 use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, Axis};
 
 use crate::compat::np_quantile;
 use crate::crossfit::{cross_fit_predict_proba, map_folds, Fold, SampleSplitting};
-use crate::data::{is_binary, DmlData};
+use crate::data::DmlData;
 use crate::error::{DmlError, Result};
 use crate::fit::DmlFit;
 use crate::learner::Classifier;
 use crate::propensity::{adjust_propensity, Calibration};
+use crate::staggered::{cluster_kfold, cluster_robust};
 
 /// What is compared between treated and controls at a horizon `τ`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -36,6 +51,9 @@ pub enum SurvivalEstimand {
     Survival,
     /// The restricted mean survival time `E[min(T, τ)]`.
     Rmst,
+    /// The cumulative incidence `P(T ≤ τ, cause = c)` of a cause `c ≥ 1` of
+    /// `event`, with the other causes competing.
+    CumulativeIncidence(u32),
 }
 
 /// The slots time is split into.
@@ -65,10 +83,14 @@ pub enum TimeEncoding {
 /// Effect of a binary treatment on a right-censored time to event.
 ///
 /// `data` holds the observed time (`y`), the treatment and the covariates, and
-/// `event` is 1 for an observed event and 0 for censoring. Treated and controls
-/// have separate hazard models. Each arm's hazards are cross-fitted, whole units
-/// go to folds, and folds are stratified by treatment and event. `T` and the
+/// `event` is 0 for censoring and 1 for an observed event, or 1, 2, ... for the
+/// cause when several kinds of event compete. Treated and controls have
+/// separate hazard models. Each arm's hazards are cross-fitted, whole units go
+/// to folds, and folds are stratified by treatment and event. `T` and the
 /// censoring time must be independent given the treatment and covariates.
+///
+/// With clusters in `data` (one variable), whole clusters go to folds and the
+/// standard errors are cluster-robust.
 ///
 /// ```
 /// use dml_core::{CausalSurvival, DmlData, LogisticRegression, SurvivalGrid};
@@ -195,20 +217,39 @@ impl CausalSurvival {
     /// Draw folds, stratified by treatment and event, and fit.
     pub fn fit(&self, data: &DmlData, event: ArrayView1<'_, f64>) -> Result<CausalSurvivalFit> {
         self.check_data(data, event)?;
-        let strata: Vec<usize> = data
-            .treatment(0)
-            .iter()
-            .zip(event)
-            .map(|(&d, &e)| 2 * (d as usize) + e as usize)
-            .collect();
-        let splits = self.splitting.draw_stratified(&strata)?;
+        let splits = match data.clusters() {
+            Some(clusters) => {
+                let labels = clusters[0].to_vec();
+                (0..self.splitting.n_rep as u64)
+                    .map(|r| {
+                        let seed = self
+                            .splitting
+                            .seed
+                            .wrapping_add(r.wrapping_mul(0x9E37_79B9_7F4A_7C15));
+                        cluster_kfold(&labels, self.splitting.n_folds, seed)
+                    })
+                    .collect::<Result<Vec<_>>>()?
+            }
+            None => {
+                let strata: Vec<usize> = data
+                    .treatment(0)
+                    .iter()
+                    .zip(event)
+                    .map(|(&d, &e)| 2 * (d as usize) + usize::from(e > 0.0))
+                    .collect();
+                self.splitting.draw_stratified(&strata)?
+            }
+        };
+        if splits.is_empty() {
+            return Err(DmlError::InvalidArgument("n_rep must be at least 1".into()));
+        }
         self.fit_with_folds(data, event, &splits)
     }
 
     fn check_data(&self, data: &DmlData, event: ArrayView1<'_, f64>) -> Result<()> {
         let invalid = |message: &str| Err(DmlError::InvalidArgument(message.into()));
-        if data.clusters().is_some() {
-            return invalid("CausalSurvival does not support clustered data yet");
+        if data.clusters().is_some_and(|c| c.len() > 1) {
+            return invalid("CausalSurvival supports one cluster variable");
         }
         if data.n_treat() != 1 || !data.is_binary_treatment(0) {
             return invalid("CausalSurvival needs exactly one binary (0/1) treatment");
@@ -220,13 +261,25 @@ impl CausalSurvival {
                 data.n_obs()
             )));
         }
-        if !is_binary(event) {
-            return invalid("event must be 1 for an event and 0 for censoring");
+        if !event
+            .iter()
+            .all(|&e| e >= 0.0 && e.fract() == 0.0 && e < u32::MAX as f64)
+        {
+            return invalid(
+                "event must be 0 for censoring and 1, 2, ... for the cause of an event",
+            );
+        }
+        if let SurvivalEstimand::CumulativeIncidence(cause) = self.estimand {
+            if cause == 0 || !event.iter().any(|&e| e == cause as f64) {
+                return invalid(
+                    "the cause of the cumulative incidence must be an observed event code",
+                );
+            }
         }
         if data.y().iter().any(|&t| t < 0.0) {
             return invalid("observed times must not be negative");
         }
-        if !event.iter().any(|&e| e == 1.0) {
+        if !event.iter().any(|&e| e > 0.0) {
             return invalid("there are no observed events");
         }
         if !(0.0..0.5).contains(&self.clipping_threshold) {
@@ -253,23 +306,28 @@ impl CausalSurvival {
         }
         let (time, d, x) = (data.y(), data.treatment(0), data.x());
         let n = time.len();
-        let horizons = self.resolve_horizons(time, event)?;
-        let grid = self.resolve_grid(time, event, &horizons)?;
-        let schedule = Schedule::new(time, event, &grid);
+        // Survival is freedom from every cause.
+        let any_event = event.mapv(|e| f64::from(e > 0.0));
+        let horizons = self.resolve_horizons(time, any_event.view())?;
+        let grid = self.resolve_grid(time, any_event.view(), &horizons)?;
+        let cause = match self.estimand {
+            SurvivalEstimand::CumulativeIncidence(c) => Some(c as f64),
+            _ => None,
+        };
+        let schedule = Schedule::new(time, any_event.view(), &grid, cause.map(|c| (event, c)));
         let k = grid.len();
         let n_rep = splits.len();
-        let mut phi = [
-            Array3::<f64>::zeros((n, k, n_rep)),
-            Array3::<f64>::zeros((n, k, n_rep)),
-        ];
+        let zeros = || Array3::<f64>::zeros((n, k, n_rep));
+        let mut phi = [zeros(), zeros()];
+        let mut incidence = [zeros(), zeros()];
         let mut propensity = Array2::<f64>::zeros((n, n_rep));
         for (r, folds) in splits.iter().enumerate() {
             let m = cross_fit_predict_proba(self.ml_m.as_ref(), x, d, folds)?;
             let m = adjust_propensity(m, d, folds, self.clipping_threshold, Calibration::None)?;
             let hazards = self.hazards(x, d, &schedule, folds)?;
-            for (arm, scores) in phi.iter_mut().enumerate() {
+            for arm in 0..2 {
                 let arm_value = 1.0 - arm as f64;
-                let rep = scores_of_arm(
+                let (rep, rep_incidence) = scores_of_arm(
                     arm_value,
                     d,
                     &m,
@@ -277,7 +335,12 @@ impl CausalSurvival {
                     &schedule,
                     self.censoring_floor,
                 );
-                scores.index_axis_mut(Axis(2), r).assign(&rep);
+                phi[arm].index_axis_mut(Axis(2), r).assign(&rep);
+                if let Some(rep_incidence) = rep_incidence {
+                    incidence[arm]
+                        .index_axis_mut(Axis(2), r)
+                        .assign(&rep_incidence);
+                }
             }
             propensity.column_mut(r).assign(&m);
         }
@@ -292,24 +355,58 @@ impl CausalSurvival {
             })
             .collect();
         let [treated, control] = phi;
-        let at_horizons = |phi: &Array3<f64>| match self.estimand {
-            SurvivalEstimand::Survival => phi.select(Axis(1), &points),
-            SurvivalEstimand::Rmst => restricted_means(phi, &grid, &points),
+        let [incidence_treated, incidence_control] = incidence;
+        let (at_treated, at_control) = match self.estimand {
+            SurvivalEstimand::Survival => (
+                treated.select(Axis(1), &points),
+                control.select(Axis(1), &points),
+            ),
+            SurvivalEstimand::Rmst => (
+                restricted_means(&treated, &grid, &points),
+                restricted_means(&control, &grid, &points),
+            ),
+            SurvivalEstimand::CumulativeIncidence(_) => (
+                incidence_treated.select(Axis(1), &points),
+                incidence_control.select(Axis(1), &points),
+            ),
         };
-        let (at_treated, at_control) = (at_horizons(&treated), at_horizons(&control));
         let label = match self.estimand {
-            SurvivalEstimand::Survival => "survival",
-            SurvivalEstimand::Rmst => "RMST",
+            SurvivalEstimand::Survival => "survival".to_string(),
+            SurvivalEstimand::Rmst => "RMST".to_string(),
+            SurvivalEstimand::CumulativeIncidence(c) => format!("incidence[{c}]"),
         };
         let names: Vec<String> = horizons.iter().map(|t| format!("{label}({t})")).collect();
-        let fit = |model: String, names: Vec<String>, psi_b: Array3<f64>| {
-            DmlFit::from_linear_scores(
+        let clusters = data.clusters().map(|c| &c[0]);
+        let fit = |model: String, names: Vec<String>, psi_b: Array3<f64>| -> Result<DmlFit> {
+            let mut fit = DmlFit::from_linear_scores(
                 model,
                 names,
                 n_folds,
                 Array3::from_elem(psi_b.dim(), -1.0),
                 psi_b,
-            )
+            )?;
+            if let Some(cl) = clusters {
+                cluster_robust(&mut fit, cl)?;
+            }
+            Ok(fit)
+        };
+        let incidence_curves = match cause {
+            Some(_) => {
+                let names: Vec<String> = grid.iter().map(|t| format!("{label}({t})")).collect();
+                Some([
+                    fit(
+                        "Cumulative incidence (treated)".into(),
+                        names.clone(),
+                        incidence_treated,
+                    )?,
+                    fit(
+                        "Cumulative incidence (control)".into(),
+                        names,
+                        incidence_control,
+                    )?,
+                ])
+            }
+            None => None,
         };
         let grid_names: Vec<String> = grid.iter().map(|t| format!("survival({t})")).collect();
         Ok(CausalSurvivalFit {
@@ -334,6 +431,7 @@ impl CausalSurvival {
                 treated,
             )?,
             curve_control: fit("Survival curve (control)".into(), grid_names, control)?,
+            incidence_curves,
             estimand: self.estimand,
             horizons,
             grid,
@@ -440,18 +538,36 @@ impl CausalSurvival {
                 let event = Hazard::fit(self.ml_event.as_ref(), rows, target)?;
                 let (rows, target) = design.censoring_rows(&units);
                 let censoring = Hazard::fit(self.ml_censor.as_ref(), rows, target)?;
+                let cause = match schedule.cause_slot {
+                    Some(_) => {
+                        let (rows, target) = design.cause_rows(&units);
+                        let hazard = Hazard::fit(self.ml_event.as_ref(), rows, target)?;
+                        Some(design.predict(&hazard, x_test.view(), 1)?)
+                    }
+                    None => None,
+                };
+                let event = design.predict(&event, x_test.view(), 1)?;
+                // The hazard of one cause cannot exceed that of any event.
+                let cause = cause.map(|c| {
+                    ndarray::Zip::from(&c)
+                        .and(&event)
+                        .map_collect(|&c, &e| c.min(e))
+                });
                 arms.push(ArmHazards {
-                    event: design.predict(&event, x_test.view(), 1)?,
+                    event,
                     censoring: design.predict(&censoring, x_test.view(), 0)?,
+                    cause,
                 });
             }
             let control = arms.pop().expect("two arms");
             let treated = arms.pop().expect("two arms");
             Ok([treated, control])
         })?;
+        let with_cause = schedule.cause_slot.is_some();
         let empty = || ArmHazards {
             event: Array2::zeros((n, k)),
             censoring: Array2::zeros((n, k)),
+            cause: with_cause.then(|| Array2::zeros((n, k))),
         };
         let mut all = [empty(), empty()];
         for (fold, hazards) in folds.iter().zip(&per_fold) {
@@ -462,6 +578,9 @@ impl CausalSurvival {
                         .censoring
                         .row_mut(i)
                         .assign(&values.censoring.row(row));
+                    if let (Some(all), Some(values)) = (&mut all[arm].cause, &values.cause) {
+                        all.row_mut(i).assign(&values.row(row));
+                    }
                 }
             }
         }
@@ -493,10 +612,19 @@ struct Schedule {
     event_slot: Vec<Option<usize>>,
     /// Slot after which the unit is censored, if before the end of the grid.
     censored_after: Vec<Option<usize>>,
+    /// With a cause of interest: the slot of an event of that cause.
+    cause_slot: Option<Vec<Option<usize>>>,
 }
 
 impl Schedule {
-    fn new(time: ArrayView1<'_, f64>, event: ArrayView1<'_, f64>, grid: &[f64]) -> Self {
+    /// `event` is 1 for any event; `cause` holds the event codes and the cause
+    /// of interest.
+    fn new(
+        time: ArrayView1<'_, f64>,
+        event: ArrayView1<'_, f64>,
+        grid: &[f64],
+        cause: Option<(ArrayView1<'_, f64>, f64)>,
+    ) -> Self {
         let k = grid.len();
         let n = time.len();
         let (mut last_at_risk, mut event_slot, mut censored_after) =
@@ -514,11 +642,19 @@ impl Schedule {
                 }
             }
         }
+        let cause_slot = cause.map(|(codes, c)| {
+            event_slot
+                .iter()
+                .zip(codes)
+                .map(|(&slot, &code)| slot.filter(|_| code == c))
+                .collect()
+        });
         Self {
             grid: grid.to_vec(),
             last_at_risk,
             event_slot,
             censored_after,
+            cause_slot,
         }
     }
 
@@ -573,6 +709,21 @@ impl Design<'_> {
             for slot in 1..=s.last_at_risk[i] {
                 self.push_row(&mut rows, self.x.row(i), slot, 1);
                 target.push(f64::from(s.event_slot[i] == Some(slot)));
+            }
+        }
+        (self.matrix(rows), Array1::from(target))
+    }
+
+    /// The rows of [`Self::event_rows`] with target 1 for an event of the cause
+    /// of interest only.
+    fn cause_rows(&self, units: &[usize]) -> (Array2<f64>, Array1<f64>) {
+        let s = self.schedule;
+        let cause = s.cause_slot.as_ref().expect("a cause of interest");
+        let (mut rows, mut target) = (Vec::new(), Vec::new());
+        for &i in units {
+            for slot in 1..=s.last_at_risk[i] {
+                self.push_row(&mut rows, self.x.row(i), slot, 1);
+                target.push(f64::from(cause[i] == Some(slot)));
             }
         }
         (self.matrix(rows), Array1::from(target))
@@ -647,9 +798,12 @@ impl Hazard {
 struct ArmHazards {
     event: Array2<f64>,
     censoring: Array2<f64>,
+    /// Hazard of the cause of interest, if any.
+    cause: Option<Array2<f64>>,
 }
 
-/// The influence function values `φ_a(t_m)` of one arm, shape `(n, slots)`.
+/// The influence function values `φ_a(t_m)` of one arm, shape `(n, slots)`,
+/// and with a cause of interest those of its cumulative incidence.
 fn scores_of_arm(
     arm: f64,
     d: ArrayView1<'_, f64>,
@@ -657,9 +811,10 @@ fn scores_of_arm(
     hazards: &ArmHazards,
     schedule: &Schedule,
     floor: f64,
-) -> Array2<f64> {
+) -> (Array2<f64>, Option<Array2<f64>>) {
     let (n, k) = hazards.event.dim();
     let mut phi = Array2::zeros((n, k));
+    let mut incidence = hazards.cause.as_ref().map(|_| Array2::zeros((n, k)));
     for i in 0..n {
         let weight = if d[i] != arm {
             0.0
@@ -669,21 +824,37 @@ fn scores_of_arm(
             1.0 / (1.0 - m[i])
         };
         let (mut survival, mut uncensored, mut correction) = (1.0, 1.0, 0.0);
+        // Cumulative incidence F_c and its correction (see the module docs).
+        let (mut cumulative, mut cause_correction) = (0.0, 0.0);
         for j in 0..k {
             let slot = j + 1;
             let h = hazards.event[[i, j]];
             uncensored *= 1.0 - hazards.censoring[[i, j]];
+            let at_risk = weight != 0.0 && slot <= schedule.last_at_risk[i];
+            if let (Some(cause), Some(slots), Some(out)) =
+                (&hazards.cause, &schedule.cause_slot, &mut incidence)
+            {
+                let hc = cause[[i, j]];
+                // Uses S_{j−1} and C_{j−1}, before this slot's update.
+                cumulative += survival * hc;
+                cause_correction -= hc * correction;
+                if at_risk {
+                    let dn = f64::from(slots[i] == Some(slot));
+                    cause_correction += (dn - hc) / f64::max(uncensored, floor);
+                }
+                out[[i, j]] = cumulative + weight * cause_correction;
+            }
             survival *= 1.0 - h;
             // S_m/S_j updated in place: no division by a small survival probability.
             correction *= 1.0 - h;
-            if weight != 0.0 && slot <= schedule.last_at_risk[i] {
+            if at_risk {
                 let dn = f64::from(schedule.event_slot[i] == Some(slot));
                 correction += (dn - h) / f64::max(uncensored, floor);
             }
             phi[[i, j]] = survival - weight * correction;
         }
     }
-    phi
+    (phi, incidence)
 }
 
 /// `RMST(τ) = Σ_j S(t_j)·(t_{j+1} − t_j)` from `t_0 = 0`, for the scores of the
@@ -714,6 +885,8 @@ pub struct CausalSurvivalFit {
     control: DmlFit,
     curve_treated: DmlFit,
     curve_control: DmlFit,
+    #[cfg_attr(feature = "serde", serde(default))]
+    incidence_curves: Option<[DmlFit; 2]>,
     propensity: Array2<f64>,
 }
 
@@ -756,6 +929,15 @@ impl CausalSurvivalFit {
         }
     }
 
+    /// Cumulative incidence of the cause of interest if everyone were treated
+    /// (`treated`) or untreated, on the grid; `None` unless the estimand is
+    /// [`SurvivalEstimand::CumulativeIncidence`].
+    pub fn incidence_curve(&self, treated: bool) -> Option<&DmlFit> {
+        self.incidence_curves
+            .as_ref()
+            .map(|[t, c]| if treated { t } else { c })
+    }
+
     /// Cross-fitted, clipped propensity scores, shape `(n, n_rep)`.
     pub fn propensity(&self) -> &Array2<f64> {
         &self.propensity
@@ -772,7 +954,7 @@ mod tests {
     fn schedule_follows_kaplan_meier_ties() {
         let time = array![1.0, 2.0, 2.0, 3.0, 5.0, 0.5];
         let event = array![1.0, 1.0, 0.0, 0.0, 1.0, 0.0];
-        let s = Schedule::new(time.view(), event.view(), &[1.0, 2.0, 4.0]);
+        let s = Schedule::new(time.view(), event.view(), &[1.0, 2.0, 4.0], None);
         assert_eq!(s.last_at_risk, vec![1, 2, 2, 2, 3, 0]);
         assert_eq!(s.event_slot, vec![Some(1), Some(2), None, None, None, None]);
         assert_eq!(
@@ -787,10 +969,19 @@ mod tests {
         let hazards = ArmHazards {
             event: array![[0.5, 0.5]],
             censoring: array![[0.0, 0.0]],
+            cause: Some(array![[0.2, 0.4]]),
         };
-        let s = Schedule::new(array![1.0].view(), array![1.0].view(), &[1.0, 2.0]);
-        let phi = scores_of_arm(1.0, array![0.0].view(), &array![0.5], &hazards, &s, 0.01);
+        let s = Schedule::new(
+            array![1.0].view(),
+            array![1.0].view(),
+            &[1.0, 2.0],
+            Some((array![1.0].view(), 1.0)),
+        );
+        let (phi, incidence) =
+            scores_of_arm(1.0, array![0.0].view(), &array![0.5], &hazards, &s, 0.01);
         assert_eq!(phi, array![[0.5, 0.25]]);
+        // F(t1) = 0.2, F(t2) = 0.2 + S(t1)·0.4.
+        assert_eq!(incidence.unwrap(), array![[0.2, 0.4]]);
     }
 
     #[test]
