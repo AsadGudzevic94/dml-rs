@@ -348,7 +348,7 @@ If you use dml-rs in your work, please cite the package and the underlying metho
   author  = {Gudzevic, Asad},
   title   = {dml-rs: Double / debiased machine learning in Rust and Python},
   url     = {https://github.com/AsadGudzevic94/dml-rs},
-  version = {1.2.0},
+  version = {1.2.1},
   year    = {2026}
 }
 
