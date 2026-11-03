@@ -79,7 +79,7 @@ impl PyCausalForestResult {
 
     /// `(tau, variance)` at the rows of `x`.
     fn effect<'py>(&self, py: Python<'py>, x: PyReadonlyArray2<'py, f64>) -> PyResult<Pair<'py>> {
-        let x = x.as_array().to_owned();
+        let x = x.as_array();
         let (tau, var) = py.detach(|| self.fit.effect(x.view())).map_err(to_py_err)?;
         Ok((tau.into_pyarray(py), var.into_pyarray(py)))
     }
@@ -235,7 +235,7 @@ impl PyInstrumentalForestResult {
 
     /// `(theta, variance)` at the rows of `x`.
     fn effect<'py>(&self, py: Python<'py>, x: PyReadonlyArray2<'py, f64>) -> PyResult<Pair<'py>> {
-        let x = x.as_array().to_owned();
+        let x = x.as_array();
         let (tau, var) = py.detach(|| self.fit.effect(x.view())).map_err(to_py_err)?;
         Ok((tau.into_pyarray(py), var.into_pyarray(py)))
     }
@@ -389,7 +389,7 @@ impl PyMultiArmCausalForestResult {
 
     /// `(tau, variance)` at the rows of `x`, each `(n, k)`.
     fn effect<'py>(&self, py: Python<'py>, x: PyReadonlyArray2<'py, f64>) -> PyResult<Pair2<'py>> {
-        let x = x.as_array().to_owned();
+        let x = x.as_array();
         let (tau, var) = py.detach(|| self.fit.effect(x.view())).map_err(to_py_err)?;
         Ok((tau.into_pyarray(py), var.into_pyarray(py)))
     }

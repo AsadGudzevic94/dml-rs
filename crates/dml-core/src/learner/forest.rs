@@ -13,12 +13,19 @@
 //! Trees are independent and each has its own seed derived from the forest
 //! seed, so fitting is parallel (with the `parallel` feature) yet results are
 //! identical whatever the number of threads.
+//!
+//! With `max_bins`, every feature is cut once into at most that many bins (at
+//! the quantiles, as histogram gradient boosting does) and a node finds its
+//! split from per-bin sums in one pass over its rows instead of sorting them.
+//! Splits then fall on bin edges; on features with at most `max_bins`
+//! distinct values the candidate splits of the rows are those without bins.
 
 use ndarray::{Array1, ArrayView1, ArrayView2};
 use rand::seq::index::sample;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
+use super::hist_boosting::binning_thresholds;
 use super::{Classifier, Regressor};
 use crate::error::{DmlError, Result};
 
@@ -127,12 +134,61 @@ pub(crate) struct TreeBuilder<'x, 'b> {
     pub rng: ChaCha8Rng,
     /// Total squared-error reduction per feature.
     pub importance: Vec<f64>,
+    /// Binned features: splits are searched on bin edges.
+    pub bins: Option<&'b Binned>,
+}
+
+/// The features cut into bins, once per forest.
+pub(crate) struct Binned {
+    n: usize,
+    /// Bin of every value, column-major: `codes[f * n + i]`.
+    codes: Vec<u8>,
+    /// Upper edges of all bins but the last, per feature, ascending: a value
+    /// is in bin `b` iff `edges[b - 1] < v <= edges[b]`, so `v <= edges[b]` is
+    /// the same as "bin <= b" and a split at an edge keeps the original units.
+    edges: Vec<Vec<f64>>,
+}
+
+impl Binned {
+    /// Bins from the (weighted) quantiles of the rows with positive weight.
+    pub(crate) fn new(x: ArrayView2<'_, f64>, weights: Option<&[f64]>, max_bins: usize) -> Self {
+        let (n, p) = x.dim();
+        let one = |f: usize| -> (Vec<f64>, Vec<u8>) {
+            let col: Vec<f64> = x.column(f).to_vec();
+            let edges = binning_thresholds(&col, weights, max_bins);
+            let codes = col
+                .iter()
+                .map(|&v| edges.partition_point(|&t| t < v) as u8)
+                .collect();
+            (edges, codes)
+        };
+        #[cfg(feature = "parallel")]
+        let per_feature: Vec<(Vec<f64>, Vec<u8>)> = {
+            use rayon::prelude::*;
+            (0..p).into_par_iter().map(one).collect()
+        };
+        #[cfg(not(feature = "parallel"))]
+        let per_feature: Vec<(Vec<f64>, Vec<u8>)> = (0..p).map(one).collect();
+        let mut codes = Vec::with_capacity(n * p);
+        let mut edges = Vec::with_capacity(p);
+        for (e, c) in per_feature {
+            edges.push(e);
+            codes.extend(c);
+        }
+        Self { n, codes, edges }
+    }
+
+    fn column(&self, feature: usize) -> &[u8] {
+        &self.codes[feature * self.n..(feature + 1) * self.n]
+    }
 }
 
 struct Best {
     feature: usize,
     threshold: f64,
     gain: f64,
+    /// With bins: the last bin of the left child.
+    bin: Option<u8>,
 }
 
 impl TreeBuilder<'_, '_> {
@@ -161,9 +217,16 @@ impl TreeBuilder<'_, '_> {
                 continue;
             };
             self.importance[best.feature] += best.gain;
-            let (left_rows, right_rows): (Vec<usize>, Vec<usize>) = rows
-                .into_iter()
-                .partition(|&i| self.x[[i, best.feature]] <= best.threshold);
+            let (left_rows, right_rows): (Vec<usize>, Vec<usize>) = match (self.bins, best.bin) {
+                // The same partition from the one-byte codes.
+                (Some(bins), Some(bin)) => {
+                    let codes = bins.column(best.feature);
+                    rows.into_iter().partition(|&i| codes[i] <= bin)
+                }
+                _ => rows
+                    .into_iter()
+                    .partition(|&i| self.x[[i, best.feature]] <= best.threshold),
+            };
             let left = nodes.len();
             nodes.push(Node::Leaf { value: 0.0 });
             nodes.push(Node::Leaf { value: 0.0 });
@@ -182,6 +245,9 @@ impl TreeBuilder<'_, '_> {
     /// Best split among `n_try` random features: maximise the reduction in
     /// weighted SSE, `S_L²/W_L + S_R²/W_R − S²/W`.
     fn best_split(&mut self, rows: &[usize], sw: f64, swy: f64) -> Option<Best> {
+        if let Some(bins) = self.bins {
+            return self.best_binned_split(bins, rows, sw, swy);
+        }
         let p = self.x.ncols();
         let parent = swy * swy / sw;
         let min_leaf = self.params.min_samples_leaf;
@@ -217,7 +283,94 @@ impl TreeBuilder<'_, '_> {
                         feature,
                         threshold,
                         gain,
+                        bin: None,
                     });
+                }
+            }
+        }
+        best.filter(|b| b.gain > 1e-12 * parent.abs().max(f64::MIN_POSITIVE))
+    }
+
+    /// [`Self::best_split`] on bin edges. A node with at least as many rows as
+    /// bins sums count, weight and weighted target per bin in one pass and
+    /// scans the bins; a smaller node sorts its rows by bin instead. Either way
+    /// the candidates are the edges between bins that hold rows of the node.
+    fn best_binned_split(
+        &mut self,
+        bins: &Binned,
+        rows: &[usize],
+        sw: f64,
+        swy: f64,
+    ) -> Option<Best> {
+        let p = self.x.ncols();
+        let parent = swy * swy / sw;
+        let min_leaf = self.params.min_samples_leaf;
+        let m = rows.len();
+        let mut best: Option<Best> = None;
+        let mut consider = |feature: usize, bin: u8, n_left: usize, wl: f64, sl: f64| {
+            if n_left < min_leaf || m - n_left < min_leaf {
+                return;
+            }
+            let (wr, sr) = (sw - wl, swy - sl);
+            if wl <= 0.0 || wr <= 0.0 {
+                return;
+            }
+            let gain = sl * sl / wl + sr * sr / wr - parent;
+            if best.as_ref().map_or(true, |b| gain > b.gain) {
+                best = Some(Best {
+                    feature,
+                    threshold: bins.edges[feature][bin as usize],
+                    gain,
+                    bin: Some(bin),
+                });
+            }
+        };
+        // Weights and weighted targets of the node's rows, read once for all
+        // candidate features.
+        let node_w: Vec<f64> = rows.iter().map(|&i| self.w[i]).collect();
+        let node_wy: Vec<f64> = rows.iter().map(|&i| self.w[i] * self.y[i]).collect();
+        let mut sorted: Vec<(u8, usize)> = Vec::new();
+        for feature in sample(&mut self.rng, p, self.n_try).into_iter() {
+            let n_bins = bins.edges[feature].len() + 1;
+            if n_bins == 1 {
+                continue;
+            }
+            let codes = bins.column(feature);
+            if m >= n_bins {
+                let mut count = vec![0usize; n_bins];
+                let mut weight = vec![0.0; n_bins];
+                let mut target = vec![0.0; n_bins];
+                for (k, &i) in rows.iter().enumerate() {
+                    let b = codes[i] as usize;
+                    count[b] += 1;
+                    weight[b] += node_w[k];
+                    target[b] += node_wy[k];
+                }
+                let Some(last) = count.iter().rposition(|&c| c > 0) else {
+                    continue;
+                };
+                let (mut n_left, mut wl, mut sl) = (0usize, 0.0, 0.0);
+                for b in 0..last {
+                    if count[b] == 0 {
+                        continue;
+                    }
+                    n_left += count[b];
+                    wl += weight[b];
+                    sl += target[b];
+                    consider(feature, b as u8, n_left, wl, sl);
+                }
+            } else {
+                sorted.clear();
+                sorted.extend(rows.iter().enumerate().map(|(k, &i)| (codes[i], k)));
+                sorted.sort_unstable();
+                let (mut wl, mut sl) = (0.0, 0.0);
+                for j in 0..m - 1 {
+                    let (b, k) = sorted[j];
+                    wl += node_w[k];
+                    sl += node_wy[k];
+                    if b != sorted[j + 1].0 {
+                        consider(feature, b, j + 1, wl, sl);
+                    }
                 }
             }
         }
@@ -233,6 +386,8 @@ struct Forest {
     params: TreeParams,
     bootstrap: bool,
     max_samples: Option<f64>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    max_bins: Option<usize>,
     seed: u64,
     trees: Vec<Tree>,
     y_offset: f64,
@@ -252,6 +407,7 @@ impl Forest {
             },
             bootstrap: true,
             max_samples: None,
+            max_bins: None,
             seed: 0,
             trees: Vec::new(),
             y_offset: 0.0,
@@ -290,6 +446,13 @@ impl Forest {
             if !(m > 0.0 && m <= 1.0) {
                 return Err(DmlError::InvalidArgument(
                     "max_samples must be in (0, 1]".into(),
+                ));
+            }
+        }
+        if let Some(b) = self.max_bins {
+            if !(2..=255).contains(&b) {
+                return Err(DmlError::InvalidArgument(
+                    "max_bins must be between 2 and 255".into(),
                 ));
             }
         }
@@ -332,6 +495,9 @@ impl Forest {
             .max_samples
             .map_or(n, |m| ((m * n as f64).round() as usize).max(1));
         let n_try = self.params.max_features.resolve(p);
+        let binned = self
+            .max_bins
+            .map(|b| Binned::new(x, w.is_some().then_some(&weights[..]), b));
 
         let grow_tree = |t: usize| -> (Tree, Vec<f64>) {
             let tree_seed = self
@@ -363,6 +529,7 @@ impl Forest {
                 n_try,
                 rng,
                 importance: vec![0.0; p],
+                bins: binned.as_ref(),
             }
             .grow(rows)
         };
@@ -470,6 +637,17 @@ macro_rules! forest_builders {
         /// Bootstrap sample size as a fraction of `n` (default 1.0).
         pub fn max_samples(mut self, fraction: Option<f64>) -> Self {
             self.forest.max_samples = fraction;
+            self
+        }
+
+        /// Search splits on at most `max_bins` quantile bins per feature
+        /// (between 2 and 255; default `None`, every distinct value). Much
+        /// faster on large data. On features with at most `max_bins` distinct
+        /// values the candidate splits of the rows are those without bins (the
+        /// per-bin sums can settle near-ties differently); other features split
+        /// on bin edges.
+        pub fn max_bins(mut self, max_bins: Option<usize>) -> Self {
+            self.forest.max_bins = max_bins;
             self
         }
 
@@ -761,5 +939,103 @@ mod tests {
         assert_eq!(MaxFeatures::Sqrt.resolve(10), 3);
         assert_eq!(MaxFeatures::Log2.resolve(1), 1);
         assert_eq!(MaxFeatures::Count(50).resolve(4), 4);
+        for bins in [1, 256] {
+            assert!(RandomForestRegressor::new()
+                .max_bins(Some(bins))
+                .fit(x.view(), y.view())
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn bins_change_nothing_for_features_with_few_values() {
+        // Every feature has at most 13 distinct values, so each bin holds one
+        // value and the bin edges are the midpoints that exact splitting uses.
+        let (x, y) = nonlinear(1500, 3);
+        let x = x.mapv(|v| (v * 3.0).round());
+        let w = Array1::from_shape_fn(x.nrows(), |i| 1.0 + (i % 3) as f64);
+        for weighted in [false, true] {
+            let fit = |rf: RandomForestRegressor, trees: usize, bootstrap: bool| {
+                let mut rf = rf
+                    .n_estimators(trees)
+                    .bootstrap(bootstrap)
+                    .min_samples_leaf(2)
+                    .seed(5);
+                if weighted {
+                    rf.fit_weighted(x.view(), y.view(), w.view()).unwrap();
+                } else {
+                    rf.fit(x.view(), y.view()).unwrap();
+                }
+                rf
+            };
+            // One tree on all rows: the same splits of the rows and the same
+            // leaves. Only a threshold may differ, where a node holds neither
+            // neighbouring value: exact splitting takes the midpoint of the
+            // values present, the bins their global edge.
+            let exact = fit(RandomForestRegressor::new(), 1, false);
+            let binned = fit(RandomForestRegressor::new().max_bins(Some(255)), 1, false);
+            let shape = |rf: &RandomForestRegressor| -> Vec<(usize, f64)> {
+                rf.forest.trees[0]
+                    .nodes
+                    .iter()
+                    .map(|node| match *node {
+                        Node::Split { feature, .. } => (feature, f64::NAN),
+                        Node::Leaf { value } => (usize::MAX, value),
+                    })
+                    .collect()
+            };
+            let (a, b) = (shape(&exact), shape(&binned));
+            assert_eq!(a.len(), b.len());
+            for (u, v) in a.iter().zip(&b) {
+                assert!(u.0 == v.0 && (u.1 == v.1 || u.1.is_nan() && v.1.is_nan()));
+            }
+            assert_eq!(
+                exact.predict(x.view()).unwrap(),
+                binned.predict(x.view()).unwrap()
+            );
+            // A forest: sums in another order can flip a near-tie between two
+            // splits, but every threshold is one exact splitting could choose.
+            let binned = fit(RandomForestRegressor::new().max_bins(Some(255)), 20, true);
+            for tree in &binned.forest.trees {
+                for node in &tree.nodes {
+                    if let Node::Split { threshold, .. } = node {
+                        assert_eq!(threshold.fract().abs(), 0.5, "{threshold}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn binned_forest_is_as_accurate_on_continuous_features() {
+        let (x, y) = nonlinear(4000, 5);
+        let (x_test, y_test) = nonlinear(1000, 6);
+        let r2 = |rf: RandomForestRegressor| {
+            let mut rf = rf.n_estimators(50).min_samples_leaf(5).seed(1);
+            rf.fit(x.view(), y.view()).unwrap();
+            let resid = &y_test - &rf.predict(x_test.view()).unwrap();
+            1.0 - resid.mapv(|e| e * e).sum()
+                / y_test.mapv(|v| (v - y_test.mean().unwrap()).powi(2)).sum()
+        };
+        let exact = r2(RandomForestRegressor::new());
+        let binned = r2(RandomForestRegressor::new().max_bins(Some(255)));
+        let coarse = r2(RandomForestRegressor::new().max_bins(Some(16)));
+        assert!(
+            exact > 0.95 && (exact - binned).abs() < 0.01,
+            "{exact} {binned}"
+        );
+        assert!(coarse > 0.9, "{coarse}");
+        // Classifier: the same trees on 0/1 labels.
+        let labels = y.mapv(|v| f64::from(v > 0.5));
+        let mut clf = RandomForestClassifier::new().max_bins(Some(64)).seed(2);
+        clf.fit(x.view(), labels.view()).unwrap();
+        let p = clf.predict_proba(x_test.view()).unwrap();
+        let accuracy = p
+            .iter()
+            .zip(y_test.iter())
+            .filter(|(p, y)| (**p > 0.5) == (**y > 0.5))
+            .count() as f64
+            / p.len() as f64;
+        assert!(accuracy > 0.9, "{accuracy}");
     }
 }

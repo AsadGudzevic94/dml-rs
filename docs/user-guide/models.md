@@ -789,17 +789,45 @@ censoring hazards and the propensity score, are. RMST is the integral of the cur
 is the same integral of $\varphi_a$. Without covariates and with empirical hazards, the estimator
 equals Kaplan-Meier on a grid of all event times.
 
+**Competing events.** When several kinds of event can end the follow-up (death from the disease or
+from other causes, leaving a job for another job or for retirement), code `event` as 1, 2, ... for
+the cause and 0 for censoring. Survival and RMST then refer to freedom from every cause, and
+`estimand="cumulative_incidence"` with `cause=c` compares $F_c(\tau) = P(T \le \tau,
+\text{cause} = c)$. With $\lambda_c$ the hazard of that cause,
+$F_c(t_m) = \sum_{l \le m} S_{l-1} \lambda_c(l)$ and its score is
+
+$$
+\varphi_{c,a}(t_m) = F_c(t_m) + \frac{1(D = a)}{\pi_a(X)} \Big[\sum_{j \le m} R_j\,
+\frac{dN_{c,j} - \lambda_c(j)}{G_j} - \sum_{l \le m} \lambda_c(l)\, C_{l-1}\Big],
+$$
+
+where $C_m$ is the sum in the survival score above, so that the scores of survival and of all
+causes add up to one. Only the hazards of any event and of cause $c$ are learned; without
+covariates the estimator is the Aalen-Johansen estimator.
+
+**Clusters.** With `cluster=` (one label per unit), whole clusters go to the folds and the
+standard errors are cluster-robust.
+
+**Tuning.** The hazard learners can be grid searches (`GridSearchCV` or
+`dml_rs.GridSearchClassifier`); they are tuned on each training fold's person-period rows.
+
 === "Python"
 
     ```python
     forest = dml_rs.RandomForestClassifier(n_estimators=200, min_samples_leaf=20)
     model = dml_rs.CausalSurvival(forest, forest, dml_rs.LogisticRegressionCV(),
                                   horizons=[180, 365], estimand="survival")
-    model.fit(X, time, event, d)        # event: 1 for an event, 0 for censoring
+    model.fit(X, time, event, d)        # event: 0 for censoring, 1 (or the cause) for an event
     model.summary                       # treated minus control at each horizon
     model.potential(treated=False).summary  # the estimand if nobody were treated
     model.curve(treated=True).coef_     # the survival curve on model.grid_
     model.plot()                        # both curves with 95% bands
+
+    # Competing events: the cumulative incidence of cause 1, with clustered standard errors.
+    cif = dml_rs.CausalSurvival(forest, forest, dml_rs.LogisticRegressionCV(), horizons=[365],
+                                estimand="cumulative_incidence", cause=1)
+    cif.fit(X, time, event, d, cluster=hospital)
+    cif.incidence_curve(treated=False).coef_
     ```
 
 === "Rust"
@@ -826,10 +854,11 @@ equals Kaplan-Meier on a grid of all event times.
     badly in ways `X` does not capture biases the estimate.
 
     Choose horizons where units are still observed in both arms: the weights grow as $G_j$ falls,
-    and standard errors with them. Competing events are not modelled, so treat them as censoring
-    only if that matches the question. Trees and boosting work with the default numeric time
-    feature. For a logistic learner use `time_encoding="dummies"`, which gives it a free baseline
-    hazard. Clusters are not supported yet.
+    and standard errors with them. Do not code a competing event as censoring: censoring must be
+    independent of the event, and a competing event is not. Trees and boosting work with the
+    default numeric time feature; random forests with `max_bins=255` are much faster on the
+    person-period rows. For a logistic learner use `time_encoding="dummies"`, which gives it a free
+    baseline hazard.
 
 ## Long-term effects from surrogates
 

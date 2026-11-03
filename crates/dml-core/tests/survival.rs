@@ -278,3 +278,182 @@ fn works_without_censoring() {
         .unwrap();
     assert!(fit.effect().se()[0] > 0.0);
 }
+
+fn aalen_johansen_fixture() -> Value {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/survival_aalen_johansen.json"
+    );
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+#[test]
+fn reduces_to_aalen_johansen_with_competing_events() {
+    let fx = aalen_johansen_fixture();
+    let (time, event, d) = (
+        numbers(&fx, "time"),
+        numbers(&fx, "event"),
+        numbers(&fx, "d"),
+    );
+    let n = time.len();
+    let data = DmlData::new(Array1::from(time), Array1::from(d), Array2::zeros((n, 1))).unwrap();
+    let event = Array1::from(event);
+    let all: Vec<usize> = (0..n).collect();
+    let splits = vec![vec![Fold {
+        train: all.clone(),
+        test: all,
+    }]];
+    let fit = |estimand| {
+        saturated()
+            .estimand(estimand)
+            .horizons(numbers(&fx, "horizons"))
+            .fit_with_folds(&data, event.view(), &splits)
+            .unwrap()
+    };
+    let survival = fit(SurvivalEstimand::Survival);
+    let first = fit(SurvivalEstimand::CumulativeIncidence(1));
+    let second = fit(SurvivalEstimand::CumulativeIncidence(2));
+    for (treated, arm) in [(true, "treated"), (false, "control")] {
+        // Freedom from either cause, and each cause's cumulative incidence.
+        assert_close(
+            survival.potential(treated).coef().as_slice().unwrap(),
+            &numbers(&fx, &format!("survival_{arm}")),
+            1e-12,
+        );
+        assert_close(
+            first.potential(treated).coef().as_slice().unwrap(),
+            &numbers(&fx, &format!("cif1_{arm}")),
+            1e-12,
+        );
+        assert_close(
+            second.potential(treated).coef().as_slice().unwrap(),
+            &numbers(&fx, &format!("cif2_{arm}")),
+            1e-12,
+        );
+        // The scores of survival and of all causes sum to one, unit by unit.
+        let fits = [
+            survival.curve(treated),
+            first.incidence_curve(treated).unwrap(),
+            second.incidence_curve(treated).unwrap(),
+        ];
+        let mut coef = Array1::<f64>::zeros(fits[0].coef().len());
+        let mut total = Array2::<f64>::zeros(fits[0].psi().slice(ndarray::s![.., .., 0]).dim());
+        for fit in fits {
+            coef += &fit.coef();
+            total += &fit.psi().slice(ndarray::s![.., .., 0]);
+        }
+        assert!(coef.iter().all(|v| (v - 1.0).abs() < 1e-12));
+        assert!(total.iter().all(|v| v.abs() < 1e-12));
+    }
+    assert!(survival.incidence_curve(true).is_none());
+}
+
+/// Two causes with exponential hazards `λ₁ = 0.6 e^{0.8x}·hr` and `λ₂ = 0.4 e^{−0.5x}`, confounded
+/// treatment, censoring depending on `x`. Treatment halves the hazard of cause 1 only.
+fn simulate_competing(n: usize, seed: u64) -> (DmlData, Array1<f64>) {
+    let mut rng = StdRng::seed_from_u64(seed);
+    let mut uniform = || rng.gen::<f64>();
+    let (mut xs, mut d, mut time, mut event) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for _ in 0..n {
+        let x = uniform() * 2.0 - 1.0;
+        let treated = uniform() < 1.0 / (1.0 + (-1.5 * x).exp());
+        let (l1, l2) = (
+            0.6 * (0.8 * x).exp() * if treated { 0.5 } else { 1.0 },
+            0.4 * (-0.5 * x).exp(),
+        );
+        let t = -(1.0_f64 - uniform()).ln() / (l1 + l2);
+        let cause = if uniform() < l1 / (l1 + l2) { 1.0 } else { 2.0 };
+        let c = -(1.0_f64 - uniform()).ln() / (0.3 * (-0.8 * x).exp());
+        xs.push(x);
+        d.push(f64::from(treated));
+        time.push(t.min(c));
+        event.push(if t <= c { cause } else { 0.0 });
+    }
+    let x = Array2::from_shape_fn((n, 1), |(i, _)| xs[i]);
+    (
+        DmlData::new(Array1::from(time), Array1::from(d), x).unwrap(),
+        Array1::from(event),
+    )
+}
+
+/// `E[λ₁/(λ₁+λ₂)·(1 − e^{−(λ₁+λ₂)t})]` for `x` uniform on (−1, 1).
+fn true_incidence(hazard_ratio: f64, t: f64) -> f64 {
+    let m = 100_000;
+    (0..m)
+        .map(|j| {
+            let x = (j as f64 + 0.5) / m as f64 * 2.0 - 1.0;
+            let (l1, l2) = (0.6 * (0.8 * x).exp() * hazard_ratio, 0.4 * (-0.5 * x).exp());
+            l1 / (l1 + l2) * (1.0 - (-(l1 + l2) * t).exp())
+        })
+        .sum::<f64>()
+        / m as f64
+}
+
+#[test]
+fn estimates_the_cumulative_incidence_of_a_competing_cause() {
+    let horizon = 1.0;
+    let truth = true_incidence(0.5, horizon) - true_incidence(1.0, horizon);
+    let reps = 40;
+    let (mut estimates, mut covered) = (Vec::new(), 0);
+    for seed in 0..reps {
+        let (data, event) = simulate_competing(1500, 100 + seed);
+        let fit = logistic_model()
+            .estimand(SurvivalEstimand::CumulativeIncidence(1))
+            .horizons(vec![horizon])
+            .fit(&data, event.view())
+            .unwrap();
+        let (estimate, se) = (fit.effect().coef()[0], fit.effect().se()[0]);
+        covered += usize::from((estimate - truth).abs() <= 1.96 * se);
+        estimates.push(estimate);
+    }
+    let mean = estimates.iter().sum::<f64>() / reps as f64;
+    let spread =
+        (estimates.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (reps - 1) as f64).sqrt();
+    assert!(truth < -0.05, "{truth}");
+    assert!(
+        (mean - truth).abs() < 4.0 * spread / (reps as f64).sqrt(),
+        "{mean} vs {truth}"
+    );
+    assert!(covered >= 34, "covered {covered} of {reps}");
+}
+
+#[test]
+fn singleton_clusters_reproduce_the_unclustered_standard_errors() {
+    let (data, event) = simulate(500, 7);
+    let model = logistic_model().horizons(vec![0.5, 1.0]);
+    let plain = model.fit(&data, event.view()).unwrap();
+    let n = data.n_obs();
+    let clustered_data = data
+        .clone()
+        .with_clusters(Array1::from_iter(0..n as i64))
+        .unwrap();
+    // The same folds: the clustered standard errors are then those without clusters.
+    let folds = {
+        let strata: Vec<usize> = data
+            .treatment(0)
+            .iter()
+            .zip(&event)
+            .map(|(&d, &e)| 2 * d as usize + e as usize)
+            .collect();
+        dml_core::SampleSplitting::new(5, 1, 0)
+            .draw_stratified(&strata)
+            .unwrap()
+    };
+    let a = model.fit_with_folds(&data, event.view(), &folds).unwrap();
+    let b = model
+        .fit_with_folds(&clustered_data, event.view(), &folds)
+        .unwrap();
+    assert_close(
+        b.effect().se().as_slice().unwrap(),
+        a.effect().se().as_slice().unwrap(),
+        1e-12,
+    );
+    assert_eq!(a.effect().coef(), b.effect().coef());
+    assert_eq!(plain.effect().coef(), a.effect().coef());
+    // Real clusters: whole clusters go to folds and the fit runs.
+    let grouped = data
+        .with_clusters(Array1::from_iter((0..n as i64).map(|i| i / 5)))
+        .unwrap();
+    let fit = model.fit(&grouped, event.view()).unwrap();
+    assert!(fit.effect().se().iter().all(|s| s.is_finite() && *s > 0.0));
+}

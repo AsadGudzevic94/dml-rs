@@ -467,6 +467,7 @@ class _Forest:
         max_features: Union[str, int, float, None] = None,
         bootstrap: bool = True,
         max_samples: Optional[float] = None,
+        max_bins: Optional[int] = None,
         random_state: int = 0,
     ) -> None:
         self.n_estimators = n_estimators
@@ -476,13 +477,17 @@ class _Forest:
         self.max_features = max_features
         self.bootstrap = bootstrap
         self.max_samples = max_samples
+        self.max_bins = max_bins
         self.random_state = random_state
 
 
 class RandomForestRegressor(_Forest, _BuiltinRegressor):
     """Random forest implemented in Rust; the trees are grown in parallel. Parameters follow
     scikit-learn's ``RandomForestRegressor`` (``max_features=None`` means all features);
-    ``random_state`` must be an integer. After ``fit``: ``feature_importances_``."""
+    ``random_state`` must be an integer. ``max_bins`` (2 to 255, default ``None``) searches splits
+    on that many quantile bins per feature, much faster on large data; features with at most
+    ``max_bins`` distinct values keep their candidate splits. After ``fit``:
+    ``feature_importances_``."""
 
     _native = _dml_rs.RandomForestRegressor
 
@@ -490,7 +495,8 @@ class RandomForestRegressor(_Forest, _BuiltinRegressor):
 class RandomForestClassifier(_Forest, _BuiltinClassifier):
     """Random forest implemented in Rust; the trees are grown in parallel. Parameters follow
     scikit-learn's ``RandomForestClassifier`` (``max_features=None`` means ``"sqrt"``);
-    ``random_state`` must be an integer. After ``fit``: ``classes_``, ``feature_importances_``."""
+    ``random_state`` must be an integer. ``max_bins`` as for ``RandomForestRegressor``. After
+    ``fit``: ``classes_``, ``feature_importances_``."""
 
     _native = _dml_rs.RandomForestClassifier
 

@@ -34,8 +34,10 @@ fn fit_regressor<R: Regressor>(
     y: PyReadonlyArray1<'_, f64>,
     sample_weight: Weights<'_>,
 ) -> PyResult<()> {
-    let (x, y) = (x.as_array().to_owned(), y.as_array().to_owned());
-    let w = sample_weight.map(|w| w.as_array().to_owned());
+    // Views, not copies: like scikit-learn's compiled code, the fit reads the
+    // caller's arrays, which must not be changed from another thread meanwhile.
+    let (x, y) = (x.as_array(), y.as_array());
+    let w = sample_weight.as_ref().map(|w| w.as_array());
     py.detach(|| match &w {
         Some(w) => model.fit_weighted(x.view(), y.view(), w.view()),
         None => model.fit(x.view(), y.view()),
@@ -51,8 +53,10 @@ fn fit_classifier<C: Classifier>(
     y: PyReadonlyArray1<'_, f64>,
     sample_weight: Weights<'_>,
 ) -> PyResult<()> {
-    let (x, y) = (x.as_array().to_owned(), y.as_array().to_owned());
-    let w = sample_weight.map(|w| w.as_array().to_owned());
+    // Views, not copies: like scikit-learn's compiled code, the fit reads the
+    // caller's arrays, which must not be changed from another thread meanwhile.
+    let (x, y) = (x.as_array(), y.as_array());
+    let w = sample_weight.as_ref().map(|w| w.as_array());
     py.detach(|| match &w {
         Some(w) => model.fit_weighted(x.view(), y.view(), w.view()),
         None => model.fit(x.view(), y.view()),
@@ -656,6 +660,8 @@ struct ForestArgs {
     max_features: MaxFeatures,
     bootstrap: bool,
     max_samples: Option<f64>,
+    #[serde(default)]
+    max_bins: Option<usize>,
     random_state: u64,
 }
 
@@ -670,6 +676,7 @@ macro_rules! configure_forest {
             .max_features($args.max_features)
             .bootstrap($args.bootstrap)
             .max_samples($args.max_samples)
+            .max_bins($args.max_bins)
             .seed($args.random_state)
     };
 }
@@ -708,7 +715,7 @@ macro_rules! forest_pyclass {
             #[new]
             #[pyo3(signature = (n_estimators = 100, max_depth = None, min_samples_split = 2,
                                 min_samples_leaf = 1, max_features = None, bootstrap = true,
-                                max_samples = None, random_state = 0))]
+                                max_samples = None, max_bins = None, random_state = 0))]
             #[allow(clippy::too_many_arguments)]
             fn new(
                 n_estimators: usize,
@@ -718,6 +725,7 @@ macro_rules! forest_pyclass {
                 max_features: Option<&Bound<'_, PyAny>>,
                 bootstrap: bool,
                 max_samples: Option<f64>,
+                max_bins: Option<usize>,
                 random_state: u64,
             ) -> PyResult<Self> {
                 let max_features = match max_features {
@@ -732,6 +740,7 @@ macro_rules! forest_pyclass {
                     max_features,
                     bootstrap,
                     max_samples,
+                    max_bins,
                     random_state,
                 };
                 Ok(Self {

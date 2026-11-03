@@ -301,6 +301,8 @@ class CausalSurvivalResult:
         """The estimand at the horizons if everyone were treated, or if nobody were."""
     def curve(self, treated: bool) -> DmlResult:
         """The survival curve on the grid if everyone were treated, or if nobody were."""
+    def incidence_curve(self, treated: bool) -> Optional[DmlResult]:
+        """The cumulative incidence of the cause on the grid (cumulative-incidence fits only)."""
     @property
     def propensity(self) -> NDArray[np.float64]:
         """Cross-fitted, clipped propensity scores, shape ``(n, n_rep)``."""
@@ -725,6 +727,7 @@ class RandomForestRegressor:
         max_features: _MaxFeatures = None,
         bootstrap: bool = True,
         max_samples: Optional[Union[int, float]] = None,
+        max_bins: Optional[int] = None,
         random_state: int = 0,
     ) -> Self: ...
     def __copy__(self) -> Self: ...
@@ -802,6 +805,7 @@ class RandomForestClassifier:
         max_features: _MaxFeatures = None,
         bootstrap: bool = True,
         max_samples: Optional[Union[int, float]] = None,
+        max_bins: Optional[int] = None,
         random_state: int = 0,
     ) -> Self: ...
     def __copy__(self) -> Self: ...
@@ -1174,7 +1178,7 @@ def fit_causal_survival(
     ml_censor: Any,
     ml_m: Any,
     horizons: Optional[Sequence[float]] = None,
-    estimand: Literal["survival", "rmst"] = "survival",
+    estimand: Literal["survival", "rmst", "cumulative_incidence"] = "survival",
     grid: Any = None,
     time_encoding: Literal["numeric", "dummies"] = "numeric",
     clipping_threshold: float = 1e-2,
@@ -1183,6 +1187,8 @@ def fit_causal_survival(
     n_rep: int = 1,
     seed: int = 0,
     splits: Optional[_Splits] = None,
+    cause: int = 1,
+    cluster: Optional[NDArray[np.int64]] = None,
 ) -> CausalSurvivalResult: ...
 def plpr_transform(
     y: NDArray[np.float64],

@@ -1194,6 +1194,12 @@ impl PyCausalSurvivalResult {
     }
 
     /// The survival curve on the grid if everyone were treated, or if nobody were.
+    fn incidence_curve(&self, treated: bool) -> Option<PyDmlResult> {
+        self.inner
+            .incidence_curve(treated)
+            .map(|fit| PyDmlResult::from_fit(fit.clone()))
+    }
+
     fn curve(&self, treated: bool) -> PyDmlResult {
         PyDmlResult::from_fit(self.inner.curve(treated).clone())
     }
@@ -1205,12 +1211,14 @@ impl PyCausalSurvivalResult {
     }
 }
 
-/// The observed time is `y`; `event` is 1 for an event and 0 for censoring.
-/// `grid` is a number of quantiles, `"event_times"` or a list of times.
+/// The observed time is `y`; `event` is 0 for censoring and 1 (or the cause,
+/// 1, 2, ...) for an event. `grid` is a number of quantiles, `"event_times"` or
+/// a list of times. `cluster` holds one column of integer cluster codes.
 #[pyfunction]
 #[pyo3(signature = (y, d, x, event, ml_event, ml_censor, ml_m, horizons = None, estimand = "survival",
                     grid = None, time_encoding = "numeric", clipping_threshold = 1e-2,
-                    censoring_floor = 1e-2, n_folds = 5, n_rep = 1, seed = 0, splits = None))]
+                    censoring_floor = 1e-2, n_folds = 5, n_rep = 1, seed = 0, splits = None,
+                    cause = 1, cluster = None))]
 #[allow(clippy::too_many_arguments)]
 fn fit_causal_survival(
     py: Python<'_>,
@@ -1231,13 +1239,16 @@ fn fit_causal_survival(
     n_rep: usize,
     seed: u64,
     splits: Option<PySplits>,
+    cause: u32,
+    cluster: Option<PyReadonlyArray2<'_, i64>>,
 ) -> PyResult<PyCausalSurvivalResult> {
     let estimand = match estimand {
         "survival" => dml_core::SurvivalEstimand::Survival,
         "rmst" => dml_core::SurvivalEstimand::Rmst,
+        "cumulative_incidence" => dml_core::SurvivalEstimand::CumulativeIncidence(cause),
         other => {
             return Err(PyValueError::new_err(format!(
-                "estimand must be 'survival' or 'rmst', got {other:?}"
+                "estimand must be 'survival', 'rmst' or 'cumulative_incidence', got {other:?}"
             )))
         }
     };
@@ -1267,7 +1278,7 @@ fn fit_causal_survival(
             }
         }
     };
-    let data = build_data(y, d, x, None, None, None, None)?;
+    let data = build_data(y, d, x, None, None, None, cluster)?;
     let event = event.as_array().to_owned();
     let mut model = dml_core::CausalSurvival::from_boxed(
         to_classifier(ml_event)?,

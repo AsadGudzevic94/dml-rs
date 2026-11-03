@@ -331,7 +331,7 @@ impl RepeatedCrossSections {
 
 /// K-fold over the distinct cluster labels of a sample: every cluster's rows
 /// stay in one test fold.
-fn cluster_kfold(labels: &[i64], n_folds: usize, seed: u64) -> Result<Vec<Fold>> {
+pub(crate) fn cluster_kfold(labels: &[i64], n_folds: usize, seed: u64) -> Result<Vec<Fold>> {
     let mut distinct = labels.to_vec();
     distinct.sort_unstable();
     distinct.dedup();
@@ -358,7 +358,7 @@ fn cluster_kfold(labels: &[i64], n_folds: usize, seed: u64) -> Result<Vec<Fold>>
 /// `√(Σ_c S_c² / (Σ ψ_a)²)` with `S_c` the cluster sums of the score, and
 /// attach the clusters so aggregations and sensitivity bounds use them too.
 /// (DoubleML's clustered variance with a single fold spanning all units.)
-fn cluster_robust(fit: &mut DmlFit, cl: &Array1<i64>) -> Result<()> {
+pub(crate) fn cluster_robust(fit: &mut DmlFit, cl: &Array1<i64>) -> Result<()> {
     let n = cl.len();
     let n_rep = fit.n_rep();
     let mut distinct = cl.to_vec();
