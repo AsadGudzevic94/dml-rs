@@ -35,6 +35,7 @@ __all__ = [
     "fit_mediation",
     "fit_multi_arm_causal_forest",
     "fit_pliv",
+    "fit_causal_survival",
     "fit_plpr",
     "plpr_transform",
     "fit_plr",
@@ -51,6 +52,7 @@ __all__ = [
     "policy_value",
     "fit_lee_bounds",
     "AposResult",
+    "CausalSurvivalResult",
     "DoseResponseResult",
     "MediationResult",
     "SurrogateResult",
@@ -283,6 +285,25 @@ class AposResult:
         """One estimate per treatment level."""
     def causal_contrast(self, reference_levels: Sequence[float]) -> DmlResult:
         """Effects of each level against each reference level (``"d vs d_ref"``)."""
+
+@final
+class CausalSurvivalResult:
+    """Effect of a binary treatment on a right-censored time to event."""
+
+    @property
+    def horizons(self) -> list[float]: ...
+    @property
+    def grid(self) -> list[float]: ...
+    @property
+    def effect(self) -> DmlResult:
+        """Treated minus control at the horizons."""
+    def potential(self, treated: bool) -> DmlResult:
+        """The estimand at the horizons if everyone were treated, or if nobody were."""
+    def curve(self, treated: bool) -> DmlResult:
+        """The survival curve on the grid if everyone were treated, or if nobody were."""
+    @property
+    def propensity(self) -> NDArray[np.float64]:
+        """Cross-fitted, clipped propensity scores, shape ``(n, n_rep)``."""
 
 @final
 class DoseResponseResult:
@@ -1144,6 +1165,25 @@ def fit_lee_bounds(
     level: float = 0.95,
     seed: int = 0,
 ) -> LeeBoundsResult: ...
+def fit_causal_survival(
+    y: NDArray[np.float64],
+    d: NDArray[np.float64],
+    x: NDArray[np.float64],
+    event: NDArray[np.float64],
+    ml_event: Any,
+    ml_censor: Any,
+    ml_m: Any,
+    horizons: Optional[Sequence[float]] = None,
+    estimand: Literal["survival", "rmst"] = "survival",
+    grid: Any = None,
+    time_encoding: Literal["numeric", "dummies"] = "numeric",
+    clipping_threshold: float = 1e-2,
+    censoring_floor: float = 1e-2,
+    n_folds: int = 5,
+    n_rep: int = 1,
+    seed: int = 0,
+    splits: Optional[_Splits] = None,
+) -> CausalSurvivalResult: ...
 def plpr_transform(
     y: NDArray[np.float64],
     d: NDArray[np.float64],

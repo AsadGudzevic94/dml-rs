@@ -161,6 +161,30 @@ placebo and bootstrap standard errors all agree to `1e-9`. The placebo and boots
 because dml-rs ports R's random number generator (`set.seed` and `sample()`, checked against R's
 own draws).
 
+`CausalSurvival` has no counterpart in DoubleML. Three checks cover it. Without covariates and
+with empirical hazards on a grid of all event times it reduces to Kaplan-Meier, and on R's `lung`
+data it reproduces `survival::survfit` (version 3.8.6) to `1e-12` and the restricted mean of
+`survRM2::rmst2` (version 1.0.4) to `1e-10`; the standard errors agree with Greenwood's formula and
+with `rmst2` to 2% ([`parity/generate_survival_fixtures.R`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/generate_survival_fixtures.R)).
+A NumPy implementation of the score from scratch matches to `1e-6`. On simulated data with a known
+truth, it is compared with `grf::causal_survival_forest` (version 2.6.1, 1000 trees) on the same
+datasets ([`parity/survival_mc.py`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/survival_mc.py)):
+`n = 2000`, 60 datasets, horizon 1, nonlinear hazards, and treatment and censoring that depend on
+the covariates. dml-rs uses random forest hazards on 20 slots and a logistic propensity model.
+
+| Estimator | Bias | Sd | Mean se | RMSE | Coverage |
+|---|---|---|---|---|---|
+| dml-rs, survival probability | -0.0016 | 0.0255 | 0.0268 | 0.0254 | 0.98 |
+| grf, survival probability | -0.0023 | 0.0234 | 0.0238 | 0.0233 | 0.98 |
+| dml-rs, RMST | -0.0051 | 0.0164 | 0.0162 | 0.0170 | 0.97 |
+| grf, RMST | -0.0008 | 0.0166 | 0.0156 | 0.0165 | 0.95 |
+
+The two are comparable. grf is somewhat more precise for the survival probability, and the small
+RMST bias of dml-rs is about 2.4 Monte Carlo standard errors. It may come from the step function on
+a coarse grid, which a finer grid reduces at the cost of more rows. With 60 datasets, the coverage
+figures are accurate to about 0.03. grf took 1.4 seconds per fit here and dml-rs 2.0, so this model
+has no speed advantage.
+
 `OptimalPolicyTree` reproduces R's `policytree` (version 1.2.5) exact tree search
 ([`parity/generate_policytree_fixtures.R`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/generate_policytree_fixtures.R)):
 in six configurations (depth 0 to 3, continuous and discrete features with ties, `split_step` and
