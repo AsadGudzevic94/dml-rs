@@ -18,7 +18,8 @@
 * `dml_rdflex()`: sharp and fuzzy regression discontinuity with flexible
   covariate adjustment and the `rdrobust` options.
 * All of these give the same estimates as the Python package (new parity tests).
-* Reference site and an article on heterogeneous effects:
+* Reference site with articles on heterogeneous effects and on staggered adoption
+  and regression discontinuity:
   <https://asadgudzevic94.github.io/dml-rs/r/>.
 * Built on dml-core 1.0.
 * The learners' `random_state` argument is now `seed`, as in the model

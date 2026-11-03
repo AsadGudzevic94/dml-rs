@@ -10,7 +10,7 @@ DIFFERS_ON_DOUBLEML_MAIN = {
     "test_framework.py::test_arithmetic_matches_doubleml": "se of a negative multiple is fixed (#421)",
     "test_sensitivity_plot.py::test_contours_match_doubleml": "contours are no longer transposed (#415)",
     "test_staggered.py::test_staggered_did_agrees_with_doubleml": "new not-yet-treated controls before treatment (#393)",
-    "test_tuning.py::test_tune_ml_models_matches_doubleml[PLR-IV]": "rewritten Optuna loop picks other parameters",
+    "test_tuning.py::test_tune_ml_models_matches_doubleml[PLR-IV]": "folds are reported, so trials can be pruned",
 }
 
 
