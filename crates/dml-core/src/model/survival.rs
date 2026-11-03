@@ -27,7 +27,8 @@
 //! ```
 //!
 //! where `C_m = Σ_{j≤m} R_j (S_m/S_j)(dN_j − h_j)/G_j` is the correction of the
-//! survival score above, so that the scores of all causes and of survival sum
+//! survival score above. When the hazards of the causes add up to that of any
+//! event (as empirical hazards do), the scores of all causes and of survival sum
 //! to one. Only the all-cause hazard and that of cause `c` are learned.
 
 use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, Axis};

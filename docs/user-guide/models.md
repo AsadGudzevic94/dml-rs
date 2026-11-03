@@ -801,9 +801,10 @@ $$
 \frac{dN_{c,j} - \lambda_c(j)}{G_j} - \sum_{l \le m} \lambda_c(l)\, C_{l-1}\Big],
 $$
 
-where $C_m$ is the sum in the survival score above, so that the scores of survival and of all
-causes add up to one. Only the hazards of any event and of cause $c$ are learned; without
-covariates the estimator is the Aalen-Johansen estimator.
+where $C_m$ is the sum in the survival score above. When the hazards of the causes add up to that
+of any event, as empirical hazards do, the scores of survival and of all causes add up to one.
+Only the hazards of any event and of cause $c$ are learned; without covariates the estimator is
+the Aalen-Johansen estimator.
 
 **Clusters.** With `cluster=` (one label per unit), whole clusters go to the folds and the
 standard errors are cluster-robust.
