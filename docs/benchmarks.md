@@ -88,21 +88,22 @@ in 2.2 s. The script is
 ## Against the R packages
 
 The causal forest and the exact policy tree are ports of R packages written in C++, so the
-comparison there is with compiled code. Same data, same settings, the faster of two runs:
+comparison there is with compiled code. Same data, same settings; each row is the less favourable
+of two runs of the script (timings on this laptop vary between runs):
 
 | Task | n | dml-rs | R | Speed-up |
 |---|--:|--:|--:|--:|
 | Causal forest, 2000 trees (`grf::causal_forest`) | 2 000 | 0.63 s | 1.76 s | **2.8×** |
-| Causal forest, 2000 trees | 10 000 | 5.3 s | 12.5 s | **2.4×** |
-| Causal forest, 2000 trees | 50 000 | 70 s | 123 s | **1.8×** |
-| Policy tree, depth 2, 10 features (`policytree::policy_tree`) | 1 000 | 0.36 s | 0.99 s | **2.8×** |
-| Policy tree, depth 2, 10 features | 5 000 | 13.0 s | 24.1 s | **1.9×** |
+| Causal forest, 2000 trees | 10 000 | 8.5 s | 13.6 s | **1.6×** |
+| Causal forest, 2000 trees | 50 000 | 76 s | 104 s | **1.4×** |
+| Policy tree, depth 2, 10 features (`policytree::policy_tree`) | 1 000 | 0.41 s | 0.88 s | **2.1×** |
+| Policy tree, depth 2, 10 features | 5 000 | 13.0 s | 21.1 s | **1.6×** |
 | Synthetic DiD on Prop 99 (`synthdid::synthdid_estimate`) | 39 × 31 | 0.013 s | 0.19 s | **15×** |
-| Synthetic DiD, placebo standard error (200 replications) | 39 × 31 | 0.41 s | 30.7 s | **74×** |
-| Causal mediation (`causalweight::medDML`, parametric) | 5 000 | 0.011 s | 1.21 s | **110×** |
-| Causal mediation | 20 000 | 0.036 s | 3.67 s | **100×** |
-| Continuous DiD (`contdid::cont_did`, cubic B-spline) | 5 000 | 0.024 s | 3.20 s | **130×** |
-| Continuous DiD | 20 000 | 0.118 s | 12.3 s | **100×** |
+| Synthetic DiD, placebo standard error (200 replications) | 39 × 31 | 0.45 s | 29.0 s | **65×** |
+| Causal mediation (`causalweight::medDML`, parametric) | 5 000 | 0.016 s | 1.14 s | **70×** |
+| Causal mediation | 20 000 | 0.047 s | 3.65 s | **78×** |
+| Continuous DiD (`contdid::cont_did`, cubic B-spline) | 5 000 | 0.036 s | 3.02 s | **85×** |
+| Continuous DiD | 20 000 | 0.125 s | 11.7 s | **93×** |
 
 Both forests get the same linear nuisance estimates, so only the forest is timed. The policy
 trees are identical. `contdid` computes its standard errors with 100 bootstrap draws, dml-rs from
