@@ -35,6 +35,7 @@ and may change in minor releases.
 ::: dml_rs.Mediation
 ::: dml_rs.SurrogateIndex
 ::: dml_rs.AutoDML
+::: dml_rs.PPI
 
 ## Functionals and Riesz representers
 
@@ -68,6 +69,10 @@ takes `store_models=True` to keep the fitted learners in `models_`.
       show_root_heading: false
       members_order: source
       filters: ["!^_"]
+
+## Anytime-valid inference
+
+::: dml_rs.ConfidenceSequence
 
 ## Combining estimates
 

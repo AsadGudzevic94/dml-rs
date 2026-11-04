@@ -1264,6 +1264,72 @@ qf.predict(X_new, quantiles=[0.25])   # any quantile
     let tau = fit.effect(x_new.view())?;
     ```
 
+## Prediction-powered inference
+
+Labels are often expensive and predictions cheap: a few hundred hand-coded documents and a
+million coded by an LLM, a small survey and a large administrative register with a model's
+imputations, a few lab measurements and many simulations. **Prediction-powered inference**
+(Angelopoulos, Bates, Fannjiang, Jordan and Zrnic, 2023, *Science*) uses the large set of
+predictions without inheriting their bias: the estimate from the predictions is corrected by the
+average prediction error on the labelled sample. For a mean,
+
+$$
+\hat\theta_\lambda = \lambda\,\frac1N\sum_{j=1}^N \hat y^{u}_j
+  + \frac1n\sum_{i=1}^n \bigl(y_i - \lambda \hat y_i\bigr),
+$$
+
+which is unbiased whatever the quality of the predictions. Linear and logistic regression
+coefficients are corrected the same way, through the gradient of the loss. **PPI++**
+(Angelopoulos, Duchi and Zrnic, 2023), the default, estimates the weight $\lambda \in [0, 1]$
+that minimises the variance. Good predictions get a weight near one and a much smaller standard
+error; useless ones a weight near zero, so the estimate is (asymptotically) never less precise
+than the labelled-only one. `lam=1` is the original PPI, which can be *less* precise than the
+labelled sample alone when the predictions are poor, and `lam=0` the classical estimate.
+
+=== "Python"
+
+    ```python
+    # Predictions from any model, for the labelled and the unlabelled sample:
+    ppi = dml_rs.PPI().fit(y, yhat, yhat_unlabeled)
+    ppi.summary, ppi.lam_
+    ppi.effective_n_        # labels the classical estimate would need
+    ppi.classical_.summary  # the labelled-only estimate
+
+    # Regression coefficients of y on X:
+    dml_rs.PPI("ols").fit(y, yhat, yhat_unlabeled, X=X, X_unlabeled=X_u)
+    dml_rs.PPI("logistic").fit(y01, p_hat, p_hat_unlabeled, X=X, X_unlabeled=X_u)
+
+    # Or learn the predictions from features by cross-fitting (cross-PPI):
+    rf = dml_rs.RandomForestRegressor()
+    dml_rs.PPI(learner=rf).fit(y, features=F, features_unlabeled=F_u)
+    ```
+
+=== "Rust"
+
+    ```rust
+    use dml_core::{PpiData, PredictionPowered};
+
+    let data = PpiData::new(y, yhat, yhat_unlabelled)?;
+    let fit = PredictionPowered::mean().fit(&data)?;
+    let (estimate, classical) = (fit.estimate(), fit.classical()); // DmlFit
+    let gain = fit.effective_sample_size();
+
+    // Predictions from a learner, cross-fitted on the labelled sample:
+    let data = PpiData::cross_fit(&RandomForestRegressor::new(), y, f.view(), f_u.view(), 5, 0)?
+        .with_covariates(x, x_u)?;
+    let ols = PredictionPowered::linear_regression().fit(&data)?;
+    ```
+
+With a `learner`, the predictions come from cross-fitting on the labelled sample
+(cross-prediction-powered inference, Zrnic and Candès, 2024): each labelled unit is predicted by a
+model that did not see it, and each unlabelled unit gets the average of the fold models'
+predictions. Regressions get an intercept unless `fit_intercept=False`. The estimates are ordinary
+fitted-model objects, so `confint`, `framework` arithmetic and `confidence_sequence` work on them.
+
+The labelled sample must be a random sample of the same population as the unlabelled one (or the
+labelled units a random subset of all units). The computations follow the reference package
+`ppi_py` and agree with it to `1e-9` (see [Validation](../validation.md)).
+
 ## Your own model
 
 In Python, PLR, IRM, PLIV and IIVM take a callable `score` as DoubleML: a function of the data,

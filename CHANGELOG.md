@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Anytime-valid inference (`dml_core::anytime`): asymptotic confidence sequences (Waudby-Smith,
+  Arbour, Sinha, Kennedy & Ramdas, 2024) for every fitted model. `DmlFit::confidence_sequence` /
+  `anytime_p_value` (Python `confidence_sequence()`, `anytime_pval()` on every estimator) give
+  intervals that hold at all sample sizes at once, so a study can be checked as often as wanted
+  and stopped at any time. `ConfidenceSequence` (Rust, Python) follows a study over its looks with
+  running intersections, anytime p-values and the first look that excludes a value; Python's
+  `ConfidenceSequence.run` refits an estimator on growing prefixes and `plot` draws the sequence.
+  In 300 simulated observational studies with 20 looks the 95% sequence missed the ATE at some
+  look in 0.7% of them, repeated 95% intervals in 23%.
+- Prediction-powered inference (`dml_core::ppi`, Python `dml_rs.PPI`): means, OLS and logistic
+  regression coefficients from a small labelled sample and many predictions (Angelopoulos et al.,
+  2023), with the variance-minimising weight of PPI++ by default, the classical estimate and the
+  effective sample size for comparison, and cross-prediction-powered inference with any learner
+  (`PpiData::cross_fit`, `PPI(learner=...)`). Matches `ppi_py` 0.2.3 to `1e-9` (logistic `1e-7`)
+  and is 2-13× faster.
+
 ## [1.4.0] - 2026-11-04
 
 ### Added

@@ -51,6 +51,7 @@ __all__ = [
     "fit_optimal_policy_tree",
     "policy_value",
     "fit_lee_bounds",
+    "fit_ppi",
     "AposResult",
     "CausalSurvivalResult",
     "DoseResponseResult",
@@ -61,6 +62,7 @@ __all__ = [
     "SynthResult",
     "OptimalPolicyTreeResult",
     "LeeBoundsResult",
+    "PpiResult",
     "Blp",
     "Bootstrap",
     "CateResult",
@@ -164,6 +166,13 @@ class DmlResult:
     def nuisance_targets(self, name: str) -> NDArray[np.float64]:
         """Targets of a learner, shape ``(n_obs, n_rep, n_treat)``, NaN where it does not apply."""
     def confint(self, level: float = 0.95) -> NDArray[np.float64]: ...
+    def confidence_sequence(self, level: float, opt_time: int) -> NDArray[np.float64]:
+        """Asymptotic confidence sequence at this sample size, shape ``(n_treat, 2)``."""
+    def anytime_pval(self, level: float, opt_time: int) -> NDArray[np.float64]:
+        """Anytime-valid p-values for ``theta = 0`` at this look."""
+    @property
+    def sequence_time(self) -> int:
+        """Units, or clusters for a clustered fit."""
     def p_adjust(self, method: str) -> NDArray[np.float64]: ...
     def bootstrap(
         self, method: Literal["normal", "Bayes", "bayes", "wild"] = "normal", n_boot: int = 500, seed: int = 0
@@ -410,6 +419,26 @@ class OptimalPolicyTreeResult:
         """Recommended action (column of Gamma) per row."""
     def nodes(self) -> list[dict[str, Any]]:
         """Nodes in breadth-first order."""
+
+@final
+class PpiResult:
+    """Prediction-powered and classical estimate."""
+
+    @property
+    def estimate(self) -> DmlResult: ...
+    @property
+    def classical(self) -> DmlResult: ...
+    @property
+    def lam(self) -> float: ...
+    @property
+    def n_labelled(self) -> int: ...
+    @property
+    def n_unlabelled(self) -> int: ...
+    @property
+    def effective_sample_size(self) -> NDArray[np.float64]: ...
+    @property
+    def predictions(self) -> Optional[tuple[NDArray[np.float64], NDArray[np.float64]]]:
+        """Cross-fitted predictions (labelled, unlabelled), ``None`` when passed in."""
 
 @final
 class LeeBoundsResult:
@@ -1162,6 +1191,22 @@ def fit_optimal_policy_tree(
 def policy_value(
     gamma: NDArray[np.float64], names: Sequence[str], actions: Sequence[Sequence[int]]
 ) -> DmlResult: ...
+def fit_ppi(
+    estimand: Literal["mean", "ols", "logistic"],
+    y: NDArray[np.float64],
+    yhat: Optional[NDArray[np.float64]] = None,
+    yhat_unlabelled: Optional[NDArray[np.float64]] = None,
+    x: Optional[NDArray[np.float64]] = None,
+    x_unlabelled: Optional[NDArray[np.float64]] = None,
+    names: Optional[Sequence[str]] = None,
+    lam: Optional[float] = None,
+    learner: Any = None,
+    classifier: bool = False,
+    features: Optional[NDArray[np.float64]] = None,
+    features_unlabelled: Optional[NDArray[np.float64]] = None,
+    n_folds: int = 5,
+    seed: int = 0,
+) -> PpiResult: ...
 def fit_lee_bounds(
     y: NDArray[np.float64],
     d: NDArray[np.float64],

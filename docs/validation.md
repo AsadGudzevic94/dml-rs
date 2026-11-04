@@ -56,11 +56,31 @@ prediction are identical (also with missing values, sample weights, more than 20
 the bins come from a random subsample, and early stopping on a validation split), and DML fits
 with them equal fits with scikit-learn's learners to `1e-12`.
 
+Prediction-powered inference is compared with the reference implementation `ppi_py` 0.2.3
+([`parity/generate_ppi_fixtures.py`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/generate_ppi_fixtures.py)):
+14 cases (means, OLS and logistic regression with tuned, fixed and zero $\lambda$, and the
+cross-prediction versions) agree in the estimate, standard error and tuned $\lambda$ to `1e-9`,
+the logistic ones to `1e-7`: `ppi_py`'s L-BFGS-B stops with gradients of about `5e-10`, while
+Newton's method reaches `1e-17`.
+
 The Python test suite checks the bindings against DoubleML and scikit-learn (including the
 learners themselves), and the type stubs are checked against the compiled extension with
 `mypy.stubtest`.
 
 ## Statistical tests
+
+The confidence sequences ([Inference](user-guide/inference.md#anytime-valid-inference-confidence-sequences))
+have no DoubleML counterpart. Their tests check the boundary against its closed form and the
+anytime p-values against it, and simulate streams looked at many times: for means (500 streams of
+2000 draws, 99 looks) and for PLR fits (150 streams, 20 looks) the sequence misses at some look in
+at most 6% and 8% of the streams, the repeated 95% intervals in at least 20% and 15%. A larger
+study for a doubly robust ATE ([`parity/anytime_mc.py`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/anytime_mc.py);
+IRM, 300 streams, 20 looks from 250 to 5000 units):
+
+| True ATE | Misses the ATE at some look: sequence | repeated intervals | Excludes 0 by n = 5000: sequence |
+|--:|--:|--:|--:|
+| 0 | 0.7% | 22.3% | |
+| 0.15 | 0.7% | 24.0% | 96.0% |
 
 Clustered staggered DiD has no DoubleML counterpart: its tests check that singleton clusters
 reproduce the iid standard errors exactly and that cluster-robust intervals reach their coverage
