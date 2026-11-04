@@ -99,6 +99,7 @@ In 300 simulated observational studies (IRM with cross-fitted nuisance models, l
 units up to 5000), the 95% sequence missed the true ATE at some look in 0.7% of the studies and the
 repeated 95% intervals in 23% ([`parity/anytime_mc.py`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/anytime_mc.py)).
 With a true effect of 0.15, the sequence excluded zero by 5000 units in 96% of the studies.
+See the [monitoring example](../examples/12_confidence_sequences.ipynb).
 
 ## Combining estimates
 

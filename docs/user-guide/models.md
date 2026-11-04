@@ -1328,7 +1328,8 @@ fitted-model objects, so `confint`, `framework` arithmetic and `confidence_seque
 
 The labelled sample must be a random sample of the same population as the unlabelled one (or the
 labelled units a random subset of all units). The computations follow the reference package
-`ppi_py` and agree with it to `1e-9` (see [Validation](../validation.md)).
+`ppi_py` and agree with it to `1e-9` (see [Validation](../validation.md)). See the
+[prediction-powered inference example](../examples/13_prediction_powered_inference.ipynb).
 
 ## Your own model
 
