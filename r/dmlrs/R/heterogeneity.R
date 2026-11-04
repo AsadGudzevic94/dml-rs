@@ -261,7 +261,7 @@ gate.dmlrs_cate_learner <- function(object, groups, ...) {
 
 forest_spec <- function(num_trees, sample_fraction, mtry, min_node_size, honesty,
                         honesty_fraction, honesty_prune_leaves, alpha, imbalance_penalty,
-                        stabilize_splits, ci_group_size, seed) {
+                        stabilize_splits, ci_group_size, seed, max_bins = NULL) {
   list(type = "forest", num_trees = check_count(num_trees, "num_trees"),
        sample_fraction = sample_fraction,
        mtry = if (is.null(mtry)) NULL else check_count(mtry, "mtry"),
@@ -269,7 +269,8 @@ forest_spec <- function(num_trees, sample_fraction, mtry, min_node_size, honesty
        honesty_fraction = honesty_fraction, honesty_prune_leaves = isTRUE(honesty_prune_leaves),
        alpha = alpha, imbalance_penalty = imbalance_penalty,
        stabilize_splits = isTRUE(stabilize_splits),
-       ci_group_size = check_count(ci_group_size, "ci_group_size"), seed = seed)
+       ci_group_size = check_count(ci_group_size, "ci_group_size"), seed = seed,
+       max_bins = if (is.null(max_bins)) NULL else check_count(max_bins, "max_bins", 2))
 }
 
 # A learner for a treatment or instrument: a classifier when the variable is
@@ -316,6 +317,9 @@ nuisance_learner <- function(learner, v, arg) {
 #' @param imbalance_penalty Penalty on splits with little treatment variation
 #'   in a child.
 #' @param stabilize_splits Apply `alpha` to the treatment variation.
+#' @param max_bins `NULL` (grf's exact split search) or 2 to 255: search splits
+#'   on that many quantile bins per variable, faster on large data with slightly
+#'   coarser splits.
 #' @param ci_group_size Trees per half-sample (2 gives variance estimates, 1
 #'   disables them).
 #' @param reduced_form_weight grf's `reduced.form.weight`: splits target
@@ -345,13 +349,13 @@ causal_forest <- function(y, d, x, ml_y = lrn_regression_forest(), ml_d = lrn_re
                           min_node_size = 5, honesty = TRUE, honesty_fraction = 0.5,
                           honesty_prune_leaves = TRUE, alpha = 0.05, imbalance_penalty = 0,
                           stabilize_splits = TRUE, ci_group_size = 2,
-                          clipping_threshold = 0.01, n_folds = 5, seed = 0) {
+                          clipping_threshold = 0.01, n_folds = 5, seed = 0, max_bins = NULL) {
   data <- prepare(y, d, x)
   if (ncol(data$d) != 1) stop("`d` must be a single treatment", call. = FALSE)
   ml_d <- nuisance_learner(ml_d, data$d, "ml_d")
   spec <- forest_spec(num_trees, sample_fraction, mtry, min_node_size, honesty, honesty_fraction,
                       honesty_prune_leaves, alpha, imbalance_penalty, stabilize_splits,
-                      ci_group_size, seed)
+                      ci_group_size, seed, max_bins)
   ptr <- rs_fit_causal_forest(data$y, data$d, data$x, check_learner(ml_y, "regressor", "ml_y"),
                               ml_d$spec, ml_d$classifier, spec, clipping_threshold,
                               check_count(n_folds, "n_folds", 2), seed)
@@ -367,7 +371,7 @@ instrumental_forest <- function(y, d, z, x, ml_y = lrn_regression_forest(),
                                 honesty_prune_leaves = TRUE, alpha = 0.05, imbalance_penalty = 0,
                                 stabilize_splits = TRUE, ci_group_size = 2,
                                 reduced_form_weight = 0, clipping_threshold = 0.01, n_folds = 5,
-                                seed = 0) {
+                                seed = 0, max_bins = NULL) {
   data <- prepare(y, d, x)
   if (ncol(data$d) != 1) stop("`d` must be a single treatment", call. = FALSE)
   z <- as_numeric_vector(z, "z", length(data$y))
@@ -375,7 +379,7 @@ instrumental_forest <- function(y, d, z, x, ml_y = lrn_regression_forest(),
   ml_z <- nuisance_learner(ml_z, z, "ml_z")
   spec <- forest_spec(num_trees, sample_fraction, mtry, min_node_size, honesty, honesty_fraction,
                       honesty_prune_leaves, alpha, imbalance_penalty, stabilize_splits,
-                      ci_group_size, seed)
+                      ci_group_size, seed, max_bins)
   ptr <- rs_fit_instrumental_forest(data$y, data$d, data$x, z,
                                     check_learner(ml_y, "regressor", "ml_y"), ml_d$spec,
                                     ml_z$spec, ml_d$classifier, ml_z$classifier, spec,

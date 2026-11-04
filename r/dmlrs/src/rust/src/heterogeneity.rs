@@ -234,6 +234,7 @@ fn forest_settings(spec: &List) -> Result<ForestSettings> {
         .imbalance_penalty(s.num("imbalance_penalty", d.imbalance_penalty)?)
         .stabilize_splits(s.flag("stabilize_splits", d.stabilize_splits)?)
         .ci_group_size(s.count("ci_group_size", d.ci_group_size)?)
+        .max_bins(s.opt_count("max_bins", None)?)
         .seed(s.seed()?))
 }
 

@@ -13,7 +13,7 @@ dml_survival(
   ml_censor = ml_event,
   ml_m = lrn_logistic_cv(),
   horizons = NULL,
-  estimand = c("survival", "rmst", "cumulative_incidence"),
+  estimand = c("survival", "rmst", "cumulative_incidence", "rmtl"),
   grid = 30,
   time_encoding = c("numeric", "dummies"),
   clipping_threshold = 0.01,
@@ -45,7 +45,8 @@ cause of competing events.}
 
 \item{estimand}{\code{"survival"} for \eqn{P(T > \tau)}, \code{"rmst"} for
 \eqn{E[\min(T, \tau)]} or \code{"cumulative_incidence"} for
-\eqn{P(T \le \tau, \textrm{cause} = c)}.}
+\eqn{P(T \le \tau, \textrm{cause} = c)} or \code{"rmtl"} for the restricted mean
+time lost to cause \eqn{c}, \eqn{\int_0^\tau F_c(t)\,dt}.}
 
 \item{grid}{The slots: a whole number for that many quantiles of the event
 times, \code{"event_times"} for every distinct event time (slow on large data),

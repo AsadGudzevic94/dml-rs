@@ -112,3 +112,21 @@ test_that("clustered standard errors and binned forests", {
                          horizons = 1)
   expect_true(is.finite(coef(binned)) && binned$se > 0)
 })
+
+test_that("restricted mean time lost integrates the incidence curve", {
+  set.seed(9)
+  n <- 600
+  xs <- matrix(runif(n * 2, -1, 1), n)
+  ds <- rbinom(n, 1, 0.5)
+  tt <- rexp(n, 1)
+  cause <- ifelse(runif(n) < 0.6, 1, 2)
+  cc <- rexp(n, 0.3)
+  es <- ifelse(tt <= cc, cause, 0)
+  fit <- dml_survival(pmin(tt, cc), es, ds, xs, ml_event = lrn_logistic(), ml_m = lrn_logistic(),
+                      grid = 10, horizons = 1, time_encoding = "dummies", estimand = "rmtl")
+  curve <- unname(coef(fit$incidence_treated))
+  end <- match(1, fit$grid)
+  integral <- sum(curve[seq_len(end - 1)] * diff(fit$grid[seq_len(end)]))
+  expect_equal(unname(coef(fit$treated)), integral, tolerance = 1e-10)
+  expect_match(names(coef(fit)), "RMTL")
+})
