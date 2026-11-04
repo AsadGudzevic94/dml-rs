@@ -154,6 +154,7 @@ fn regressor(spec: &List) -> Result<Box<dyn Regressor>> {
                 .max_depth(s.opt_count("max_depth", None)?)
                 .min_samples_leaf(s.count("min_samples_leaf", 1)?)
                 .max_features(s.max_features(MaxFeatures::All)?)
+                .max_bins(s.opt_count("max_bins", None)?)
                 .seed(s.seed()?),
         ),
         "gradient_boosting" => Box::new(
@@ -205,6 +206,7 @@ fn classifier(spec: &List) -> Result<Box<dyn Classifier>> {
                 .max_depth(s.opt_count("max_depth", None)?)
                 .min_samples_leaf(s.count("min_samples_leaf", 1)?)
                 .max_features(s.max_features(MaxFeatures::Sqrt)?)
+                .max_bins(s.opt_count("max_bins", None)?)
                 .seed(s.seed()?),
         ),
         "gradient_boosting" => Box::new(

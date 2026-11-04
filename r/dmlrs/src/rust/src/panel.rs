@@ -355,8 +355,9 @@ fn rs_rdflex_confint(fit: ExternalPtr<RdFlexFit>, level: f64) -> Result<RMatrix<
 // Censored time to event
 // ---------------------------------------------------------------------------
 
-/// `time` is the observed time; `grid` a number of quantiles, `"event_times"` or
-/// a vector of times.
+/// `time` is the observed time; `event` 0 for censoring and 1, 2, ... for the
+/// cause; `grid` a number of quantiles, `"event_times"` or a vector of times;
+/// `cluster` integer codes or `NULL`.
 #[extendr]
 #[allow(clippy::too_many_arguments)]
 fn rs_fit_survival(
@@ -376,10 +377,13 @@ fn rs_fit_survival(
     n_folds: i32,
     n_rep: i32,
     seed_: f64,
+    cause: i32,
+    cluster: Robj,
 ) -> Result<List> {
     let estimand = match estimand {
         "survival" => SurvivalEstimand::Survival,
         "rmst" => SurvivalEstimand::Rmst,
+        "cumulative_incidence" => SurvivalEstimand::CumulativeIncidence,
         other => return Err(err(format!("unknown estimand {other:?}"))),
     };
     let encoding = match time_encoding {
@@ -403,6 +407,7 @@ fn rs_fit_survival(
         classifier(&ml_m)?,
     )
     .estimand(estimand)
+    .cause(u32::try_from(cause).map_err(|_| err("cause must be a positive event code"))?)
     .grid(grid)
     .time_encoding(encoding)
     .clipping_threshold(clipping_threshold)
@@ -416,17 +421,33 @@ fn rs_fit_survival(
             .ok_or_else(|| err("horizons must be numbers"))?;
         model = model.horizons(horizons);
     }
-    let data = data(time, &d, &x, vec!["d".to_string()])?;
+    let mut data = data(time, &d, &x, vec!["d".to_string()])?;
+    if !cluster.is_null() {
+        let labels = cluster
+            .as_integer_vector()
+            .ok_or_else(|| err("cluster must hold integer codes"))?;
+        data = data
+            .with_clusters(labels.into_iter().map(i64::from).collect())
+            .map_err(err)?;
+    }
     let fit = model
         .fit(&data, Array1::from(event.to_vec()).view())
         .map_err(err)?;
     let pointer = |f: &DmlFit| ExternalPtr::new(f.clone());
+    let incidence = |treated: bool| -> Robj {
+        match fit.incidence_curve(treated) {
+            Some(f) => pointer(f).into(),
+            None => ().into(),
+        }
+    };
     Ok(list!(
         effect = pointer(fit.effect()),
         treated = pointer(fit.potential(true)),
         control = pointer(fit.potential(false)),
         curve_treated = pointer(fit.curve(true)),
         curve_control = pointer(fit.curve(false)),
+        incidence_treated = incidence(true),
+        incidence_control = incidence(false),
         horizons = fit.horizons().to_vec(),
         grid = fit.grid().to_vec(),
         propensity = to_rmatrix(fit.propensity())

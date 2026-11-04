@@ -196,9 +196,10 @@ rs_fit_rdflex <- function(y, d, x, score, names, ml_g, ml_m, binary_outcome, cut
 
 rs_fit_survival <- function(time, d, x, event, ml_event, ml_censor, ml_m, horizons, estimand, grid,
                             time_encoding, clipping_threshold, censoring_floor, n_folds, n_rep,
-                            seed_) {
+                            seed_, cause, cluster) {
   .Call(wrap__rs_fit_survival, time, d, x, event, ml_event, ml_censor, ml_m, horizons, estimand,
-        grid, time_encoding, clipping_threshold, censoring_floor, n_folds, n_rep, seed_)
+        grid, time_encoding, clipping_threshold, censoring_floor, n_folds, n_rep, seed_, cause,
+        cluster)
 }
 
 rs_rdflex_summary <- function(fit) .Call(wrap__rs_rdflex_summary, fit)
