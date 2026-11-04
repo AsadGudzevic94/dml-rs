@@ -51,6 +51,8 @@ nav:
       - Policy learning: examples/09_policy_learning.ipynb
       - Prediction intervals for individual effects: examples/10_prediction_intervals.ipynb
       - Lee bounds: examples/11_lee_bounds.ipynb
+      - Monitoring an experiment: examples/12_confidence_sequences.ipynb
+      - Prediction-powered inference: examples/13_prediction_powered_inference.ipynb
   - API reference:
       - Python: api/python.md
       - Rust: api/rust.md
