@@ -135,3 +135,17 @@ test_that("restored objects say that they need a refit", {
   expect_equal(predict(restored)$estimate, cf$predictions)
   expect_error(predict(restored, x[1:2, ]), "refit")
 })
+
+test_that("binned causal forests", {
+  set.seed(5)
+  n <- 1500
+  xb <- matrix(runif(n * 3), n)
+  db <- rbinom(n, 1, 0.5)
+  yb <- (1 + (xb[, 1] > 0.5)) * db + xb[, 2] + rnorm(n)
+  exact <- causal_forest(yb, db, xb, ml_y = lrn_ols(), ml_d = lrn_logistic(), num_trees = 200)
+  binned <- causal_forest(yb, db, xb, ml_y = lrn_ols(), ml_d = lrn_logistic(), num_trees = 200,
+                          max_bins = 64)
+  expect_lt(abs(mean(binned$predictions) - mean(exact$predictions)), 0.1)
+  expect_error(causal_forest(yb, db, xb, ml_y = lrn_ols(), ml_d = lrn_logistic(), max_bins = 1),
+               "max_bins")
+})

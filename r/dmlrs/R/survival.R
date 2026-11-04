@@ -34,7 +34,8 @@
 #' @param horizons Times of the effects (default: the quartiles of the event times).
 #' @param estimand `"survival"` for \eqn{P(T > \tau)}, `"rmst"` for
 #'   \eqn{E[\min(T, \tau)]} or `"cumulative_incidence"` for
-#'   \eqn{P(T \le \tau, \textrm{cause} = c)}.
+#'   \eqn{P(T \le \tau, \textrm{cause} = c)} or `"rmtl"` for the restricted mean
+#'   time lost to cause \eqn{c}, \eqn{\int_0^\tau F_c(t)\,dt}.
 #' @param cause The cause \eqn{c} of the cumulative incidence (an event code).
 #' @param cluster Cluster labels (one per observation) for cluster-robust
 #'   standard errors, or `NULL`.
@@ -75,7 +76,7 @@
 #' @export
 dml_survival <- function(time, event, d, x, ml_event = lrn_random_forest(min_samples_leaf = 20),
                          ml_censor = ml_event, ml_m = lrn_logistic_cv(), horizons = NULL,
-                         estimand = c("survival", "rmst", "cumulative_incidence"), grid = 30,
+                         estimand = c("survival", "rmst", "cumulative_incidence", "rmtl"), grid = 30,
                          time_encoding = c("numeric", "dummies"), clipping_threshold = 0.01,
                          censoring_floor = 0.01, n_folds = 5, n_rep = 1, seed = 0, cause = 1,
                          cluster = NULL) {

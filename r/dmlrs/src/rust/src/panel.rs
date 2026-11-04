@@ -384,6 +384,7 @@ fn rs_fit_survival(
         "survival" => SurvivalEstimand::Survival,
         "rmst" => SurvivalEstimand::Rmst,
         "cumulative_incidence" => SurvivalEstimand::CumulativeIncidence,
+        "rmtl" => SurvivalEstimand::RestrictedMeanTimeLost,
         other => return Err(err(format!("unknown estimand {other:?}"))),
     };
     let encoding = match time_encoding {

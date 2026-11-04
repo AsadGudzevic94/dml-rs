@@ -21,14 +21,17 @@
   probabilities or restricted mean survival time, with survival curves and
   `plot()`. Competing events (`event` = 1, 2, ... for the cause) with
   `estimand = "cumulative_incidence"` and `cause`, and cluster-robust standard
-  errors with `cluster`.
+  errors with `cluster`, and `estimand = "rmtl"` for the restricted mean time
+  lost to a cause.
+* `causal_forest(max_bins = )`, `instrumental_forest(max_bins = )`: split search
+  on quantile bins, faster on large data.
 * `lrn_random_forest(max_bins = )`: splits on quantile bins, much faster on
   large data.
 * All of these give the same estimates as the Python package (new parity tests).
 * Reference site with articles on heterogeneous effects and on staggered adoption
   and regression discontinuity:
   <https://asadgudzevic94.github.io/dml-rs/r/>.
-* Built on dml-core 1.3.
+* Built on dml-core 1.4.
 * The learners' `random_state` argument is now `seed`, as in the model
   functions; `random_state` still works with a deprecation warning.
 * `dml_contdid()`: `trimming_threshold` is now `clipping_threshold`, as in the

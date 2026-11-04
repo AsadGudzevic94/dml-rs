@@ -24,7 +24,8 @@ causal_forest(
   ci_group_size = 2,
   clipping_threshold = 0.01,
   n_folds = 5,
-  seed = 0
+  seed = 0,
+  max_bins = NULL
 )
 
 instrumental_forest(
@@ -49,7 +50,8 @@ instrumental_forest(
   reduced_form_weight = 0,
   clipping_threshold = 0.01,
   n_folds = 5,
-  seed = 0
+  seed = 0,
+  max_bins = NULL
 )
 }
 \arguments{
@@ -96,6 +98,10 @@ doubly robust scores.}
 \item{n_folds}{Folds of the nuisance models.}
 
 \item{seed}{Seed of the folds and the forest.}
+
+\item{max_bins}{\code{NULL} (grf's exact split search) or 2 to 255: search splits
+on that many quantile bins per variable, faster on large data with slightly
+coarser splits.}
 
 \item{z}{Instrument: binary or continuous.}
 
