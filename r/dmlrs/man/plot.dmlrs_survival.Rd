@@ -17,7 +17,8 @@
 \code{x}, invisibly.
 }
 \description{
-Both survival curves with pointwise confidence bands.
+Both survival curves, or for a cumulative-incidence fit both cumulative
+incidence curves, with pointwise confidence bands.
 }
 \examples{
 set.seed(3)

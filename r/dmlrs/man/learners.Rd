@@ -30,7 +30,8 @@ lrn_random_forest(
   min_samples_leaf = 1,
   max_features = NULL,
   seed = 0,
-  random_state = NULL
+  random_state = NULL,
+  max_bins = NULL
 )
 
 lrn_gradient_boosting(
@@ -83,6 +84,10 @@ number of folds of the cross-validated learners.}
 \item{seed}{Seed of the random number generator.}
 
 \item{random_state}{Deprecated name of \code{seed}.}
+
+\item{max_bins}{\code{NULL} (exact splits) or 2 to 255: search splits on that many
+quantile bins per feature, much faster on large data with practically the
+same accuracy.}
 
 \item{learning_rate}{Shrinkage of each tree.}
 

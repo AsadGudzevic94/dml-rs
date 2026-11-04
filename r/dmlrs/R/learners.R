@@ -50,6 +50,9 @@ renamed_arg <- function(new, old, new_name, old_name) {
 #' @param min_samples_leaf Minimum observations per leaf.
 #' @param max_features Features tried per split: `NULL` (all for regression,
 #'   `"sqrt"` for classification), `"sqrt"`, `"log2"`, a fraction or a number.
+#' @param max_bins `NULL` (exact splits) or 2 to 255: search splits on that many
+#'   quantile bins per feature, much faster on large data with practically the
+#'   same accuracy.
 #' @param learning_rate Shrinkage of each tree.
 #' @param subsample Share of observations used for each tree.
 #' @param max_leaf_nodes Maximum leaves per tree (`NULL`: unlimited).
@@ -92,10 +95,10 @@ lrn_logistic_cv <- function(n_cs = 10, cv = 5) new_learner("logistic_cv", n_cs =
 #' @rdname learners
 #' @export
 lrn_random_forest <- function(n_estimators = 100, max_depth = NULL, min_samples_leaf = 1,
-                              max_features = NULL, seed = 0, random_state = NULL) {
+                              max_features = NULL, seed = 0, random_state = NULL, max_bins = NULL) {
   new_learner("random_forest", n_estimators = n_estimators, max_depth = max_depth,
               min_samples_leaf = min_samples_leaf, max_features = max_features,
-              seed = renamed_arg(seed, random_state, "seed", "random_state"))
+              max_bins = max_bins, seed = renamed_arg(seed, random_state, "seed", "random_state"))
 }
 
 #' @rdname learners

@@ -13,20 +13,23 @@ dml_survival(
   ml_censor = ml_event,
   ml_m = lrn_logistic_cv(),
   horizons = NULL,
-  estimand = c("survival", "rmst"),
+  estimand = c("survival", "rmst", "cumulative_incidence"),
   grid = 30,
   time_encoding = c("numeric", "dummies"),
   clipping_threshold = 0.01,
   censoring_floor = 0.01,
   n_folds = 5,
   n_rep = 1,
-  seed = 0
+  seed = 0,
+  cause = 1,
+  cluster = NULL
 )
 }
 \arguments{
 \item{time}{Observed time: of the event, or of censoring.}
 
-\item{event}{1 for an observed event, 0 for censoring.}
+\item{event}{0 for censoring, 1 for an observed event, or 1, 2, ... for the
+cause of competing events.}
 
 \item{d}{Binary treatment.}
 
@@ -40,8 +43,9 @@ dml_survival(
 
 \item{horizons}{Times of the effects (default: the quartiles of the event times).}
 
-\item{estimand}{\code{"survival"} for \eqn{P(T > \tau)} or \code{"rmst"} for
-\eqn{E[\min(T, \tau)]}.}
+\item{estimand}{\code{"survival"} for \eqn{P(T > \tau)}, \code{"rmst"} for
+\eqn{E[\min(T, \tau)]} or \code{"cumulative_incidence"} for
+\eqn{P(T \le \tau, \textrm{cause} = c)}.}
 
 \item{grid}{The slots: a whole number for that many quantiles of the event
 times, \code{"event_times"} for every distinct event time (slow on large data),
@@ -60,13 +64,19 @@ value.}
 \item{n_folds, n_rep}{Cross-fitting folds and repetitions of the sample split.}
 
 \item{seed}{Seed of the sample splits, stratified by treatment and event.}
+
+\item{cause}{The cause \eqn{c} of the cumulative incidence (an event code).}
+
+\item{cluster}{Cluster labels (one per observation) for cluster-robust
+standard errors, or \code{NULL}.}
 }
 \value{
 A \code{dmlrs_survival} object, which is a \code{dmlrs_fit} of treated minus
 control at each horizon, plus \code{treated} and \code{control} (\code{dmlrs_fit} objects of
 the two arms at the horizons), \code{curve_treated} and \code{curve_control} (the
 survival curves on \code{grid}), \code{horizons}, \code{grid} and \code{propensity} (one column
-per repetition).
+per repetition). Cumulative-incidence fits also hold \code{incidence_treated} and
+\code{incidence_control}, the cumulative incidence curves of the cause.
 }
 \description{
 Effect of a binary treatment on a right-censored time to event, as the
@@ -82,9 +92,14 @@ hazards and the propensity score, are.
 \details{
 Besides unconfoundedness, the event and censoring times must be independent
 given the treatment and covariates. Choose horizons where units are still
-observed in both arms: standard errors grow as few remain uncensored. Competing
-events are not modelled. Without covariates and with empirical hazards, the
-estimator equals Kaplan-Meier.
+observed in both arms: standard errors grow as few remain uncensored. Without
+covariates and with empirical hazards, the estimator equals Kaplan-Meier.
+
+With competing events, code \code{event} as 1, 2, ... for the cause. Survival and
+RMST are then freedom from every cause, and \code{estimand = "cumulative_incidence"}
+estimates the cumulative incidence of \code{cause} (the Aalen-Johansen estimator
+without covariates). With \code{cluster}, whole clusters go to the folds and the
+standard errors are cluster-robust.
 }
 \examples{
 set.seed(3)

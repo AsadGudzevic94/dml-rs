@@ -55,7 +55,7 @@ test_that("every form of the grid works", {
 
 test_that("inputs are checked", {
   expect_error(fit_survival(horizons = 1e6), "last event time")
-  expect_error(dml_survival(time, event + 1, d, x), "`event` must be binary")
+  expect_error(dml_survival(time, event + 0.5, d, x), "`event` must be 0 for censoring")
   expect_error(dml_survival(time, event, d + 1, x), "`d` must be binary")
   expect_error(dml_survival(time, event[-1], d, x), "`event`")
   expect_error(dml_survival(time, event, d, x, grid = "weekly"), "`grid`")
@@ -65,4 +65,50 @@ test_that("inputs are checked", {
   restored <- readRDS(path)
   expect_length(coef(restored), 1)
   expect_error(confint(restored), "saved session")
+})
+
+test_that("competing events: the incidences of all causes and survival nearly sum to one", {
+  set.seed(4)
+  n <- 600
+  xs <- matrix(runif(n * 2, -1, 1), n)
+  ds <- rbinom(n, 1, plogis(1.5 * xs[, 1]))
+  l1 <- 0.6 * exp(0.8 * xs[, 1]) * ifelse(ds == 1, 0.5, 1)
+  l2 <- 0.4 * exp(-0.5 * xs[, 1])
+  tt <- rexp(n, l1 + l2)
+  cause <- ifelse(runif(n) < l1 / (l1 + l2), 1, 2)
+  cc <- rexp(n, 0.3)
+  ts <- pmin(tt, cc)
+  es <- ifelse(tt <= cc, cause, 0)
+  fit <- function(...) {
+    dml_survival(ts, es, ds, xs, ml_event = lrn_logistic(), ml_m = lrn_logistic(), grid = 10,
+                 horizons = 1, time_encoding = "dummies", ...)
+  }
+  surv <- fit()
+  first <- fit(estimand = "cumulative_incidence", cause = 1)
+  second <- fit(estimand = "cumulative_incidence", cause = 2)
+  # Exactly one only when the learned cause hazards add up to that of any event (empirical hazards
+  # do); three separate logistic fits come close.
+  total <- coef(surv$curve_treated) + coef(first$incidence_treated) + coef(second$incidence_treated)
+  expect_equal(unname(total), rep(1, length(surv$grid)), tolerance = 0.01)
+  expect_lt(unname(coef(first)), 0)
+  expect_null(surv$incidence_treated)
+  pdf(NULL)
+  on.exit(dev.off())
+  expect_silent(plot(first))
+  expect_error(fit(estimand = "cumulative_incidence", cause = 3), "cause")
+  expect_error(fit(cluster = 1:3), "one value per observation")
+})
+
+test_that("clustered standard errors and binned forests", {
+  rep3 <- rep(seq_len(200), each = 3)
+  naive <- dml_survival(time[rep3], event[rep3], d[rep3], x[rep3, ], ml_event = lrn_logistic(),
+                        ml_m = lrn_logistic(), grid = 10, horizons = 1, time_encoding = "dummies")
+  clustered <- dml_survival(time[rep3], event[rep3], d[rep3], x[rep3, ], ml_event = lrn_logistic(),
+                            ml_m = lrn_logistic(), grid = 10, horizons = 1,
+                            time_encoding = "dummies", cluster = rep3)
+  expect_gt(clustered$se, 1.4 * naive$se)
+  forest <- lrn_random_forest(n_estimators = 30, min_samples_leaf = 20, max_bins = 64)
+  binned <- dml_survival(time, event, d, x, ml_event = forest, ml_m = lrn_logistic(), grid = 10,
+                         horizons = 1)
+  expect_true(is.finite(coef(binned)) && binned$se > 0)
 })

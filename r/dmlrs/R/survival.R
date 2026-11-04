@@ -14,20 +14,30 @@
 #'
 #' Besides unconfoundedness, the event and censoring times must be independent
 #' given the treatment and covariates. Choose horizons where units are still
-#' observed in both arms: standard errors grow as few remain uncensored. Competing
-#' events are not modelled. Without covariates and with empirical hazards, the
-#' estimator equals Kaplan-Meier.
+#' observed in both arms: standard errors grow as few remain uncensored. Without
+#' covariates and with empirical hazards, the estimator equals Kaplan-Meier.
+#'
+#' With competing events, code `event` as 1, 2, ... for the cause. Survival and
+#' RMST are then freedom from every cause, and `estimand = "cumulative_incidence"`
+#' estimates the cumulative incidence of `cause` (the Aalen-Johansen estimator
+#' without covariates). With `cluster`, whole clusters go to the folds and the
+#' standard errors are cluster-robust.
 #'
 #' @param time Observed time: of the event, or of censoring.
-#' @param event 1 for an observed event, 0 for censoring.
+#' @param event 0 for censoring, 1 for an observed event, or 1, 2, ... for the
+#'   cause of competing events.
 #' @param d Binary treatment.
 #' @param x Covariates: a numeric matrix or data frame.
 #' @param ml_event Classifier for the hazard of the event in a slot.
 #' @param ml_censor Classifier for the hazard of censoring (default: `ml_event`).
 #' @param ml_m Classifier for the propensity score.
 #' @param horizons Times of the effects (default: the quartiles of the event times).
-#' @param estimand `"survival"` for \eqn{P(T > \tau)} or `"rmst"` for
-#'   \eqn{E[\min(T, \tau)]}.
+#' @param estimand `"survival"` for \eqn{P(T > \tau)}, `"rmst"` for
+#'   \eqn{E[\min(T, \tau)]} or `"cumulative_incidence"` for
+#'   \eqn{P(T \le \tau, \textrm{cause} = c)}.
+#' @param cause The cause \eqn{c} of the cumulative incidence (an event code).
+#' @param cluster Cluster labels (one per observation) for cluster-robust
+#'   standard errors, or `NULL`.
 #' @param grid The slots: a whole number for that many quantiles of the event
 #'   times, `"event_times"` for every distinct event time (slow on large data),
 #'   or a vector of at least two times. The horizons are always added. Use 20
@@ -44,7 +54,8 @@
 #'   control at each horizon, plus `treated` and `control` (`dmlrs_fit` objects of
 #'   the two arms at the horizons), `curve_treated` and `curve_control` (the
 #'   survival curves on `grid`), `horizons`, `grid` and `propensity` (one column
-#'   per repetition).
+#'   per repetition). Cumulative-incidence fits also hold `incidence_treated` and
+#'   `incidence_control`, the cumulative incidence curves of the cause.
 #' @references Bai, X., Tsiatis, A. A. and O'Brien, S. M. (2013). Doubly-robust
 #'   estimators of treatment-specific survival distributions in observational
 #'   studies with stratified sampling. *Biometrics*, 69(4), 830-839.
@@ -64,16 +75,25 @@
 #' @export
 dml_survival <- function(time, event, d, x, ml_event = lrn_random_forest(min_samples_leaf = 20),
                          ml_censor = ml_event, ml_m = lrn_logistic_cv(), horizons = NULL,
-                         estimand = c("survival", "rmst"), grid = 30,
+                         estimand = c("survival", "rmst", "cumulative_incidence"), grid = 30,
                          time_encoding = c("numeric", "dummies"), clipping_threshold = 0.01,
-                         censoring_floor = 0.01, n_folds = 5, n_rep = 1, seed = 0) {
+                         censoring_floor = 0.01, n_folds = 5, n_rep = 1, seed = 0, cause = 1,
+                         cluster = NULL) {
   estimand <- match.arg(estimand)
   time_encoding <- match.arg(time_encoding)
   data <- prepare(time, d, x)
   if (ncol(data$d) != 1) stop("`d` must be a single treatment", call. = FALSE)
   check_binary(data$d, "d")
   event <- as_numeric_vector(event, "event", length(data$y))
-  check_binary(event, "event")
+  if (any(event < 0 | event != round(event))) {
+    stop("`event` must be 0 for censoring and 1, 2, ... for the cause of an event", call. = FALSE)
+  }
+  if (!is.null(cluster)) {
+    if (length(cluster) != length(data$y)) {
+      stop("`cluster` must have one value per observation", call. = FALSE)
+    }
+    cluster <- match(cluster, sort(unique(cluster)))
+  }
   if (!(is.numeric(grid) || identical(grid, "event_times"))) {
     stop("`grid` must be a number, \"event_times\" or a vector of times", call. = FALSE)
   }
@@ -83,13 +103,17 @@ dml_survival <- function(time, event, d, x, ml_event = lrn_random_forest(min_sam
                          if (!is.null(horizons)) as.numeric(horizons), estimand,
                          if (is.numeric(grid)) as.numeric(grid) else grid, time_encoding,
                          clipping_threshold, censoring_floor, check_count(n_folds, "n_folds", 2),
-                         check_count(n_rep, "n_rep"), seed)
+                         check_count(n_rep, "n_rep"), seed, check_count(cause, "cause"), cluster)
   out <- new_fit(res$effect, match.call())
   arm <- function(ptr) new_fit(ptr, out$call)
   out$treated <- arm(res$treated)
   out$control <- arm(res$control)
   out$curve_treated <- arm(res$curve_treated)
   out$curve_control <- arm(res$curve_control)
+  if (!is.null(res$incidence_treated)) {
+    out$incidence_treated <- arm(res$incidence_treated)
+    out$incidence_control <- arm(res$incidence_control)
+  }
   out$horizons <- res$horizons
   out$grid <- res$grid
   out$propensity <- res$propensity
@@ -107,7 +131,8 @@ step_band <- function(times, lower, upper) {
 
 #' Plot estimated survival curves
 #'
-#' Both survival curves with pointwise confidence bands.
+#' Both survival curves, or for a cumulative-incidence fit both cumulative
+#' incidence curves, with pointwise confidence bands.
 #'
 #' @param x A fit from [dml_survival()].
 #' @param level Confidence level.
@@ -127,17 +152,21 @@ step_band <- function(times, lower, upper) {
 #' @export
 plot.dmlrs_survival <- function(x, level = 0.95, ...) {
   times <- c(0, x$grid)
-  graphics::plot(range(times), c(0, 1), type = "n", xlab = "time", ylab = "survival probability", ...)
+  incidence <- !is.null(x$incidence_treated)
+  start <- if (incidence) 0 else 1
+  graphics::plot(range(times), c(0, 1), type = "n", xlab = "time",
+                 ylab = if (incidence) "cumulative incidence" else "survival probability", ...)
   draw <- function(fit, colour) {
     ci <- pmin(pmax(confint(fit, level = level), 0), 1)
-    lower <- c(1, ci[, 1])
-    upper <- c(1, ci[, 2])
+    lower <- c(start, ci[, 1])
+    upper <- c(start, ci[, 2])
     band <- step_band(times, lower, upper)
     graphics::polygon(band$x, band$y, col = grDevices::adjustcolor(colour, 0.2), border = NA)
-    graphics::lines(times, c(1, unname(stats::coef(fit))), type = "s", col = colour, lwd = 2)
+    graphics::lines(times, c(start, unname(stats::coef(fit))), type = "s", col = colour, lwd = 2)
   }
-  draw(x$curve_treated, "#0173B2")
-  draw(x$curve_control, "#DE8F05")
-  graphics::legend("topright", c("treated", "control"), col = c("#0173B2", "#DE8F05"), lwd = 2, bty = "n")
+  draw(if (incidence) x$incidence_treated else x$curve_treated, "#0173B2")
+  draw(if (incidence) x$incidence_control else x$curve_control, "#DE8F05")
+  graphics::legend(if (incidence) "topleft" else "topright", c("treated", "control"),
+                   col = c("#0173B2", "#DE8F05"), lwd = 2, bty = "n")
   invisible(x)
 }
