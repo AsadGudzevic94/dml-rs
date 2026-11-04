@@ -25,6 +25,13 @@
 //! confidence intervals, a multiplier [`Bootstrap`] for joint inference and
 //! multiple-testing adjustment. New scores plug in via [`LinearScoreModel`].
 //!
+//! ## Anytime-valid inference and prediction-powered inference
+//!
+//! [`DmlFit::confidence_sequence`] and [`ConfidenceSequence`] give confidence sequences that hold
+//! at all sample sizes at once, for monitoring a study and stopping at any time (see
+//! [`anytime`]). [`PredictionPowered`] estimates means and regression coefficients from a few
+//! labels and many predictions (see [`ppi`]).
+//!
 //! ## Clustered data
 //!
 //! [`DmlData::with_clusters`] / [`DmlData::with_two_way_clusters`] make sample splitting
@@ -105,6 +112,7 @@ macro_rules! field_setters {
     };
 }
 
+pub mod anytime;
 pub mod blp;
 pub mod bootstrap;
 pub mod bounds;
@@ -122,6 +130,7 @@ pub(crate) mod linalg;
 pub mod model;
 pub mod policy;
 pub mod policy_search;
+pub mod ppi;
 pub mod propensity;
 pub mod rd;
 pub mod riesz;
@@ -131,6 +140,7 @@ pub mod staggered;
 pub mod stats;
 pub mod synthdid;
 
+pub use anytime::ConfidenceSequence;
 pub use blp::Blp;
 pub use bootstrap::{Bootstrap, BootstrapMethod};
 pub use bounds::{LeeBounds, LeeBoundsFit};
@@ -169,6 +179,7 @@ pub use model::{
 };
 pub use policy::{PolicyNode, PolicyTree};
 pub use policy_search::{policy_value, OptimalPolicyNode, OptimalPolicyTree, OptimalPolicyTreeFit};
+pub use ppi::{PpiData, PpiEstimand, PpiFit, PpiLambda, PredictionPowered};
 pub use propensity::{Calibration, IsotonicRegression};
 pub use riesz::{
     Ate, AverageDerivative, CustomFunctional, Dictionary, LinearFunctional, PolicyEffect,

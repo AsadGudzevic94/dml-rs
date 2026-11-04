@@ -34,6 +34,72 @@ model.confint(joint=True)                        # simultaneous bands
 model.p_adjust("romano-wolf")                    # also "holm" and "bonferroni"
 ```
 
+## Anytime-valid inference: confidence sequences
+
+A 95% confidence interval covers θ with probability 0.95 at one sample size fixed in advance. An
+experiment or rollout that is checked as data come in, and stopped once the interval excludes
+zero, looks many times, and the chance that *some* look is wrong is much larger than 5%: in our
+simulation below, 23% with 20 looks. A **confidence sequence** covers θ at all sample sizes at
+once, $P(\theta \in C_t \text{ for every } t) \ge 1 - \alpha$, so the data can be checked as
+often as wanted and the study stopped at any time.
+
+dml-rs uses the asymptotic confidence sequences of Waudby-Smith, Arbour, Sinha, Kennedy and Ramdas
+(2024, *Annals of Statistics*), which do for sequential monitoring what the central limit theorem
+does for a fixed sample. After $t$ observations the sequence is
+
+$$
+\hat\theta_t \pm \widehat{\text{se}}_t \sqrt{\frac{2(u+1)}{u}\log\frac{\sqrt{u+1}}{\alpha}},
+\qquad u = t\rho^2,
+$$
+
+the Robbins normal-mixture boundary. Their theory covers doubly robust estimators with
+cross-fitted nuisance models, i.e. the DML scores here, so it applies to every model in the
+library. `opt_time` sets $\rho$ so that the sequence is tightest around that sample size,
+$\rho^2 = (-2\log\alpha + \log(-2\log\alpha + 1)) / t^*$. At $t^*$ and 95% it is about 3.0
+standard errors wide on each side (1.96 for a fixed-sample interval), and it grows like
+$\sqrt{\log t}$ away from $t^*$: the price of being allowed to look at any time. Fix
+`opt_time` before seeing the data, for example at the expected sample size of the first look that
+matters.
+
+=== "Python"
+
+    ```python
+    model.confidence_sequence(0.95, opt_time=2000)  # (n_coefs, 2)
+    model.anytime_pval(0.95, opt_time=2000)  # < 0.05 iff 0 is excluded
+
+    # Monitor a study: refit on all data so far at each look.
+    cs = dml_rs.ConfidenceSequence(level=0.95, opt_time=2000)
+    cs.run(dml_rs.IRM(ml_g, ml_m), looks=range(500, 20_001, 500), X=X, y=y, d=d)
+    cs.summary             # per look: estimate, se, interval, p-value
+    cs.first_exclusion(0)  # first sample size that excludes 0
+    cs.plot()
+    # or one look at a time: cs.update(model_fitted_on_data_so_far)
+    ```
+
+=== "Rust"
+
+    ```rust
+    use dml_core::anytime::ConfidenceSequence;
+
+    let mut cs = ConfidenceSequence::new(0.95, 2000)?;
+    for &t in &looks {
+        let fit = Irm::new(ml_g.clone(), ml_m.clone()).fit(&data_up_to(t))?;
+        cs.update(&fit)?;
+    }
+    let running = cs.running_intervals(); // (looks, n_coefs, 2)
+    let stop = cs.first_exclusion(0.0);
+    ```
+
+The intervals of all looks hold together, so their running intersection (`lower_`, `upper_`) is
+also a confidence sequence, and the running minimum of the anytime p-values is a valid p-value at
+whatever time the study stops. Clustered fits count clusters rather than observations as the
+sample size. The rows must be in the order in which the data arrived.
+
+In 300 simulated observational studies (IRM with cross-fitted nuisance models, looks every 250
+units up to 5000), the 95% sequence missed the true ATE at some look in 0.7% of the studies and the
+repeated 95% intervals in 23% ([`parity/anytime_mc.py`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/anytime_mc.py)).
+With a true effect of 0.15, the sequence excluded zero by 5000 units in 96% of the studies.
+
 ## Combining estimates
 
 Estimates from fits on the same observations and sample splits can be added, subtracted, scaled

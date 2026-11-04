@@ -64,10 +64,11 @@ DoubleML? See the [migration guide](https://asadgudzevic94.github.io/dml-rs/user
 | Synthetic DiD | Synthetic difference-in-differences, synthetic control and DiD for few treated units (port of the authors' R package `synthdid`, identical estimates and standard errors) | `SyntheticDid` | `SyntheticDID` |
 | Individual effects | Prediction intervals for the individual treatment effect and potential outcomes of new units (weighted conformal inference, Lei and Candès) | `ConformalIte` | `ConformalITE` |
 | Policy learning | Exact optimal policy trees (port of R's `policytree`) and doubly robust policy values | `OptimalPolicyTree`, `policy_value` | `OptimalPolicyTree`, `policy_value` |
+| Prediction-powered inference | Means and linear / logistic regression coefficients from a few labels and many predictions (from an ML model, an LLM, ...), PPI++ weighting, cross-fitted predictions from any learner (matches `ppi_py`, 2-13× faster) | `PredictionPowered` | `PPI` |
 | Partial identification | Lee bounds on effects under sample selection, tightened with covariates | `LeeBounds` | `LeeBounds` |
 | Causal forests | Individual treatment effects τ(x) with confidence intervals (generalized random forests, as R's `grf`), average and group effects, calibration test, policy trees; instrumental (conditional LATE) and multi-arm forests; regression and quantile forests | `CausalForestDml`, `InstrumentalForestDml`, `MultiArmCausalForestDml` | `CausalForest`, `InstrumentalForest`, `MultiArmCausalForest` |
 | Continuous treatments | Dose-response curve E[Y(t)] and its derivative, with uniform confidence bands (kernel DML of Colangelo and Lee) | `DoseResponse` | `DoseResponse` |
-| Time-to-event outcomes | Effects on survival probabilities and restricted mean survival time under censoring, with any classifier for the hazards (doubly robust; equals Kaplan-Meier without covariates) |
+| Time-to-event outcomes | Effects on survival probabilities and restricted mean survival time under censoring, with any classifier for the hazards (doubly robust; equals Kaplan-Meier without covariates); competing events and restricted mean time lost | `CausalSurvival` | `CausalSurvival` |
 | Causal mediation | Natural direct and indirect effects through one or several mediators (Farbmacher et al.; matches R's `causalweight::medDML`) | `Mediation` | `Mediation` |
 | Long-term effects | Effect on an outcome the experiment never observes, from short-term surrogates and an observational sample (surrogate index with the efficient score of Chen and Ritzwoller) | `SurrogateIndex` | `SurrogateIndex` |
 | Automatic debiased ML | Any mean of a linear functional of the regression (ATE, average derivatives, shift and policy effects, your own), with the Riesz representer learned automatically | `AutoDml` | `AutoDML` |
@@ -78,7 +79,9 @@ DoubleML? See the [migration guide](https://asadgudzevic94.github.io/dml-rs/user
 splitting, multiplier bootstrap (normal, Bayes, wild) with simultaneous confidence bands,
 Romano–Wolf, Holm and Bonferroni multiple-testing adjustment, cluster-robust standard errors
 for one-way and two-way clustered data (Chiang et al., 2022), and sums, differences and linear
-combinations of estimates from several fits with joint inference.
+combinations of estimates from several fits with joint inference. **Anytime-valid confidence
+sequences** (Waudby-Smith et al., 2024) for every model: monitor a study as data arrive and stop
+at any time without inflating the error rate.
 
 **Sensitivity analysis:** bounds on the effect of omitted confounders, robustness values and
 benchmarking against observed covariates (Chernozhukov et al., 2022), for PLR, IRM, APO and DiD

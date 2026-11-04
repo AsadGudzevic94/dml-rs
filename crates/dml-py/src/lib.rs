@@ -22,6 +22,7 @@ mod errors;
 mod forest;
 mod learners;
 mod pickle;
+mod ppi;
 mod staggered;
 
 use cate::{fit_cate, PyBlp, PyCateResult};
@@ -37,6 +38,7 @@ use learners::{
     PyHistGradientBoostingRegressor, PyLasso, PyLassoCV, PyLogisticRegression,
     PyLogisticRegressionCV, PyOls, PyRandomForestClassifier, PyRandomForestRegressor,
 };
+use ppi::{fit_ppi, PyPpiResult};
 use staggered::{fit_staggered_did, PyStaggeredResult};
 
 /// Splits from Python: one list per repetition of `(train, test)` index lists.
@@ -298,6 +300,42 @@ impl PyDmlResult {
     #[pyo3(signature = (level = 0.95))]
     fn confint<'py>(&self, py: Python<'py>, level: f64) -> PyResult<Bound<'py, PyArray2<f64>>> {
         Ok(self.fit.confint(level).map_err(to_py_err)?.into_pyarray(py))
+    }
+
+    /// Asymptotic confidence sequence at this sample size, tightest around
+    /// `opt_time` observations (clusters for clustered fits), shape `(n_treat, 2)`.
+    fn confidence_sequence<'py>(
+        &self,
+        py: Python<'py>,
+        level: f64,
+        opt_time: usize,
+    ) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        Ok(self
+            .fit
+            .confidence_sequence(level, opt_time)
+            .map_err(to_py_err)?
+            .into_pyarray(py))
+    }
+
+    /// Anytime-valid p-values for `H0: theta = 0` at this look.
+    fn anytime_pval<'py>(
+        &self,
+        py: Python<'py>,
+        level: f64,
+        opt_time: usize,
+    ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        Ok(self
+            .fit
+            .anytime_p_value(level, opt_time)
+            .map_err(to_py_err)?
+            .into_pyarray(py))
+    }
+
+    /// Sample size that counts for confidence sequences: units, or clusters
+    /// for a clustered fit.
+    #[getter]
+    fn sequence_time(&self) -> usize {
+        self.fit.n_clusters().unwrap_or(self.fit.n_obs())
     }
 
     /// `"bonferroni"` or `"holm"`.
@@ -3036,19 +3074,19 @@ mod dml_rs_native {
         concat, draw_folds, fit_apo, fit_apos, fit_autodml, fit_cate, fit_causal_forest,
         fit_causal_survival, fit_conformal, fit_continuous_did, fit_did, fit_dose_response,
         fit_iivm, fit_instrumental_forest, fit_irm, fit_lee_bounds, fit_lplr, fit_mediation,
-        fit_multi_arm_causal_forest, fit_optimal_policy_tree, fit_pliv, fit_plpr, fit_plr, fit_qte,
-        fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did, fit_surrogate_index, fit_synthdid,
-        plpr_transform, policy_value, result_from_scores, set_parallel_folds, simulate,
-        PyAposResult, PyBlp, PyBootstrap, PyCateResult, PyCausalForestResult,
+        fit_multi_arm_causal_forest, fit_optimal_policy_tree, fit_pliv, fit_plpr, fit_plr, fit_ppi,
+        fit_qte, fit_quantile, fit_rdflex, fit_ssm, fit_staggered_did, fit_surrogate_index,
+        fit_synthdid, plpr_transform, policy_value, result_from_scores, set_parallel_folds,
+        simulate, PyAposResult, PyBlp, PyBootstrap, PyCateResult, PyCausalForestResult,
         PyCausalSurvivalResult, PyConformalResult, PyContinuousDidResult, PyDmlResult,
         PyDoseResponseResult, PyGradientBoostingClassifier, PyGradientBoostingRegressor,
         PyGridSearchClassifier, PyGridSearchRegressor, PyHistGradientBoostingClassifier,
         PyHistGradientBoostingRegressor, PyInstrumentalForestResult, PyLasso, PyLassoCV,
         PyLeeBounds, PyLogisticRegression, PyLogisticRegressionCV, PyMediationResult,
-        PyMultiArmCausalForestResult, PyOls, PyOptimalPolicyTree, PyPolicyTree, PyQteResult,
-        PyQuantileForest, PyRandomForestClassifier, PyRandomForestRegressor, PyRdFlexResult,
-        PyRegressionForest, PySensitivityBenchmark, PySensitivityResult, PyStaggeredResult,
-        PySurrogateResult, PySynthResult,
+        PyMultiArmCausalForestResult, PyOls, PyOptimalPolicyTree, PyPolicyTree, PyPpiResult,
+        PyQteResult, PyQuantileForest, PyRandomForestClassifier, PyRandomForestRegressor,
+        PyRdFlexResult, PyRegressionForest, PySensitivityBenchmark, PySensitivityResult,
+        PyStaggeredResult, PySurrogateResult, PySynthResult,
     };
 
     #[pymodule_export]

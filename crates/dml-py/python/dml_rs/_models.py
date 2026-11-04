@@ -192,6 +192,23 @@ class _DMLEstimator(TuningMixin, _Params):
             return self._boot.joint_confint(level)
         return result.confint(level)
 
+    def confidence_sequence(self, level: float = 0.95, opt_time: Optional[int] = None) -> NDArray[np.float64]:
+        """Anytime-valid confidence sequence at this fit's sample size, shape ``(n_treat, 2)``
+        (Waudby-Smith et al., 2024): recomputed after every new observation, the intervals cover
+        θ at all sample sizes at once with probability ``level``, so a study can be monitored and
+        stopped at any time. ``opt_time`` is the sample size (clusters for clustered fits) where
+        the sequence is tightest; it must be fixed before looking at the data (default: this
+        fit's sample size). To follow a study over several looks use `ConfidenceSequence`."""
+        result = self._check_fitted()
+        return result.confidence_sequence(level, result.sequence_time if opt_time is None else int(opt_time))
+
+    def anytime_pval(self, level: float = 0.95, opt_time: Optional[int] = None) -> NDArray[np.float64]:
+        """Anytime-valid p-values for ``θ = 0`` at this look, for the sequence of
+        `confidence_sequence` with the same ``level`` and ``opt_time``. Below ``1 − level``
+        exactly when the sequence excludes zero."""
+        result = self._check_fitted()
+        return result.anytime_pval(level, result.sequence_time if opt_time is None else int(opt_time))
+
     def bootstrap(self, method: str = "normal", n_boot: int = 500, random_state: int = 0) -> Self:
         """Multiplier bootstrap (``'normal'``, ``'Bayes'`` or ``'wild'``) for joint inference."""
         self._boot = self._check_fitted().bootstrap(method, n_boot, random_state)

@@ -56,6 +56,21 @@ scikit-learn bit for bit, within sampling noise for the random forests).
   order as scikit-learn, which is what makes the predictions identical, so the remaining
   difference is in low-level tuning.
 
+## Prediction-powered inference
+
+Against `ppi_py` 0.2.3 (`ppi_mean_ci`, `ppi_ols_ci`, `ppi_logistic_ci` with the tuned $\lambda$;
+numba-compiled, timed after a warm-up call) on 2000 labelled units and 5 covariates
+([`parity/bench_ppi.py`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/bench_ppi.py)):
+
+| Estimand | Unlabelled units | dml-rs | ppi_py | Speed-up |
+|---|--:|--:|--:|--:|
+| Mean | 100 000 | 0.002 s | 0.004 s | **2.0×** |
+| Mean | 1 000 000 | 0.019 s | 0.056 s | **3.0×** |
+| OLS | 100 000 | 0.030 s | 0.243 s | **8.2×** |
+| OLS | 1 000 000 | 0.395 s | 2.447 s | **6.2×** |
+| Logistic regression | 100 000 | 0.057 s | 0.719 s | **12.6×** |
+| Logistic regression | 1 000 000 | 0.641 s | 5.198 s | **8.1×** |
+
 ## Every model
 
 The table above uses flexible learners, which dominate the time. With linear learners

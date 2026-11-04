@@ -55,11 +55,13 @@ from ._autodml import (
     ShiftEffect,
 )
 from ._conformal import ConformalITE
+from ._anytime import ConfidenceSequence
 from ._bounds import LeeBounds
 from ._contdid import ContinuousDID
 from ._dose import DoseResponse
 from ._survival import CausalSurvival
 from ._mediation import Mediation
+from ._ppi import PPI
 from ._policy_search import OptimalPolicyTree, double_robust_scores, policy_value
 from ._surrogate import SurrogateIndex
 from ._synthdid import SyntheticDID
@@ -103,6 +105,8 @@ __all__ = [
     "ConformalITE",
     "ContinuousDID",
     "LeeBounds",
+    "ConfidenceSequence",
+    "PPI",
     "CausalSurvival",
     "DoseResponse",
     "Mediation",
