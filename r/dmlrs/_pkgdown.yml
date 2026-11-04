@@ -51,6 +51,15 @@ reference:
       - plot.dmlrs_survival
       - plot.dmlrs_contdid
       - plot.dmlrs_dose
+  - title: Anytime-valid inference
+    desc: Confidence sequences for monitoring a study and stopping at any time.
+    contents:
+      - confidence_sequence
+      - monitor_study
+  - title: Prediction-powered inference
+    desc: Estimates from a few labels and many predictions.
+    contents:
+      - ppi
   - title: Heterogeneous effects
     desc: Conditional average treatment effects, their best linear predictor and group effects.
     contents:

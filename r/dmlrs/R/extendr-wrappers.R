@@ -205,3 +205,17 @@ rs_fit_survival <- function(time, d, x, event, ml_event, ml_censor, ml_m, horizo
 rs_rdflex_summary <- function(fit) .Call(wrap__rs_rdflex_summary, fit)
 
 rs_rdflex_confint <- function(fit, level) .Call(wrap__rs_rdflex_confint, fit, level)
+
+# Confidence sequences and prediction-powered inference (src/rust/src/sequential.rs)
+
+rs_confidence_sequence <- function(fit, level, opt_time_) {
+  .Call(wrap__rs_confidence_sequence, fit, level, opt_time_)
+}
+
+rs_monitor <- function(fits, level, opt_time_) .Call(wrap__rs_monitor, fits, level, opt_time_)
+
+rs_fit_ppi <- function(estimand, y, yhat, yhat_unlabeled, x, x_unlabeled, names, lambda, learner,
+                       use_classifier, features, features_unlabeled, n_folds, seed_) {
+  .Call(wrap__rs_fit_ppi, estimand, y, yhat, yhat_unlabeled, x, x_unlabeled, names, lambda, learner,
+        use_classifier, features, features_unlabeled, n_folds, seed_)
+}

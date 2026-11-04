@@ -21,6 +21,7 @@ use ndarray::{Array1, Array2, Array3, ShapeBuilder};
 
 mod heterogeneity;
 mod panel;
+mod sequential;
 
 fn err(e: impl std::fmt::Display) -> Error {
     Error::Other(e.to_string())
@@ -919,6 +920,7 @@ extendr_module! {
     mod dmlrs;
     use heterogeneity;
     use panel;
+    use sequential;
     fn rs_fit_plr;
     fn rs_fit_irm;
     fn rs_fit_pliv;
