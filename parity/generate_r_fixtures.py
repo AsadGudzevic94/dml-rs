@@ -209,6 +209,38 @@ def main():
         expected[f"survival_{estimand}"] = [*surv.coef_, *surv.se_, *surv.potential(False).coef_,
                                             *surv.potential(True).se_, *surv.curve(True).coef_, *surv.grid_]
 
+    # Confidence sequences of a PLR fit (n_rep = 2) and over looks on prefixes of the data.
+    expected["plr_confidence_sequence"] = [*plr.confidence_sequence(0.9, 150)[0], *plr.anytime_pval(0.9, 150)]
+    looks = [100, 200, 400]
+    cs = dml_rs.ConfidenceSequence(0.95, opt_time=150).run(dml_rs.PLR(ols, ols), looks, X=x, y=y, d=dcont)
+    expected["monitor"] = [*cs.lower_[:, 0], *cs.upper_[:, 0], *cs.pval_[:, 0]]
+
+    # Prediction-powered inference, drawn last so that the columns above keep their values.
+    nl, nu = 300, 3000
+    zp = rng.normal(size=(nl + nu, 3))
+    yp = 1 + 0.8 * zp[:, 0] - 0.5 * zp[:, 1] + 1.2 * zp[:, 2] + rng.normal(size=nl + nu)
+    yhatp = 0.9 + 0.7 * zp[:, 0] - 0.4 * zp[:, 1] + zp[:, 2] + 0.8 * rng.normal(size=nl + nu)
+    eta = zp[:, 0] + zp[:, 2]
+    bp = (rng.random(nl + nu) < 1 / (1 + np.exp(-eta))).astype(float)
+    php = 1 / (1 + np.exp(-(0.8 * eta + 0.3 * rng.normal(size=nl + nu))))
+    np.column_stack([yp, yhatp, bp, php, zp]).T.astype("<f8").tofile(OUT / "parity_ppi.bin")
+    lab, unl = slice(0, nl), slice(nl, None)
+    xp = zp[:, :2]
+
+    def ppi_values(fit):
+        return [*fit.coef_, *fit.se_, fit.lam_, *fit.classical_.se_, *fit.effective_n_]
+
+    expected["ppi_mean"] = ppi_values(dml_rs.PPI().fit(yp[lab], yhatp[lab], yhatp[unl]))
+    expected["ppi_mean_lam1"] = ppi_values(dml_rs.PPI(lam=1.0).fit(yp[lab], yhatp[lab], yhatp[unl]))
+    expected["ppi_ols"] = ppi_values(dml_rs.PPI("ols").fit(
+        yp[lab], yhatp[lab], yhatp[unl], X=xp[lab], X_unlabeled=xp[unl]))
+    expected["ppi_logistic"] = ppi_values(dml_rs.PPI("logistic").fit(
+        bp[lab], php[lab], php[unl], X=xp[lab], X_unlabeled=xp[unl]))
+    expected["ppi_cross"] = ppi_values(dml_rs.PPI(learner=ols, n_folds=4, random_state=3).fit(
+        yp[lab], features=zp[lab], features_unlabeled=zp[unl]))
+    expected["ppi_cross_logistic"] = ppi_values(dml_rs.PPI("logistic", learner=logit).fit(
+        bp[lab], X=xp[lab], X_unlabeled=xp[unl], features=zp[lab], features_unlabeled=zp[unl]))
+
     with open(OUT / "parity_expected.csv", "w", encoding="utf-8", newline="\n") as f:
         f.write("name,index,value\n")
         for name, values in expected.items():

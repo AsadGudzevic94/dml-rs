@@ -27,11 +27,19 @@
   on quantile bins, faster on large data.
 * `lrn_random_forest(max_bins = )`: splits on quantile bins, much faster on
   large data.
+* `confidence_sequence()` and `anytime_pvalue()`: anytime-valid confidence
+  sequences for any fit, so a study can be checked as often as wanted and
+  stopped at any time; `monitor_study()` follows a study over its looks
+  (running intervals, anytime p-values, first look that excludes zero,
+  `plot()`).
+* `ppi()`: prediction-powered inference (PPI++) for means and linear or
+  logistic regression coefficients from a few labels and many predictions,
+  with cross-fitted predictions from any learner.
 * All of these give the same estimates as the Python package (new parity tests).
 * Reference site with articles on heterogeneous effects and on staggered adoption
   and regression discontinuity:
   <https://asadgudzevic94.github.io/dml-rs/r/>.
-* Built on dml-core 1.4.
+* Built on dml-core 1.5.
 * The learners' `random_state` argument is now `seed`, as in the model
   functions; `random_state` still works with a deprecation warning.
 * `dml_contdid()`: `trimming_threshold` is now `clipping_threshold`, as in the
