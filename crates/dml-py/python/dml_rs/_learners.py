@@ -633,7 +633,8 @@ class GridSearchClassifier(_CrossValidated, _BuiltinClassifier):
 class RegressionForest(_BuiltinRegressor):
     """Honest regression forest (R's ``grf::regression_forest``), implemented in Rust: a nuisance
     learner with variance estimates and out-of-bag predictions. Parameters follow grf
-    (``n_estimators`` = ``num.trees``, ``mtry``, ``min_node_size``, ``honesty``, ...).
+    (``n_estimators`` = ``num.trees``, ``mtry``, ``min_node_size``, ``honesty``, ...);
+    ``max_bins`` (2 to 255) searches splits on quantile bins, much faster on large data.
     After ``fit``: ``variable_importance_``."""
 
     _native = _dml_rs.RegressionForest
@@ -651,6 +652,7 @@ class RegressionForest(_BuiltinRegressor):
         imbalance_penalty: float = 0.0,
         ci_group_size: int = 2,
         random_state: int = 0,
+        max_bins: Optional[int] = None,
     ) -> None:
         self.n_estimators = n_estimators
         self.sample_fraction = sample_fraction
@@ -663,6 +665,7 @@ class RegressionForest(_BuiltinRegressor):
         self.imbalance_penalty = imbalance_penalty
         self.ci_group_size = ci_group_size
         self.random_state = random_state
+        self.max_bins = max_bins
 
     def fit(self, X: Any, y: Any) -> Any:  # type: ignore[override]
         """Fit on covariates ``X`` and outcome ``y`` (sample weights are not supported)."""
@@ -697,6 +700,7 @@ class QuantileForest(_Builtin):
         alpha: float = 0.05,
         imbalance_penalty: float = 0.0,
         random_state: int = 0,
+        max_bins: Optional[int] = None,
     ) -> None:
         self.quantiles = quantiles
         self.n_estimators = n_estimators
@@ -709,6 +713,7 @@ class QuantileForest(_Builtin):
         self.alpha = alpha
         self.imbalance_penalty = imbalance_penalty
         self.random_state = random_state
+        self.max_bins = max_bins
 
     def _native_params(self, X: Any = None, y: Any = None) -> Optional[dict[str, Any]]:
         params = dict(self.get_params(deep=False))

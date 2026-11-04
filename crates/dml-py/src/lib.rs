@@ -1246,9 +1246,10 @@ fn fit_causal_survival(
         "survival" => dml_core::SurvivalEstimand::Survival,
         "rmst" => dml_core::SurvivalEstimand::Rmst,
         "cumulative_incidence" => dml_core::SurvivalEstimand::CumulativeIncidence,
+        "rmtl" => dml_core::SurvivalEstimand::RestrictedMeanTimeLost,
         other => {
             return Err(PyValueError::new_err(format!(
-                "estimand must be 'survival', 'rmst' or 'cumulative_incidence', got {other:?}"
+                "unknown estimand {other:?}: use survival, rmst, cumulative_incidence or rmtl"
             )))
         }
     };

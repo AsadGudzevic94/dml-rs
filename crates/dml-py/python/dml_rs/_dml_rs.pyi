@@ -754,6 +754,7 @@ class RegressionForest:
         imbalance_penalty: float = 0.0,
         ci_group_size: int = 2,
         random_state: int = 0,
+        max_bins: Optional[int] = None,
     ) -> Self: ...
     def __copy__(self) -> Self: ...
     def __deepcopy__(self, memo: Any, /) -> Self: ...
@@ -781,6 +782,7 @@ class QuantileForest:
         alpha: float = 0.05,
         imbalance_penalty: float = 0.0,
         random_state: int = 0,
+        max_bins: Optional[int] = None,
     ) -> Self: ...
     def __copy__(self) -> Self: ...
     def __deepcopy__(self, memo: Any, /) -> Self: ...
@@ -1178,7 +1180,7 @@ def fit_causal_survival(
     ml_censor: Any,
     ml_m: Any,
     horizons: Optional[Sequence[float]] = None,
-    estimand: Literal["survival", "rmst", "cumulative_incidence"] = "survival",
+    estimand: Literal["survival", "rmst", "cumulative_incidence", "rmtl"] = "survival",
     grid: Any = None,
     time_encoding: Literal["numeric", "dummies"] = "numeric",
     clipping_threshold: float = 1e-2,
@@ -1323,6 +1325,7 @@ def fit_causal_forest(
     seed: int = 0,
     clipping_threshold: float = 1e-2,
     treatment_names: Optional[list[str]] = None,
+    max_bins: Optional[int] = None,
 ) -> CausalForestResult: ...
 def fit_instrumental_forest(
     y: NDArray[np.float64],
@@ -1349,6 +1352,7 @@ def fit_instrumental_forest(
     seed: int = 0,
     clipping_threshold: float = 1e-2,
     treatment_names: Optional[list[str]] = None,
+    max_bins: Optional[int] = None,
 ) -> InstrumentalForestResult: ...
 def fit_multi_arm_causal_forest(
     y: NDArray[np.float64],
@@ -1372,6 +1376,7 @@ def fit_multi_arm_causal_forest(
     seed: int = 0,
     clipping_threshold: float = 1e-2,
     treatment_name: Optional[str] = None,
+    max_bins: Optional[int] = None,
 ) -> MultiArmCausalForestResult: ...
 def fit_autodml(
     y: NDArray[np.float64],

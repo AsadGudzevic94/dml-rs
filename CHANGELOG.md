@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `ForestSettings::max_bins` (Python and the grf forests' `max_bins=`): causal, instrumental and
+  multi-arm causal forests, `RegressionForest` and `QuantileForest` can search splits on quantile
+  bins. Large nodes sum their pseudo-outcomes per bin instead of sorting. In alternating runs 1.3×
+  faster at 10 000 and 1.9× at 50 000 observations, with a slightly larger error of τ̂(x) at
+  50 000 (0.078 against 0.073). Default `None` (grf's exact search, unchanged results).
+- `SurvivalEstimand::RestrictedMeanTimeLost` (Python and R `estimand="rmtl"`): the restricted mean
+  time lost to a cause, the integral of its cumulative incidence. With RMST and the other causes
+  it adds up to the horizon (exact with empirical hazards; tested on `mgus2`).
+
+### Changed
+- The grf forests read each variable from a transposed copy of the covariates during the split
+  search (identical results).
+
 ## [1.3.0] - 2026-11-04
 
 ### Added

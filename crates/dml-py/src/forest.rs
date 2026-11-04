@@ -42,6 +42,7 @@ fn settings(
     stabilize_splits: bool,
     ci_group_size: usize,
     seed: u64,
+    max_bins: Option<usize>,
 ) -> ForestSettings {
     ForestSettings::default()
         .num_trees(num_trees)
@@ -56,6 +57,7 @@ fn settings(
         .stabilize_splits(stabilize_splits)
         .ci_group_size(ci_group_size)
         .seed(seed)
+        .max_bins(max_bins)
 }
 
 // ---------------------------------------------------------------------------
@@ -166,7 +168,7 @@ impl PyCausalForestResult {
 #[pyo3(signature = (y, d, x, ml_y, ml_d, num_trees = 2000, sample_fraction = 0.5, mtry = None,
                     min_node_size = 5, honesty = true, honesty_fraction = 0.5, prune_empty_leaves = true,
                     alpha = 0.05, imbalance_penalty = 0.0, stabilize_splits = true, ci_group_size = 2,
-                    forest_seed = 0, n_folds = 5, seed = 0, clipping_threshold = 1e-2, treatment_names = None))]
+                    forest_seed = 0, n_folds = 5, seed = 0, clipping_threshold = 1e-2, treatment_names = None, max_bins = None))]
 #[allow(clippy::too_many_arguments)]
 pub fn fit_causal_forest(
     py: Python<'_>,
@@ -191,6 +193,7 @@ pub fn fit_causal_forest(
     seed: u64,
     clipping_threshold: f64,
     treatment_names: Option<Vec<String>>,
+    max_bins: Option<usize>,
 ) -> PyResult<PyCausalForestResult> {
     let data = build_data(y, d, x, None, None, treatment_names, None)?;
     let model = CausalForestDml::from_boxed(to_regressor(ml_y)?, treatment_learner(ml_d)?)
@@ -207,6 +210,7 @@ pub fn fit_causal_forest(
             stabilize_splits,
             ci_group_size,
             forest_seed,
+            max_bins,
         ))
         .n_folds(n_folds)
         .seed(seed)
@@ -312,7 +316,7 @@ impl PyInstrumentalForestResult {
                     min_node_size = 5, honesty = true, honesty_fraction = 0.5, prune_empty_leaves = true,
                     alpha = 0.05, imbalance_penalty = 0.0, stabilize_splits = true, ci_group_size = 2,
                     reduced_form_weight = 0.0, forest_seed = 0, n_folds = 5, seed = 0,
-                    clipping_threshold = 1e-2, treatment_names = None))]
+                    clipping_threshold = 1e-2, treatment_names = None, max_bins = None))]
 #[allow(clippy::too_many_arguments)]
 pub fn fit_instrumental_forest(
     py: Python<'_>,
@@ -340,6 +344,7 @@ pub fn fit_instrumental_forest(
     seed: u64,
     clipping_threshold: f64,
     treatment_names: Option<Vec<String>>,
+    max_bins: Option<usize>,
 ) -> PyResult<PyInstrumentalForestResult> {
     let data = build_data(y, d, x, Some(z), None, treatment_names, None)?;
     let model = InstrumentalForestDml::from_boxed(
@@ -360,6 +365,7 @@ pub fn fit_instrumental_forest(
         stabilize_splits,
         ci_group_size,
         forest_seed,
+        max_bins,
     ))
     .reduced_form_weight(reduced_form_weight)
     .n_folds(n_folds)
@@ -466,7 +472,7 @@ impl PyMultiArmCausalForestResult {
 #[pyo3(signature = (y, d, x, ml_y, ml_d, num_trees = 2000, sample_fraction = 0.5, mtry = None,
                     min_node_size = 5, honesty = true, honesty_fraction = 0.5, prune_empty_leaves = true,
                     alpha = 0.05, imbalance_penalty = 0.0, stabilize_splits = true, ci_group_size = 2,
-                    forest_seed = 0, n_folds = 5, seed = 0, clipping_threshold = 1e-2, treatment_name = None))]
+                    forest_seed = 0, n_folds = 5, seed = 0, clipping_threshold = 1e-2, treatment_name = None, max_bins = None))]
 #[allow(clippy::too_many_arguments)]
 pub fn fit_multi_arm_causal_forest(
     py: Python<'_>,
@@ -491,6 +497,7 @@ pub fn fit_multi_arm_causal_forest(
     seed: u64,
     clipping_threshold: f64,
     treatment_name: Option<String>,
+    max_bins: Option<usize>,
 ) -> PyResult<PyMultiArmCausalForestResult> {
     let mut data = DmlData::new(
         y.as_array().to_owned(),
@@ -515,6 +522,7 @@ pub fn fit_multi_arm_causal_forest(
             stabilize_splits,
             ci_group_size,
             forest_seed,
+            max_bins,
         ))
         .n_folds(n_folds)
         .seed(seed)
@@ -546,7 +554,7 @@ impl PyRegressionForest {
     #[new]
     #[pyo3(signature = (n_estimators = 2000, sample_fraction = 0.5, mtry = None, min_node_size = 5,
                         honesty = true, honesty_fraction = 0.5, honesty_prune_leaves = true, alpha = 0.05,
-                        imbalance_penalty = 0.0, ci_group_size = 2, random_state = 0))]
+                        imbalance_penalty = 0.0, ci_group_size = 2, random_state = 0, max_bins = None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         n_estimators: usize,
@@ -560,6 +568,7 @@ impl PyRegressionForest {
         imbalance_penalty: f64,
         ci_group_size: usize,
         random_state: u64,
+        max_bins: Option<usize>,
     ) -> Self {
         Self {
             inner: RegressionForest::new().settings(settings(
@@ -575,6 +584,7 @@ impl PyRegressionForest {
                 false,
                 ci_group_size,
                 random_state,
+                max_bins,
             )),
             repr: format!(
                 "RegressionForest(n_estimators={n_estimators}, min_node_size={min_node_size}, random_state={random_state})"
@@ -676,7 +686,8 @@ impl PyQuantileForest {
     #[new]
     #[pyo3(signature = (quantiles = vec![0.1, 0.5, 0.9], n_estimators = 2000, sample_fraction = 0.5,
                         mtry = None, min_node_size = 5, honesty = true, honesty_fraction = 0.5,
-                        honesty_prune_leaves = true, alpha = 0.05, imbalance_penalty = 0.0, random_state = 0))]
+                        honesty_prune_leaves = true, alpha = 0.05, imbalance_penalty = 0.0, random_state = 0,
+                        max_bins = None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         quantiles: Vec<f64>,
@@ -690,6 +701,7 @@ impl PyQuantileForest {
         alpha: f64,
         imbalance_penalty: f64,
         random_state: u64,
+        max_bins: Option<usize>,
     ) -> Self {
         let repr = format!(
             "QuantileForest(quantiles={quantiles:?}, n_estimators={n_estimators}, random_state={random_state})"
@@ -708,6 +720,7 @@ impl PyQuantileForest {
                 false,
                 1,
                 random_state,
+                max_bins,
             )),
             quantiles,
             repr,

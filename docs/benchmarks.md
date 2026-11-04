@@ -99,6 +99,7 @@ of two runs of the script (timings on this laptop vary between runs):
 | Causal forest, 2000 trees (`grf::causal_forest`) | 2 000 | 0.63 s | 1.76 s | **2.8×** |
 | Causal forest, 2000 trees | 10 000 | 8.5 s | 13.6 s | **1.6×** |
 | Causal forest, 2000 trees | 50 000 | 76 s | 104 s | **1.4×** |
+| Causal forest, 2000 trees, `max_bins=255` | 50 000 | 61 s | 104 s | **1.7×** |
 | Policy tree, depth 2, 10 features (`policytree::policy_tree`) | 1 000 | 0.41 s | 0.88 s | **2.1×** |
 | Policy tree, depth 2, 10 features | 5 000 | 13.0 s | 21.1 s | **1.6×** |
 | Synthetic DiD on Prop 99 (`synthdid::synthdid_estimate`) | 39 × 31 | 0.013 s | 0.19 s | **15×** |
@@ -108,7 +109,11 @@ of two runs of the script (timings on this laptop vary between runs):
 | Continuous DiD (`contdid::cont_did`, cubic B-spline) | 5 000 | 0.036 s | 3.02 s | **85×** |
 | Continuous DiD | 20 000 | 0.125 s | 11.7 s | **93×** |
 
-Both forests get the same linear nuisance estimates, so only the forest is timed. The policy
+Both forests get the same linear nuisance estimates, so only the forest is timed. With
+`max_bins=255` (dml-rs 1.4.0) the causal forest searches splits on quantile bins: in alternating
+runs on the same data it took 58 and 61 s against 101 and 123 s for the exact search at 50 000
+observations,
+with a slightly larger error of $\hat\tau(x)$ (0.078 against 0.073). The policy
 trees are identical. `contdid` computes its standard errors with 100 bootstrap draws, dml-rs from
 the influence function; synthdid, causalweight and contdid are written in R itself, which
 explains most of their gap. The script is

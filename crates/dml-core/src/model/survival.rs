@@ -55,6 +55,9 @@ pub enum SurvivalEstimand {
     /// The cumulative incidence `P(T ≤ τ, cause = c)` of the cause `c` set by
     /// [`CausalSurvival::cause`] (default 1), with the other causes competing.
     CumulativeIncidence,
+    /// The restricted mean time lost to cause `c` by `τ`, `∫₀^τ F_c(t) dt`
+    /// (Andersen, 2013): with RMST and the other causes it adds up to `τ`.
+    RestrictedMeanTimeLost,
 }
 
 /// The slots time is split into.
@@ -170,10 +173,19 @@ impl CausalSurvival {
     }
 
     /// The cause (an event code `≥ 1`) of [`SurvivalEstimand::CumulativeIncidence`]
+    /// and [`SurvivalEstimand::RestrictedMeanTimeLost`]
     /// (default 1).
     pub fn cause(mut self, cause: u32) -> Self {
         self.cause = cause;
         self
+    }
+
+    /// Whether the estimand concerns one cause of competing events.
+    fn by_cause(&self) -> bool {
+        matches!(
+            self.estimand,
+            SurvivalEstimand::CumulativeIncidence | SurvivalEstimand::RestrictedMeanTimeLost
+        )
     }
 
     /// Times `τ` of the effects (default: the quartiles of the event times).
@@ -279,9 +291,7 @@ impl CausalSurvival {
                 "event must be 0 for censoring and 1, 2, ... for the cause of an event",
             );
         }
-        if self.estimand == SurvivalEstimand::CumulativeIncidence
-            && (self.cause == 0 || !event.iter().any(|&e| e == self.cause as f64))
-        {
+        if self.by_cause() && (self.cause == 0 || !event.iter().any(|&e| e == self.cause as f64)) {
             return invalid("the cause of the cumulative incidence must be an observed event code");
         }
         if data.y().iter().any(|&t| t < 0.0) {
@@ -318,10 +328,7 @@ impl CausalSurvival {
         let any_event = event.mapv(|e| f64::from(e > 0.0));
         let horizons = self.resolve_horizons(time, any_event.view())?;
         let grid = self.resolve_grid(time, any_event.view(), &horizons)?;
-        let cause = match self.estimand {
-            SurvivalEstimand::CumulativeIncidence => Some(self.cause as f64),
-            _ => None,
-        };
+        let cause = self.by_cause().then_some(self.cause as f64);
         let schedule = Schedule::new(time, any_event.view(), &grid, cause.map(|c| (event, c)));
         let k = grid.len();
         let n_rep = splits.len();
@@ -370,18 +377,23 @@ impl CausalSurvival {
                 control.select(Axis(1), &points),
             ),
             SurvivalEstimand::Rmst => (
-                restricted_means(&treated, &grid, &points),
-                restricted_means(&control, &grid, &points),
+                restricted_means(&treated, &grid, &points, 1.0),
+                restricted_means(&control, &grid, &points, 1.0),
             ),
             SurvivalEstimand::CumulativeIncidence => (
                 incidence_treated.select(Axis(1), &points),
                 incidence_control.select(Axis(1), &points),
+            ),
+            SurvivalEstimand::RestrictedMeanTimeLost => (
+                restricted_means(&incidence_treated, &grid, &points, 0.0),
+                restricted_means(&incidence_control, &grid, &points, 0.0),
             ),
         };
         let label = match self.estimand {
             SurvivalEstimand::Survival => "survival".to_string(),
             SurvivalEstimand::Rmst => "RMST".to_string(),
             SurvivalEstimand::CumulativeIncidence => format!("incidence[{}]", self.cause),
+            SurvivalEstimand::RestrictedMeanTimeLost => format!("RMTL[{}]", self.cause),
         };
         let names: Vec<String> = horizons.iter().map(|t| format!("{label}({t})")).collect();
         let clusters = data.clusters().map(|c| &c[0]);
@@ -400,7 +412,10 @@ impl CausalSurvival {
         };
         let incidence_curves = match cause {
             Some(_) => {
-                let names: Vec<String> = grid.iter().map(|t| format!("{label}({t})")).collect();
+                let names: Vec<String> = grid
+                    .iter()
+                    .map(|t| format!("incidence[{}]({t})", self.cause))
+                    .collect();
                 Some([
                     fit(
                         "Cumulative incidence (treated)".into(),
@@ -867,12 +882,12 @@ fn scores_of_arm(
 
 /// `RMST(τ) = Σ_j S(t_j)·(t_{j+1} − t_j)` from `t_0 = 0`, for the scores of the
 /// survival curve, shape `(n, slots, n_rep)`, at the grid positions `points`.
-fn restricted_means(phi: &Array3<f64>, grid: &[f64], points: &[usize]) -> Array3<f64> {
+fn restricted_means(phi: &Array3<f64>, grid: &[f64], points: &[usize], start: f64) -> Array3<f64> {
     let (n, _, n_rep) = phi.dim();
     let mut out = Array3::zeros((n, points.len(), n_rep));
     for ((i, h, r), value) in out.indexed_iter_mut() {
         let end = points[h];
-        let mut total = grid[0];
+        let mut total = start * grid[0];
         for j in 0..end {
             total += phi[[i, j, r]] * (grid[j + 1] - grid[j]);
         }
@@ -939,7 +954,8 @@ impl CausalSurvivalFit {
 
     /// Cumulative incidence of the cause of interest if everyone were treated
     /// (`treated`) or untreated, on the grid; `None` unless the estimand is
-    /// [`SurvivalEstimand::CumulativeIncidence`].
+    /// [`SurvivalEstimand::CumulativeIncidence`] or
+    /// [`SurvivalEstimand::RestrictedMeanTimeLost`].
     pub fn incidence_curve(&self, treated: bool) -> Option<&DmlFit> {
         self.incidence_curves
             .as_ref()
@@ -995,7 +1011,7 @@ mod tests {
     #[test]
     fn restricted_mean_integrates_the_step_function() {
         let phi = Array3::from_shape_vec((1, 3, 1), vec![0.8, 0.5, 0.2]).unwrap();
-        let means = restricted_means(&phi, &[1.0, 2.0, 4.0], &[0, 2]);
+        let means = restricted_means(&phi, &[1.0, 2.0, 4.0], &[0, 2], 1.0);
         assert!((means[[0, 0, 0]] - 1.0).abs() < 1e-15);
         assert!((means[[0, 1, 0]] - (1.0 + 0.8 + 0.5 * 2.0)).abs() < 1e-15);
     }
