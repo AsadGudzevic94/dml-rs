@@ -196,6 +196,10 @@ recursion) matches to `1e-6`. With 50 clusters of 20 units that share a gamma fr
 and a cluster-level treatment, the 95% intervals covered the truth in 56% of 150 datasets without
 clustering and in 93% with `cluster=` (standard errors about four times larger).
 
+The restricted mean time lost to a cause (dml-rs 1.4.0) is the integral of its incidence curve:
+on `mgus2` with empirical hazards, RMST plus the time lost to both causes equals the horizon to
+`1e-12` in both arms, and the scores cancel unit by unit.
+
 `OptimalPolicyTree` reproduces R's `policytree` (version 1.2.5) exact tree search
 ([`parity/generate_policytree_fixtures.R`](https://github.com/AsadGudzevic94/dml-rs/blob/main/parity/generate_policytree_fixtures.R)):
 in six configurations (depth 0 to 3, continuous and discrete features with ties, `split_step` and

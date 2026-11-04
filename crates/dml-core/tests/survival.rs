@@ -458,3 +458,52 @@ fn singleton_clusters_reproduce_the_unclustered_standard_errors() {
     let fit = model.fit(&grouped, event.view()).unwrap();
     assert!(fit.effect().se().iter().all(|s| s.is_finite() && *s > 0.0));
 }
+
+#[test]
+fn restricted_mean_survival_and_time_lost_add_up_to_the_horizon() {
+    let fx = aalen_johansen_fixture();
+    let (time, event, d) = (
+        numbers(&fx, "time"),
+        numbers(&fx, "event"),
+        numbers(&fx, "d"),
+    );
+    let n = time.len();
+    let data = DmlData::new(Array1::from(time), Array1::from(d), Array2::zeros((n, 1))).unwrap();
+    let event = Array1::from(event);
+    let all: Vec<usize> = (0..n).collect();
+    let splits = vec![vec![Fold {
+        train: all.clone(),
+        test: all,
+    }]];
+    let horizons = vec![60.0, 120.0, 240.0];
+    let fit = |estimand, cause| {
+        saturated()
+            .estimand(estimand)
+            .cause(cause)
+            .horizons(horizons.clone())
+            .fit_with_folds(&data, event.view(), &splits)
+            .unwrap()
+    };
+    let rmst = fit(SurvivalEstimand::Rmst, 1);
+    let lost = [
+        fit(SurvivalEstimand::RestrictedMeanTimeLost, 1),
+        fit(SurvivalEstimand::RestrictedMeanTimeLost, 2),
+    ];
+    for treated in [true, false] {
+        let mut total = rmst.potential(treated).coef().to_owned();
+        let mut scores = rmst.potential(treated).psi().to_owned();
+        for fit in &lost {
+            total += &fit.potential(treated).coef();
+            scores += &fit.potential(treated).psi();
+        }
+        assert_close(total.as_slice().unwrap(), &horizons, 1e-12);
+        assert!(scores.iter().all(|v| v.abs() < 1e-9));
+        // Time lost to a cause is the integral of its incidence curve, which starts at zero.
+        let curve = lost[0].incidence_curve(treated).unwrap().coef();
+        let grid = lost[0].grid();
+        let end = grid.iter().position(|&t| t == 60.0).unwrap();
+        let integral: f64 = (0..end).map(|j| curve[j] * (grid[j + 1] - grid[j])).sum();
+        assert!((lost[0].potential(treated).coef()[0] - integral).abs() < 1e-9);
+    }
+    assert_eq!(lost[1].effect().treatment_names()[0], "RMTL[2](60)");
+}

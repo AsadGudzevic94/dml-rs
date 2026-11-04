@@ -344,3 +344,43 @@ fn quantile_forest_tracks_conditional_quantiles() {
     assert!(forest.predict(grid.view(), &[1.5]).is_err());
     assert_eq!(forest.predict_oob(x.view(), &[0.5]).unwrap().dim(), (n, 1));
 }
+
+#[test]
+fn binned_splits_recover_the_effect_function_too() {
+    let (x, y, d) = design(3000, 1);
+    let data = DmlData::new(y, d, x).unwrap();
+    let grid = Array2::from_shape_fn(
+        (50, 4),
+        |(i, j)| if j == 0 { (i as f64 + 0.5) / 50.0 } else { 0.5 },
+    );
+    let rmse = |settings: ForestSettings| {
+        let fit = CausalForestDml::new(
+            Ols::new(),
+            TreatmentLearner::Classifier(Box::new(LogisticRegression::default())),
+        )
+        .forest(settings)
+        .fit(&data)
+        .unwrap();
+        let (est, var) = fit.effect(grid.view()).unwrap();
+        assert!(var.iter().all(|v| v.is_finite() && *v >= 0.0));
+        let sq: f64 = (0..50).map(|i| (est[i] - tau(grid[[i, 0]])).powi(2)).sum();
+        (sq / 50.0).sqrt()
+    };
+    let exact = rmse(ForestSettings::default().num_trees(500));
+    let binned = rmse(ForestSettings::default().num_trees(500).max_bins(Some(255)));
+    let coarse = rmse(ForestSettings::default().num_trees(500).max_bins(Some(16)));
+    assert!(
+        binned < 0.25 && (binned - exact).abs() < 0.05,
+        "{binned} vs {exact}"
+    );
+    assert!(coarse < 0.3, "{coarse}");
+    for bins in [1, 256] {
+        let bad = CausalForestDml::new(
+            Ols::new(),
+            TreatmentLearner::Classifier(Box::new(LogisticRegression::default())),
+        )
+        .forest(ForestSettings::default().num_trees(10).max_bins(Some(bins)))
+        .fit(&data);
+        assert!(bad.is_err());
+    }
+}

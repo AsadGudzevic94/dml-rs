@@ -24,6 +24,8 @@ if TYPE_CHECKING:
 class _Forest(_Params):
     """Shared settings and effect methods of the forests on residuals."""
 
+    max_bins: Optional[int]
+
     def _set_forest(self, n_estimators: int, sample_fraction: float, mtry: Optional[int], min_node_size: int,
                     honesty: bool, honesty_fraction: float, honesty_prune_leaves: bool, alpha: float,
                     imbalance_penalty: float, stabilize_splits: bool, ci_group_size: int,
@@ -50,7 +52,7 @@ class _Forest(_Params):
             prune_empty_leaves=self.honesty_prune_leaves, alpha=self.alpha,
             imbalance_penalty=self.imbalance_penalty, stabilize_splits=self.stabilize_splits,
             ci_group_size=self.ci_group_size, forest_seed=self.random_state, n_folds=self.n_folds,
-            seed=self.random_state, clipping_threshold=self.clipping_threshold,
+            seed=self.random_state, clipping_threshold=self.clipping_threshold, max_bins=self.max_bins,
         )
 
     def _store_common(self, result: Any) -> None:
@@ -117,6 +119,8 @@ class CausalForest(_Forest):
     clipping_threshold : propensities are clipped to ``[t, 1 - t]`` in the doubly robust scores.
     n_folds : folds for the nuisance models.
     random_state : seed of the folds and the forest.
+    max_bins : search splits on at most this many quantile bins per variable (2 to 255; default
+        ``None``, every distinct value as grf). Much faster on large data.
     """
 
     def __init__(
@@ -137,12 +141,14 @@ class CausalForest(_Forest):
         clipping_threshold: float = 1e-2,
         n_folds: int = 5,
         random_state: int = 0,
+        max_bins: Optional[int] = None,
     ) -> None:
         self.ml_y = ml_y
         self.ml_d = ml_d
         self._set_forest(n_estimators, sample_fraction, mtry, min_node_size, honesty, honesty_fraction,
                          honesty_prune_leaves, alpha, imbalance_penalty, stabilize_splits, ci_group_size,
                          clipping_threshold, n_folds, random_state)
+        self.max_bins = max_bins
 
     @accepts_data("x", "y", "d")
     def fit(self, X: ArrayLike, y: ArrayLike, d: ArrayLike) -> Self:
@@ -246,6 +252,8 @@ class InstrumentalForest(_Forest):
     clipping_threshold : propensities are clipped to ``[t, 1 - t]`` in the doubly robust scores.
     n_folds : folds for the nuisance models.
     random_state : seed of the folds and the forest.
+    max_bins : search splits on at most this many quantile bins per variable (2 to 255; default
+        ``None``, every distinct value as grf). Much faster on large data.
     """
 
     def __init__(
@@ -268,6 +276,7 @@ class InstrumentalForest(_Forest):
         clipping_threshold: float = 1e-2,
         n_folds: int = 5,
         random_state: int = 0,
+        max_bins: Optional[int] = None,
     ) -> None:
         self.ml_y = ml_y
         self.ml_d = ml_d
@@ -276,6 +285,7 @@ class InstrumentalForest(_Forest):
         self._set_forest(n_estimators, sample_fraction, mtry, min_node_size, honesty, honesty_fraction,
                          honesty_prune_leaves, alpha, imbalance_penalty, stabilize_splits, ci_group_size,
                          clipping_threshold, n_folds, random_state)
+        self.max_bins = max_bins
 
     @accepts_data("x", "y", "d", "z")
     def fit(self, X: ArrayLike, y: ArrayLike, d: ArrayLike, z: ArrayLike) -> Self:
@@ -339,6 +349,8 @@ class MultiArmCausalForest(_Forest):
     clipping_threshold : propensities are clipped to ``[t, 1 - t]`` in the doubly robust scores.
     n_folds : folds for the nuisance models.
     random_state : seed of the folds and the forest.
+    max_bins : search splits on at most this many quantile bins per variable (2 to 255; default
+        ``None``, every distinct value as grf). Much faster on large data.
     """
 
     def __init__(
@@ -359,12 +371,14 @@ class MultiArmCausalForest(_Forest):
         clipping_threshold: float = 1e-2,
         n_folds: int = 5,
         random_state: int = 0,
+        max_bins: Optional[int] = None,
     ) -> None:
         self.ml_y = ml_y
         self.ml_d = ml_d
         self._set_forest(n_estimators, sample_fraction, mtry, min_node_size, honesty, honesty_fraction,
                          honesty_prune_leaves, alpha, imbalance_penalty, stabilize_splits, ci_group_size,
                          clipping_threshold, n_folds, random_state)
+        self.max_bins = max_bins
 
     @accepts_data("x", "y", "d")
     def fit(self, X: ArrayLike, y: ArrayLike, d: ArrayLike) -> Self:

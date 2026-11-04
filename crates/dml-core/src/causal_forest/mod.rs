@@ -61,6 +61,10 @@ pub struct ForestSettings {
     pub stabilize_splits: bool,
     pub ci_group_size: usize,
     pub seed: u64,
+    /// Search splits on at most this many quantile bins per variable (2 to
+    /// 255); `None` (default): every distinct value, as grf.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub max_bins: Option<usize>,
 }
 
 field_setters!(ForestSettings {
@@ -76,6 +80,7 @@ field_setters!(ForestSettings {
     stabilize_splits: bool,
     ci_group_size: usize,
     seed: u64,
+    max_bins: Option<usize>,
 });
 
 impl Default for ForestSettings {
@@ -93,6 +98,7 @@ impl Default for ForestSettings {
             stabilize_splits: true,
             ci_group_size: 2,
             seed: 0,
+            max_bins: None,
         }
     }
 }
@@ -126,6 +132,9 @@ impl ForestSettings {
         }
         if self.mtry == Some(0) {
             return bad("mtry must be at least 1");
+        }
+        if self.max_bins.is_some_and(|b| !(2..=255).contains(&b)) {
+            return bad("max_bins must be between 2 and 255");
         }
         if n < 4 {
             return bad("a forest needs at least 4 observations");

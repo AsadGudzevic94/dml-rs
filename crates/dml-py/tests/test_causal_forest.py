@@ -209,3 +209,23 @@ def test_regression_and_quantile_forests():
     assert qf.variable_importance_ is not None
     import copy
     np.testing.assert_array_equal(copy.deepcopy(qf).predict(grid[:3]), q[:3])
+
+
+def test_binned_splits():
+    rng = np.random.default_rng(7)
+    n = 2000
+    x = rng.uniform(size=(n, 4))
+    d = (rng.random(n) < 0.5).astype(float)
+    tau = 1 + (x[:, 0] > 0.5)
+    y = tau * d + x[:, 1] + rng.normal(size=n)
+    fits = {}
+    for bins in (None, 64):
+        model = dml_rs.CausalForest(dml_rs.Ols(), dml_rs.LogisticRegression(), n_estimators=300, max_bins=bins)
+        assert model.get_params()["max_bins"] == bins
+        fits[bins] = model.fit(x, y, d)
+    assert abs(fits[64].ate().coef_[0] - fits[None].ate().coef_[0]) < 0.05
+    assert np.sqrt(np.mean((fits[64].effect_ - tau) ** 2)) < 0.35
+    forest = dml_rs.RegressionForest(n_estimators=100, max_bins=32).fit(x, y)
+    assert forest.predict(x).shape == (n,)
+    with pytest.raises(ValueError, match="max_bins"):
+        dml_rs.CausalForest(dml_rs.Ols(), dml_rs.Ols(), n_estimators=10, max_bins=300).fit(x, y, d)

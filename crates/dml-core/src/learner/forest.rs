@@ -178,8 +178,13 @@ impl Binned {
         Self { n, codes, edges }
     }
 
-    fn column(&self, feature: usize) -> &[u8] {
+    pub(crate) fn column(&self, feature: usize) -> &[u8] {
         &self.codes[feature * self.n..(feature + 1) * self.n]
+    }
+
+    /// Upper edges of the bins of `feature` (all but the last bin).
+    pub(crate) fn edges(&self, feature: usize) -> &[f64] {
+        &self.edges[feature]
     }
 }
 

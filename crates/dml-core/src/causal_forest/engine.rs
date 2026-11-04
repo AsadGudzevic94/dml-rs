@@ -10,6 +10,7 @@ use rand_chacha::ChaCha8Rng;
 
 use super::ForestSettings;
 use crate::error::{DmlError, Result};
+use crate::learner::Binned;
 use crate::stats::norm_cdf;
 
 /// What the trees estimate, and so how they split.
@@ -351,8 +352,11 @@ fn descend(nodes: &[RawNode], row: ArrayView1<'_, f64>) -> usize {
 }
 
 /// Grow one honest tree on `subsample` (training rows).
+#[allow(clippy::too_many_arguments)]
 fn grow_tree(
     x: ArrayView2<'_, f64>,
+    columns: ArrayView2<'_, f64>,
+    bins: Option<&Binned>,
     t: &Target<'_>,
     s: &ForestSettings,
     mtry: usize,
@@ -389,13 +393,29 @@ fn grow_tree(
         let Some(relabeled) = t.relabel(&rows) else {
             continue;
         };
-        let Some((feature, threshold)) =
-            best_split(x, s, &rows, &relabeled, mtry, &mut features, rng)
-        else {
+        let Some((feature, threshold, bin)) = best_split(
+            columns,
+            bins,
+            s,
+            &rows,
+            &relabeled,
+            mtry,
+            &mut features,
+            rng,
+        ) else {
             continue;
         };
-        let (left_rows, right_rows): (Vec<usize>, Vec<usize>) =
-            rows.iter().partition(|&&i| x[[i, feature]] <= threshold);
+        let (left_rows, right_rows): (Vec<usize>, Vec<usize>) = match (bins, bin) {
+            // The same partition from the one-byte bin codes.
+            (Some(bins), Some(bin)) => {
+                let codes = bins.column(feature);
+                rows.iter().partition(|&&i| codes[i] <= bin)
+            }
+            _ => {
+                let col = columns.row(feature);
+                rows.iter().partition(|&&i| col[i] <= threshold)
+            }
+        };
         let depth = raw[id].depth + 1;
         let (l, r) = (raw.len(), raw.len() + 1);
         for _ in 0..2 {
@@ -497,16 +517,113 @@ fn compact(raw: &[RawNode], id: usize, out: &mut Vec<Node>, n_leaves: &mut usize
     me
 }
 
-/// The best split of a node on its pseudo-outcomes, or `None` for a leaf.
+/// Sums of the left child of a candidate split and the node totals, from
+/// which [`SplitSums::decrease`] scores the split.
+struct SplitSums {
+    rl: Vec<f64>,
+    rho_total: Vec<f64>,
+    zl: Vec<f64>,
+    zzl: Vec<f64>,
+    z_total: Vec<f64>,
+    zz_total: Vec<f64>,
+    size_l: Vec<f64>,
+    size_r: Vec<f64>,
+}
+
+impl SplitSums {
+    fn new(kr: usize, kz: usize) -> Self {
+        Self {
+            rl: vec![0.0; kr],
+            rho_total: vec![0.0; kr],
+            zl: vec![0.0; kz],
+            zzl: vec![0.0; kz],
+            z_total: vec![0.0; kz],
+            zz_total: vec![0.0; kz],
+            size_l: vec![0.0; kz],
+            size_r: vec![0.0; kz],
+        }
+    }
+
+    fn clear(&mut self) {
+        for v in [
+            &mut self.rl,
+            &mut self.rho_total,
+            &mut self.zl,
+            &mut self.zzl,
+            &mut self.z_total,
+            &mut self.zz_total,
+        ] {
+            v.fill(0.0);
+        }
+    }
+
+    /// The decrease of grf's criterion when `nl` of the node's `n` rows go
+    /// left, or `None` if the split breaks the size or stability limits.
+    fn decrease(
+        &mut self,
+        s: &ForestSettings,
+        n: usize,
+        nl: usize,
+        min_count: usize,
+        min_size: &[f64],
+    ) -> Option<f64> {
+        let (kr, kz) = (self.rl.len(), self.zl.len());
+        let nr = n - nl;
+        if nl < min_count || nr < min_count {
+            return None;
+        }
+        let (nlf, nrf) = (nl as f64, nr as f64);
+        let mut stable = true;
+        for c in 0..kz {
+            self.size_l[c] = self.zzl[c] - self.zl[c] * self.zl[c] / nlf;
+            let zr = self.z_total[c] - self.zl[c];
+            self.size_r[c] = (self.zz_total[c] - self.zzl[c]) - zr * zr / nrf;
+            if s.stabilize_splits && (self.size_l[c] < min_size[c] || self.size_r[c] < min_size[c])
+            {
+                stable = false;
+            }
+        }
+        if !stable {
+            return None;
+        }
+        let mut decrease = 0.0;
+        for c in 0..kr {
+            let rr = self.rho_total[c] - self.rl[c];
+            decrease += self.rl[c] * self.rl[c] / nlf + rr * rr / nrf;
+        }
+        if s.imbalance_penalty > 0.0 {
+            let mut penalty = 0.0;
+            if kz == 0 {
+                penalty = 1.0 / nlf + 1.0 / nrf;
+            } else {
+                if self.size_l.iter().chain(&self.size_r).any(|&v| v <= 0.0) {
+                    return None;
+                }
+                for c in 0..kz {
+                    penalty += 1.0 / self.size_l[c] + 1.0 / self.size_r[c];
+                }
+            }
+            decrease -= s.imbalance_penalty * penalty;
+        }
+        Some(decrease)
+    }
+}
+
+/// The best split of a node on its pseudo-outcomes, or `None` for a leaf:
+/// `(feature, threshold, last bin of the left child with bins)`. `columns` is
+/// the transposed covariate matrix: one contiguous row per variable, so the
+/// node's values of a variable are read from one cache-friendly block.
+#[allow(clippy::too_many_arguments)]
 fn best_split(
-    x: ArrayView2<'_, f64>,
+    columns: ArrayView2<'_, f64>,
+    bins: Option<&Binned>,
     s: &ForestSettings,
     rows: &[usize],
     rel: &Relabeled,
     mtry: usize,
     features: &mut [usize],
     rng: &mut ChaCha8Rng,
-) -> Option<(usize, f64)> {
+) -> Option<(usize, f64, Option<u8>)> {
     let n = rows.len();
     let nf = n as f64;
     let kr = rel.k_rho;
@@ -526,89 +643,145 @@ fn best_split(
     let p = features.len();
     let k = mtry.min(p);
     features.shuffle(rng);
-    let mut best: Option<(f64, usize, f64)> = None;
-    let mut order: Vec<(f64, usize)> = Vec::with_capacity(n);
-    let (mut rl, mut rho_total) = (vec![0.0; kr], vec![0.0; kr]);
-    let (mut zl, mut zzl) = (vec![0.0; kz], vec![0.0; kz]);
-    let (mut z_total, mut zz_total) = (vec![0.0; kz], vec![0.0; kz]);
-    let (mut size_l, mut size_r) = (vec![0.0; kz], vec![0.0; kz]);
-    for &f in &features[..k] {
-        order.clear();
-        order.extend(rows.iter().enumerate().map(|(j, &i)| (x[[i, f]], j)));
-        order.sort_by(|a, b| a.0.total_cmp(&b.0));
-        rl.fill(0.0);
-        rho_total.fill(0.0);
-        zl.fill(0.0);
-        zzl.fill(0.0);
-        z_total.fill(0.0);
-        zz_total.fill(0.0);
-        for &(_, j) in &order {
-            for c in 0..kr {
-                rho_total[c] += rel.rho[j * kr + c];
+    let mut best: Option<(f64, usize, f64, Option<u8>)> = None;
+    let mut sums = SplitSums::new(kr, kz);
+    // Adds row `j` of the node (its position in `rows`) to the left child.
+    let add_left = |sums: &mut SplitSums, j: usize| {
+        for c in 0..kr {
+            sums.rl[c] += rel.rho[j * kr + c];
+        }
+        for c in 0..kz {
+            let z = zvals[j * kz + c];
+            sums.zl[c] += z;
+            sums.zzl[c] += z * z;
+        }
+    };
+    let add_total = |sums: &mut SplitSums, j: usize| {
+        for c in 0..kr {
+            sums.rho_total[c] += rel.rho[j * kr + c];
+        }
+        for c in 0..kz {
+            let z = zvals[j * kz + c];
+            sums.z_total[c] += z;
+            sums.zz_total[c] += z * z;
+        }
+    };
+    if let Some(bins) = bins {
+        // Candidates are the bin edges between bins that hold rows of the
+        // node. A large node sums its rows per bin in one pass and scans the
+        // bins; a small one sorts its rows by their one-byte bin code.
+        let mut order: Vec<(u8, usize)> = Vec::with_capacity(n);
+        let (mut count, mut rho_h, mut z_h, mut zz_h) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        for &f in &features[..k] {
+            let edges = bins.edges(f);
+            if edges.is_empty() {
+                continue;
             }
-            for c in 0..kz {
-                let z = zvals[j * kz + c];
-                z_total[c] += z;
-                zz_total[c] += z * z;
+            let codes = bins.column(f);
+            let n_bins = edges.len() + 1;
+            if n >= 2 * n_bins {
+                count.clear();
+                count.resize(n_bins, 0usize);
+                for h in [&mut rho_h, &mut z_h, &mut zz_h] {
+                    h.clear();
+                }
+                rho_h.resize(n_bins * kr, 0.0);
+                z_h.resize(n_bins * kz, 0.0);
+                zz_h.resize(n_bins * kz, 0.0);
+                for (j, &i) in rows.iter().enumerate() {
+                    let b = codes[i] as usize;
+                    count[b] += 1;
+                    for c in 0..kr {
+                        rho_h[b * kr + c] += rel.rho[j * kr + c];
+                    }
+                    for c in 0..kz {
+                        let z = zvals[j * kz + c];
+                        z_h[b * kz + c] += z;
+                        zz_h[b * kz + c] += z * z;
+                    }
+                }
+                sums.clear();
+                for b in 0..n_bins {
+                    for c in 0..kr {
+                        sums.rho_total[c] += rho_h[b * kr + c];
+                    }
+                    for c in 0..kz {
+                        sums.z_total[c] += z_h[b * kz + c];
+                        sums.zz_total[c] += zz_h[b * kz + c];
+                    }
+                }
+                let Some(last) = count.iter().rposition(|&c| c > 0) else {
+                    continue;
+                };
+                let mut nl = 0usize;
+                for b in 0..last {
+                    if count[b] == 0 {
+                        continue;
+                    }
+                    nl += count[b];
+                    for c in 0..kr {
+                        sums.rl[c] += rho_h[b * kr + c];
+                    }
+                    for c in 0..kz {
+                        sums.zl[c] += z_h[b * kz + c];
+                        sums.zzl[c] += zz_h[b * kz + c];
+                    }
+                    if let Some(decrease) = sums.decrease(s, n, nl, min_count, &min_size) {
+                        if best.map_or(true, |bst| decrease > bst.0) {
+                            best = Some((decrease, f, edges[b], Some(b as u8)));
+                        }
+                    }
+                }
+                continue;
+            }
+            order.clear();
+            order.extend(rows.iter().enumerate().map(|(j, &i)| (codes[i], j)));
+            order.sort_unstable();
+            sums.clear();
+            for &(_, j) in &order {
+                add_total(&mut sums, j);
+            }
+            for pos in 0..n - 1 {
+                let (b, j) = order[pos];
+                add_left(&mut sums, j);
+                if order[pos + 1].0 == b {
+                    continue;
+                }
+                if let Some(decrease) = sums.decrease(s, n, pos + 1, min_count, &min_size) {
+                    if best.map_or(true, |bst| decrease > bst.0) {
+                        best = Some((decrease, f, edges[b as usize], Some(b)));
+                    }
+                }
             }
         }
-        let mut nl = 0usize;
+        return best.map(|(_, f, thr, bin)| (f, thr, bin));
+    }
+    let mut order: Vec<(f64, usize)> = Vec::with_capacity(n);
+    for &f in &features[..k] {
+        order.clear();
+        let col = columns.row(f);
+        let col = col.as_slice().expect("contiguous columns");
+        order.extend(rows.iter().enumerate().map(|(j, &i)| (col[i], j)));
+        order.sort_by(|a, b| a.0.total_cmp(&b.0));
+        sums.clear();
+        for &(_, j) in &order {
+            add_total(&mut sums, j);
+        }
         for pos in 0..n - 1 {
             let (xv, j) = order[pos];
-            nl += 1;
-            for c in 0..kr {
-                rl[c] += rel.rho[j * kr + c];
-            }
-            for c in 0..kz {
-                let z = zvals[j * kz + c];
-                zl[c] += z;
-                zzl[c] += z * z;
-            }
+            add_left(&mut sums, j);
             if order[pos + 1].0 <= xv {
                 continue; // not a boundary between distinct values
             }
-            let nr = n - nl;
-            if nl < min_count || nr < min_count {
-                continue;
-            }
-            let (nlf, nrf) = (nl as f64, nr as f64);
-            let mut stable = true;
-            for c in 0..kz {
-                size_l[c] = zzl[c] - zl[c] * zl[c] / nlf;
-                let zr = z_total[c] - zl[c];
-                size_r[c] = (zz_total[c] - zzl[c]) - zr * zr / nrf;
-                if s.stabilize_splits && (size_l[c] < min_size[c] || size_r[c] < min_size[c]) {
-                    stable = false;
+            if let Some(decrease) = sums.decrease(s, n, pos + 1, min_count, &min_size) {
+                if best.map_or(true, |b| decrease > b.0) {
+                    best = Some((decrease, f, 0.5 * (xv + order[pos + 1].0), None));
                 }
-            }
-            if !stable {
-                continue;
-            }
-            let mut decrease = 0.0;
-            for c in 0..kr {
-                let rr = rho_total[c] - rl[c];
-                decrease += rl[c] * rl[c] / nlf + rr * rr / nrf;
-            }
-            if s.imbalance_penalty > 0.0 {
-                let mut penalty = 0.0;
-                if kz == 0 {
-                    penalty = 1.0 / nlf + 1.0 / nrf;
-                } else {
-                    if size_l.iter().chain(&size_r).any(|&v| v <= 0.0) {
-                        continue;
-                    }
-                    for c in 0..kz {
-                        penalty += 1.0 / size_l[c] + 1.0 / size_r[c];
-                    }
-                }
-                decrease -= s.imbalance_penalty * penalty;
-            }
-            if best.map_or(true, |b| decrease > b.0) {
-                best = Some((decrease, f, 0.5 * (xv + order[pos + 1].0)));
             }
         }
     }
-    best.map(|(_, f, thr)| (f, thr))
+    best.map(|(_, f, thr, bin)| (f, thr, bin))
 }
 
 // ---------------------------------------------------------------------------
@@ -724,6 +897,11 @@ impl Grf {
         let n_groups = settings.num_trees / l;
         let s = &settings;
         let t = &target;
+        // Bins of every variable, computed once for all trees.
+        let binned = settings.max_bins.map(|b| Binned::new(x, None, b));
+        let bins = binned.as_ref();
+        let columns = x.t().as_standard_layout().into_owned();
+        let columns = columns.view();
         let group = |g: usize| -> Vec<Tree> {
             let mut rng = ChaCha8Rng::seed_from_u64(
                 s.seed
@@ -743,7 +921,7 @@ impl Grf {
                     let mut sub = pool.clone();
                     sub.shuffle(&mut rng);
                     sub.truncate(size);
-                    grow_tree(x, t, s, mtry, sub, &mut rng)
+                    grow_tree(x, columns, bins, t, s, mtry, sub, &mut rng)
                 })
                 .collect()
         };

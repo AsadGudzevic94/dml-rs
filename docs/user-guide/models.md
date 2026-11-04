@@ -806,6 +806,11 @@ of any event, as empirical hazards do, the scores of survival and of all causes 
 Only the hazards of any event and of cause $c$ are learned; without covariates the estimator is
 the Aalen-Johansen estimator.
 
+`estimand="rmtl"` compares the restricted mean time lost to cause $c$ by $\tau$,
+$\int_0^\tau F_c(t)\,dt$ (Andersen, 2013): the expected time, up to $\tau$, spent after an event of
+that cause. Its score is the same integral of $\varphi_{c,a}$, and RMST plus the time lost to every
+cause equals $\tau$.
+
 **Clusters.** With `cluster=` (one label per unit), whole clusters go to the folds and the
 standard errors are cluster-robust.
 
@@ -1141,6 +1146,13 @@ the row). With a binary treatment, these feed doubly robust (AIPW) scores for th
 which checks whether the forest's heterogeneity is real. `variable_importance_` is grf's
 split-frequency importance. The defaults are grf's (2000 trees, subsamples of half the data,
 `min_node_size=5`, `alpha=0.05`).
+
+On large data, `max_bins=255` cuts every variable once into quantile bins and searches splits on
+the bin edges, summing each large node's pseudo-outcomes per bin instead of sorting them. In our
+runs this was 1.3 times faster at 10 000 observations and 1.9 times faster at 50 000. Splits can
+then only fall on bin edges, so a sharp change in the effect is located a little less precisely:
+the error of $\hat\tau(x)$ was 0.078 against 0.073 at 50 000 observations (and 0.101 against
+0.102 at 10 000). The default is grf's exact search.
 
 === "Python"
 

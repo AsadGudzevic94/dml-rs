@@ -30,7 +30,8 @@ class CausalSurvival(_DMLEstimator):
     With competing events (``event`` = 1, 2, ... for the cause), survival and RMST are freedom
     from every cause, and ``estimand="cumulative_incidence"`` targets cause ``cause``: the
     hazards of any event and of that cause are learned, and without covariates the estimate is
-    the Aalen-Johansen estimator.
+    the Aalen-Johansen estimator. ``estimand="rmtl"`` gives the restricted mean time lost to that
+    cause, ``∫₀^τ F_c(t) dt``, which with RMST and the other causes adds up to ``τ``.
 
     Time is split into the slots of a grid, and each unit becomes one row per slot in which it is
     at risk, so any classifier can learn the discrete hazards of the event and of censoring. The
@@ -51,8 +52,9 @@ class CausalSurvival(_DMLEstimator):
     ml_censor : classifier for the hazard of censoring (default: a copy of ``ml_event``).
     ml_m : classifier for the propensity ``P(D = 1 | X)``.
     horizons : times ``τ`` of the effects (default: the quartiles of the event times).
-    estimand : ``"survival"``, ``"rmst"`` or ``"cumulative_incidence"``.
-    cause : the cause of the cumulative incidence (a code of ``event``, default 1).
+    estimand : ``"survival"``, ``"rmst"``, ``"cumulative_incidence"`` or ``"rmtl"``.
+    cause : the cause of the cumulative incidence or of the time lost (a code of ``event``,
+        default 1).
     grid : the slots: an int for that many quantiles of the event times, ``"event_times"`` for
         every distinct event time (slow on large data), or the times themselves. The horizons are
         always added. A coarse grid drops some information on the order of events and censoring
@@ -74,7 +76,7 @@ class CausalSurvival(_DMLEstimator):
         ml_censor: Any = None,
         ml_m: Any = None,
         horizons: Optional[Sequence[float]] = None,
-        estimand: Literal["survival", "rmst", "cumulative_incidence"] = "survival",
+        estimand: Literal["survival", "rmst", "cumulative_incidence", "rmtl"] = "survival",
         cause: int = 1,
         grid: Union[int, str, Sequence[float]] = 30,
         time_encoding: Literal["numeric", "dummies"] = "numeric",
@@ -144,11 +146,11 @@ class CausalSurvival(_DMLEstimator):
 
     def incidence_curve(self, treated: bool = True) -> Framework:
         """The cumulative incidence of ``cause`` on ``grid_`` if everyone were treated, or if
-        nobody were (``estimand="cumulative_incidence"`` only)."""
+        nobody were (``estimand="cumulative_incidence"`` or ``"rmtl"`` only)."""
         self._check_fitted()
         result = self._survival.incidence_curve(bool(treated))
         if result is None:
-            raise ValueError('incidence curves need estimand="cumulative_incidence"')
+            raise ValueError('incidence curves need estimand="cumulative_incidence" or "rmtl"')
         return Framework(result)
 
     def plot(self, level: float = 0.95, ax: Any = None) -> Any:
@@ -157,7 +159,7 @@ class CausalSurvival(_DMLEstimator):
         self._check_fitted()
         if ax is None:
             ax = _pyplot().subplots()[1]
-        incidence = self.estimand == "cumulative_incidence"
+        incidence = self.estimand in ("cumulative_incidence", "rmtl")
         start = 0.0 if incidence else 1.0
         times = np.concatenate(([0.0], self.grid_))
         for treated, name, color in ((True, "Treated", _COLORBLIND[0]), (False, "Control", _COLORBLIND[1])):

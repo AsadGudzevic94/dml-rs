@@ -324,3 +324,23 @@ def test_tuned_hazard_learners():
     for search in (sklearn_search, native_search):
         fit = dml_rs.CausalSurvival(search, search, LOGIT, horizons=[1.0], grid=10).fit(x, time, event, d)
         assert np.isfinite(fit.coef_[0]) and fit.se_[0] > 0
+
+
+def test_restricted_mean_time_lost():
+    x, time, event, d = simulate_competing(800, 31)
+    fits = {}
+    for estimand, cause in (("rmst", 1), ("rmtl", 1), ("rmtl", 2)):
+        fits[(estimand, cause)] = logistic_model(horizons=[1.0], estimand=estimand, cause=cause).fit(
+            x, time, event, d)
+    lost = fits[("rmtl", 1)]
+    assert list(lost.summary.index) == ["RMTL[1](1)"]
+    # Time lost is the integral of the incidence curve, which starts at zero.
+    for treated in (True, False):
+        curve, grid = lost.incidence_curve(treated).coef_, lost.grid_
+        end = int(np.searchsorted(grid, 1.0))
+        assert lost.potential(treated).coef_[0] == pytest.approx((curve[:end] * np.diff(grid[:end + 1])).sum(),
+                                                                 rel=1e-12)
+        # With RMST and the other cause it nearly adds up to the horizon (exactly with empirical hazards).
+        total = sum(f.potential(treated).coef_[0] for f in fits.values())
+        assert total == pytest.approx(1.0, abs=0.01)
+    assert lost.plot().get_ylabel().startswith("Cumulative incidence")
