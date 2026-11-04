@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-04
+
 ### Added
 - Anytime-valid inference (`dml_core::anytime`): asymptotic confidence sequences (Waudby-Smith,
   Arbour, Sinha, Kennedy & Ramdas, 2024) for every fitted model. `DmlFit::confidence_sequence` /
@@ -743,7 +745,8 @@ First release.
 - Python package `dml-rs` with a scikit-learn style API accepting any scikit-learn estimator.
 - Numerical parity tests against Python DoubleML 0.11.4.
 
-[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/AsadGudzevic94/dml-rs/compare/v1.2.0...v1.2.1

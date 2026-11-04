@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use dml-rs, please cite it as below, together with Chernozhukov et al. (2018)."
 type: software
 title: "dml-rs: Double / debiased machine learning in Rust and Python"
-version: 1.4.0
+version: 1.5.0
 date-released: 2026-11-04
 authors:
   - family-names: Gudzevic
