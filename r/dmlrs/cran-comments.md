@@ -1,6 +1,15 @@
-## Submission
+## Resubmission
 
-This is a new submission.
+This is a resubmission of a new package. In response to the review of 0.2.1
+(Leonore Hochhauser, 2026-11-19):
+
+* The reference in the Description now has the form
+  `Chernozhukov et al. (2018) <doi:10.1111/ectj.12097>`, with the year in parentheses.
+* The acronym 'lasso' is explained (least absolute shrinkage and selection operator).
+
+The version is 0.3.0 because the package has gained functions since the first submission
+(listed in NEWS.md); no acronyms other than package names in quotes are used in the
+Description.
 
 dmlrs is the R interface to the Rust crate 'dml-core' (on crates.io), which also powers the
 Python package 'dml-rs' on PyPI.

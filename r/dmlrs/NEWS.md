@@ -1,4 +1,4 @@
-# dmlrs (development version)
+# dmlrs 0.3.0
 
 * Heterogeneous effects:
   * `cate()` and `gate()`: best linear predictor of the CATE and group average
