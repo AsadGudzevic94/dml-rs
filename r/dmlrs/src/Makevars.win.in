@@ -4,7 +4,7 @@ TARGET = @WINDOWS_TARGET@
 TARGET_DIR = ./rust/target
 LIBDIR = $(TARGET_DIR)/$(TARGET)/release
 STATLIB = $(LIBDIR)/libdmlrs.a
-PKG_LIBS = -L$(LIBDIR) -ldmlrs -lws2_32 -ladvapi32 -luserenv -lbcrypt -lntdll
+PKG_LIBS = -L$(LIBDIR) -ldmlrs -lws2_32 -ladvapi32 -luserenv -lbcrypt -lntdll -lsynchronization
 
 # Cargo's home during a build from the bundled crates (not the user's ~/.cargo).
 CARGOTMP = $(CURDIR)/.cargo-build

@@ -1,5 +1,7 @@
 # dmlrs 0.3.0
 
+* Windows: link the `synchronization` system library, which the Rust standard
+  library needs from recent Rust versions on.
 * Heterogeneous effects:
   * `cate()` and `gate()`: best linear predictor of the CATE and group average
     effects of `dml_plr()` and `dml_irm()` fits, with `confint()` (also
